@@ -970,12 +970,10 @@
                 })
                 .then(device => {
                     appendLog(`🔗 Requesting connection to device: ${device.name || device.id}`);
-                    console.log("===>", manager);
                     var battery = manager.findBatteryById(device.id);
                     if (!battery) {
                         appendLog(`🔗 Creating new battery instance for ${device.name || device.id}`);
-                        battery = new Battery(device, manager);
-                        manager.addBattery(battery);
+                        battery = manager.addBattery(device);
                     }
                     this.batteryManager.connectBattery(battery, (connected) => {
                         if (connected) {
@@ -983,15 +981,16 @@
                                 if (error) {
                                     appendLog(`❌ Failed to listen to ${battery.device.name || battery.device.id}`);
                                     this.refresh();
+                                    return;
                                 }
+                                appendLog(`✅ Connected to ${battery.device.name || battery.device.id}`);
+                                this.refresh();
                             });
-                            this.refresh();
                         } else {
                             appendLog(`❌ Failed to connect to ${battery.device.name || battery.device.id}`);
                         }
                     });
                 })
-                .then((device => connect(device)))
                 .catch(err => appendLog(`❌ Error connecting: ${err.message}`));
         }
 
@@ -1493,10 +1492,23 @@
             this.refresh();
         }
 
+        async setMaxCapacity(capacity) {
+            if (!this.settings) {
+                appendLog('ℹ️ Settings not loaded yet.');
+                return;
+            }
+            const command = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].write_commands.setMaxCapacity;
+            const writeCommand = JKBms.createWriteCommand(command, capacity);
+            await this.write(writeCommand);
+            this.settings.nominalBatteryCapacity = capacity;
+            appendLog(`🔄 Nominal Capacity set to ${capacity} Ah`);
+            this.refresh();
+        }
+
         async connect(cb) {        
             let abortController;
             if (!this.device.gatt.connected) {
-                appendLog(`🔗 Connecting to battery: ${this.device.name || this.device.id}`);
+                appendLog(`🔗 Connecting to battery:`);
                 abortController = new AbortController();
                 console.log(this.device);
                 await this.device.watchAdvertisements({signal: abortController.signal});
@@ -1521,16 +1533,7 @@
                         if (cb)cb(false);
                         return;
                     }
-
-                    appendLog('✅ fetched services');
-
-                    // 3. log their UUIDs
-                    console.log('supported services:', services.map(svc => svc.uuid));
-
-
-                    console.debug('🔗 Connected to GATT server', this);
                     clearTimeout(timer);
-                    appendLog('📡 Connected to GATT server');
                     this.manager.activeBattery = this;
                     if (cb)cb(true);
                 },{ once: true });
@@ -1604,7 +1607,6 @@
                     const chunk = new Uint8Array(event.target.value.buffer);
                     if (chunk.length === 20 && chunk[0] === 0xAA && chunk[1] === 0x55 &&
                         chunk[2] === 0x90 && chunk[3] === 0xEB) {
-                        console.debug('💧 Dropped our own write echo');
                         return;
                     }
 
@@ -1695,7 +1697,6 @@
         }
 
         addBattery(device) {
-            console.log(`Adding battery: ${device.name || device.id}`);
             const battery = new Battery(device,this);
             this.batteries.push(battery);
 
@@ -1766,8 +1767,6 @@
         const UI = new UIManager(batteryManager);
         await batteryManager.resolvePairedBatteries();
 
-        //UI.bindConnectButton();
-
         if (batteryManager.batteries.length === 0) {
             UI.refresh();
             appendLog('ℹ️ No batteries found. Please pair a battery first.');
@@ -1792,8 +1791,6 @@
             }
         });
     }
-
-    
 
     main();
 </script>
