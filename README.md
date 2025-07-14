@@ -8,6 +8,12 @@ In this simple tool you can pair multiple devices and quickly connect.
 It can display values and you can change values. Values can be set via console prompt bm.getActiveBattery().setMaxChargeCurrent(50)
 Not all change values can be written yet. WIP
 
+## Demo
+
+For full Working example see:
+
+🔗 [JKBMS Demo](https://holoduke.github.io/JKBMS/)
+
 ![Alt text](/screen1.png?raw=true "screenshot")
 
 
