@@ -111,7 +111,7 @@
     </section>
 
     <main class="flex-grow pb-48">
-        <main class="max-w-7xl mx-auto py-8 px-4 pt-2">
+        <div class="max-w-7xl mx-auto py-8 px-4 pt-2">
 
             <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4" id="gaugesTopContainer"> </section>
             <!-- Additional Metrics -->
@@ -121,7 +121,7 @@
 
             <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4" id="allinfopContainer"> </section>
 
-        </main>
+        </div>
     </main>
 
     <!-- fixed log, always visible at viewport bottom -->
@@ -1004,7 +1004,7 @@
 
 
 
-        renderGaugeStatus(target, title, perc, color, text1, inlineText, belowText) {
+        renderGaugeStatus(target, title, perc, color, text1, inlineText, belowText, uniqueId) {
             const html = `
                                 <!-- Overall Status -->
                     <!-- Overall Status -->
@@ -1014,7 +1014,7 @@
         <div class="flex flex-col gap-4">
         <div class="bg-gray-800 p-6 rounded-lg flex flex-col items-center text-center">
             <h3 class="text-lg font-semibold mb-4">${title}</h3>
-            <div class="gauge mb-2" id="socGauge"
+            <div class="gauge mb-2" id="${uniqueId}"
                 style="--gauge-color: ${color}; --gauge-value: ${(perc/2)}%;"></div>
             
             <!-- wrapper for your two-line text block -->
@@ -1058,14 +1058,14 @@
             else if (soc >= 20) color = '#F59E0B'; // amber
             else color = '#EF4444'; // red
 
-            this.renderGaugeStatus(elements.gaugesTopContainer, "Capacity", soc, color, soc + "%", "/ " + nominalCapacity + " Ah", "remaining: " + remainingCapacity + " Ah");
+            this.renderGaugeStatus(elements.gaugesTopContainer, "Capacity", soc, color, soc + "%", "/ " + nominalCapacity + " Ah", "remaining: " + remainingCapacity + " Ah", "socGauge");
 
             if (battery.settings) {
                 const battPerc = Utils.calcBattPerc(status.totalVoltage, battery.settings);
                 color = battPerc >= 60 ? '#10B981' : battPerc >= 20 ? '#F59E0B' : '#EF4444';
-                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", battPerc, color, Utils.formatAuto(status.totalVoltage, "V"), "/ " + (battery.settings.soc100Voltage * battery.settings.cellCount) + " V", "nominal cell voltage: " + battery.settings.soc100Voltage + " V");
+                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", battPerc, color, Utils.formatAuto(status.totalVoltage, "V"), "/ " + (battery.settings.soc100Voltage * battery.settings.cellCount) + " V", "nominal cell voltage: " + battery.settings.soc100Voltage + " V", "voltageGauge");
             } else {
-                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", 0, color, Utils.formatAuto(status.totalVoltage, "V"));
+                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", 0, color, Utils.formatAuto(status.totalVoltage, "V"), "", "", "voltageGauge");
             }
 
             //if charging
@@ -1094,7 +1094,7 @@
                 text = `<p style=color:red>Charge overcurrent protection! ${battery.settings.maxChargeCurrent} A<p>`;
             }
 
-            this.renderGaugeStatus(elements.gaugesTopContainer, "Power Load", loadPerc, color, Utils.formatAuto(status.current, "A"), text2, text);
+            this.renderGaugeStatus(elements.gaugesTopContainer, "Power Load", loadPerc, color, Utils.formatAuto(status.current, "A"), text2, text, "powerGauge");
         }
 
         renderCellInfo(battery) {
@@ -1155,7 +1155,7 @@
                             </tr>
                             <tr>
                                 <td class="py-2">Probe 2</td>
-                                <td class="py-2 ${probe2Color}">${battery.data.tempProbe1}°C</td>
+                                <td class="py-2 ${probe2Color}">${battery.data.tempProbe2}°C</td>
                                 <td class="py-2 text-xs">(${battery.settings.chargeUtp}°C / ${battery.settings.chargeOtp}°C)</td>
                             </tr>
                         </tbody>
@@ -1575,7 +1575,7 @@
                     this.hasConnectionError = true;
                     this.disconnect();
                     cb(true)
-                },5000);
+                },8000);
 
                 const device = this.device;
                 let recvBuffer;
@@ -1690,6 +1690,7 @@
         batteryDataReceivedListener = null;
         constructor() {
             this.batteries = [];
+            this.activeBattery = null;
         }
 
         setBatteryDataReceivedListener(listener) {
@@ -1831,4 +1832,5 @@
     main();
 </script>
 </body>
+
 </html>
