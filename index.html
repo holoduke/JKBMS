@@ -1757,7 +1757,43 @@
         }
     }
 
+ 
+    async function ensureWebBluetoothEnabled() {
+        if (!navigator.bluetooth) {
+            throw new Error(
+            'Web Bluetooth is not supported in this browser. ' +
+            'Please use Chrome 56+ (desktop) or Edge 79+.'
+            );
+        }
+
+        const isAvailable = await navigator.bluetooth.getAvailability();
+        if (!isAvailable) {
+            throw new Error(
+            'Bluetooth is turned off or unavailable. ' +
+            'Please enable Bluetooth on your device and try again.'
+            );
+        }
+
+        // 3. (Optional) Listen for adapter on/off changes
+        navigator.bluetooth.addEventListener('availabilitychanged', evt => {
+            if (evt.value) {
+            console.log('Bluetooth became available');
+            } else {
+            console.warn('Bluetooth was turned off');
+            }
+        });
+
+        return true;
+    }
+
     async function main(){
+
+        try {
+            await ensureWebBluetoothEnabled();
+        } catch (error) {
+            appendLog(`❌ ${error.message}`);
+            return;
+        }
 
         const batteryManager = new BatteryManager();
         window.bm = batteryManager;
@@ -1795,7 +1831,4 @@
     main();
 </script>
 </body>
-
-</html>
-
 </html>
