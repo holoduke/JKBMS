@@ -262,6 +262,17 @@
 
             return pct;
         }
+
+        static formatAuto(value, unit) {
+            const abs = Math.abs(value);
+            let decimals;
+            if (abs >= 100) decimals = 0;
+            else if (abs >= 10) decimals = 2;
+            else if (abs >= 1) decimals = 2;
+            else decimals = 3;
+
+            return `${value.toFixed(decimals)} ${unit}`;
+        }
     }
 
     class JKBms {
@@ -1053,9 +1064,9 @@
             if (battery.settings) {
                 const battPerc = Utils.calcBattPerc(status.totalVoltage, battery.settings);
                 color = battPerc >= 60 ? '#10B981' : battPerc >= 20 ? '#F59E0B' : '#EF4444';
-                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", battPerc, color, status.totalVoltage + " V ", "/ " + (battery.settings.soc100Voltage * battery.settings.cellCount) + " V", "nominal cell voltage: " + battery.settings.soc100Voltage + " V");
+                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", battPerc, color, Utils.formatAuto(status.totalVoltage, "V"), "/ " + (battery.settings.soc100Voltage * battery.settings.cellCount) + " V", "nominal cell voltage: " + battery.settings.soc100Voltage + " V");
             } else {
-                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", 0, color, status.totalVoltage + " V");
+                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", 0, color, Utils.formatAuto(status.totalVoltage, "V"));
             }
 
             //if charging
@@ -1063,11 +1074,11 @@
             var text2 = "";
             if (status.current > 0) {
                 text = "Remaining Charge time: " + Utils.estimateChargeTime(battery);
-                text2 = status.power + " W - max " + battery.settings.maxChargeCurrent + "A";
+                text2 = Utils.formatAuto(status.power, "W") + " - max " + battery.settings.maxChargeCurrent + "A";
                 var loadPerc = (status.current / battery.settings.maxChargeCurrent) * 100;
             } else if (status.current < 0) {
                 text = "Estimated discharge time: " + Utils.estimateDischargeTime(battery);
-                text2 = status.power + " W - max " + battery.settings.maxDischargeCurrent + "A";
+                text2 = Utils.formatAuto(status.power, "W") + " - max " + battery.settings.maxDischargeCurrent + "A";
                 var loadPerc = (Math.abs(status.current) / battery.settings.maxDischargeCurrent) * 100;
             } else {
                 text = 'status idle'; // gray for idle
@@ -1084,47 +1095,39 @@
                 text = `<p style=color:red>Charge overcurrent protection! ${battery.settings.maxChargeCurrent} A<p>`;
             }
 
-            this.renderGaugeStatus(elements.gaugesTopContainer, "Power Load", loadPerc, color, status.current + " A ", text2, text);
+            this.renderGaugeStatus(elements.gaugesTopContainer, "Power Load", loadPerc, color, Utils.formatAuto(status.current, "A"), text2, text);
         }
 
         renderCellInfo(battery) {
             const targetElement = document.getElementById('cellvoltagesContainer');
 
-            var html = "";
+            const TH = battery.settings.balanceTriggerVoltage;
+            const cells = battery.data.cellVoltages
+                .map((v, i) => ({
+                    v,
+                    r: battery.data.cellResistances[i],
+                    i
+                }))
+                .filter(c => c.v > 0);
 
-            const THRESHOLD = battery.settings.balanceTriggerVoltage;
-            const voltages = battery.data.cellVoltages.filter(v => v !== 0);
-            const resistances = battery.data.cellResistances.filter(v => v !== 0);
+            const vs = cells.map(c => c.v);
+            const delta = Math.max(...vs) - Math.min(...vs);
+            const colorClass = delta <= TH ? 'text-green-500' : 'text-red-500';
 
-
-            const maxV = Math.max(...voltages);
-            const minV = Math.min(...voltages);
-            const deltaV = maxV - minV;
-
-            const color = deltaV < THRESHOLD ? 'text-green-500' : 'text-red-500';
-            //loop over cells
-            let i = 0;
-            voltages.forEach(cell => {
-                if (cell == 0) return;
-                html += `
+            targetElement.innerHTML = cells.map(({
+                v,
+                r,
+                i
+            }) => `
                     <div class="bg-gray-800 p-4 rounded-lg">
                     <h2 class="text-xl font-semibold mb-0">Cell ${i+1}</h2>
-                    <div class="text-gray-400">
-                    <div class="grid grid-cols-2 w-full border-b border-gray-700 py-2">
-                    <div class="text-left ${color}">
-                        ${voltages[i]}V
-                    </div>
-                    <div class="text-right">
-                        ${resistances[i]}mΩ
+                    <div class="grid grid-cols-2 border-b border-gray-700 py-2">
+                        <span class="${colorClass}">${v.toFixed(3)} V</span>
+                        <span>${r.toFixed(3)} mΩ</span>
                     </div>
                     </div>
-                    </div>
-                </div>
-                `;
-                i++;
-            });
+                `).join('');
 
-            targetElement.innerHTML = html;
         }
 
         renderAdditionalMetrics(battery) {
@@ -1203,6 +1206,7 @@
 
             targetElement.innerHTML = html;
         }
+
         renderBatterySelection(batteries) {
             var el = document.getElementById('batterySelection');
             el.innerHTML = '';
@@ -1275,135 +1279,125 @@
         }
 
         renderAllSettings(battery) {
-                const settings = battery.settings;
-                const info = battery.deviceInfo;
-                const element = document.getElementById('allinfopContainer');
-                const status = battery.data;
+                const {
+                    data: status,
+                    settings,
+                    deviceInfo: info
+                } = battery;
+                const $container = document.getElementById('allinfopContainer');
 
+                // 1) Define each section’s rows as [label, valueFunc] pairs
+                const rawRows = [
+                    ['Total Voltage', () => status.totalVoltage != null ? `${status.totalVoltage} V` : 'N/A'],
+                    ['Current', () => status.current != null ? `${status.current} A` : 'N/A'],
+                    ['Power', () => status.power != null ? `${status.power} W` : 'N/A'],
+                    ['MOSFET Temp', () => status.mosfetTemp != null ? `${status.mosfetTemp} °C` : 'N/A'],
+                    ['Temp Probe 1', () => status.tempProbe1 != null ? `${status.tempProbe1} °C` : 'N/A'],
+                    ['Temp Probe 2', () => status.tempProbe2 != null ? `${status.tempProbe2} °C` : 'N/A'],
+                    ['Cycle Count', () => status.cycleCount != null ? status.cycleCount : 'N/A'],
+                    ['State of Health', () => status.soh != null ? `${status.soh} %` : 'N/A'],
+                    // add cell voltages dynamically below…
+                ];
 
-                let html = `
-               <div class="bg-gray-800 p-6 rounded-lg">
-                <h2 class="text-xl font-semibold mb-4">Raw realtime</h2>
+                // append cell voltages & resistances
+                status.cellVoltages.forEach((v, i) => {
+                    if (v > 0) rawRows.push([`Voltage cell ${i}`, () => `${v} V`]);
+                });
+                status.cellResistances.forEach((r, i) => {
+                    if (r > 0) rawRows.push([`Resistance cell ${i}`, () => `${r} mΩ`]);
+                });
+
+                const infoRows = [
+                    ['Vendor', () => info.vendor || 'N/A'],
+                    ['Hardware', () => info.hardware || 'N/A'],
+                    ['Software', () => info.software || 'N/A'],
+                    ['Device Name', () => info.deviceName || 'N/A'],
+                    ['Serial Number', () => info.serialNumber || 'N/A'],
+                    ['Manufactured', () => Utils.formatManufDate(info.manufacturingDate)],
+                    ['Uptime', () => Utils.formatUptime(info.uptime)],
+                    ['Power-Ups', () => info.powerUpTimes != null ? info.powerUpTimes : 'N/A'],
+                    ['Device Passcode', () => info.devicePasscode || '–'],
+                    ['Passcode', () => info.passCode || '–'],
+                    ['Setup Passcode', () => info.setupPasscode || '–'],
+                    ['User Data', () => info.userData || '–'],
+                ];
+
+                const settingsRows = [
+                    ['Cell Count', () => settings.cellCount],
+                    ['Nominal Capacity', () => `${settings.nominalBatteryCapacity.toFixed(2)} Ah`],
+                    ['Balance Trigger Voltage', () => `${settings.balanceTriggerVoltage.toFixed(3)} V`],
+                    ['Start Balance Voltage', () => `${settings.startBalanceVoltage.toFixed(3)} V`],
+                    ['Max Balance Current', () => `${settings.maxBalanceCurrent.toFixed(3)} A`],
+                    ['Cell OVP', () => `${settings.cellOvp.toFixed(3)} V`],
+                    ['Cell Charge Req. Voltage', () => `${settings.cellRequestChargeVoltage.toFixed(3)} V`],
+                    ['SOC-100% Voltage', () => `${settings.soc100Voltage.toFixed(3)} V`],
+                    ['Cell OVPR', () => `${settings.cellOvpr.toFixed(3)} V`],
+                    ['Cell UVPR', () => `${settings.cellUvpr.toFixed(3)} V`],
+                    ['SOC-0% Voltage', () => `${settings.soc0Voltage.toFixed(3)} V`],
+                    ['Cell UVP', () => `${settings.cellUvp.toFixed(3)} V`],
+                    ['Power-Off Voltage', () => `${settings.powerOffVoltage.toFixed(3)} V`],
+                    ['Cell Float Req. Voltage', () => `${settings.cellRequestFloatVoltage.toFixed(3)} V`],
+                    ['Smart-Sleep Voltage', () => `${settings.smartSleepVoltage.toFixed(3)} V`],
+                    ['Smart-Sleep Hours', () => `${settings.smartSleepHours} h`],
+                    ['Max Charge Current', () => `${settings.maxChargeCurrent.toFixed(3)} A`],
+                    ['Charge OCP Delay', () => `${settings.chargeOcpDelay} s`],
+                    ['Charge OCP Recovery', () => `${settings.chargeOcpRecovery} s`],
+                    ['Max Discharge Current', () => `${settings.maxDischargeCurrent.toFixed(3)} A`],
+                    ['Discharge OCP Delay', () => `${settings.dischargeOcpDelay} s`],
+                    ['Discharge OCP Recovery', () => `${settings.dischargeOcpRecovery} s`],
+                    ['Charge OTP', () => `${settings.chargeOtp.toFixed(1)} °C`],
+                    ['Charge OTP Recovery', () => `${settings.chargeOtpRecovery.toFixed(1)} °C`],
+                    ['Discharge OTP', () => `${settings.dischargeOtp.toFixed(1)} °C`],
+                    ['Discharge OTP Recovery', () => `${settings.dischargeOtpRecovery.toFixed(1)} °C`],
+                    ['Charge UTP', () => `${settings.chargeUtp.toFixed(1)} °C`],
+                    ['Charge UTP Recovery', () => `${settings.chargeUtpRecovery.toFixed(1)} °C`],
+                    ['MOSFET OTP', () => `${settings.mosOtp.toFixed(1)} °C`],
+                    ['MOSFET OTP Recovery', () => `${settings.mosOtpRecovery.toFixed(1)} °C`],
+                    ['SCP Delay', () => `${settings.shortCircuitProtectionDelay} s`],
+                    ['SCP Recovery', () => `${settings.shortCircuitProtectionRecovery} s`],
+                    ['Device Addr (raw)', () => settings.deviceAddressByte],
+                    ['Precharge Time', () => `${settings.prechargeTimeSec} s`],
+                    ['Data Field Enable Ctrl', () => settings.dataFieldEnableControl],
+                    ['Charge Switch', () => settings.chargeSwitch],
+                    ['Discharge Switch', () => settings.dischargeSwitch],
+                    ['Balancer Switch', () => settings.balancerSwitch],
+                    ['Controls Bitmask', () => `0x${settings.controlsBitmask.toString(16).padStart(4,'0')}`],
+                    ['Heating Enabled', () => settings.heatingEnabled],
+                    ['Disable Temp Sensors', () => settings.disableTemperatureSensors],
+                    ['GPS Heartbeat', () => settings.gpsHeartbeat],
+                    ['Port Switch', () => settings.portSwitch],
+                    ['Display Always On', () => settings.displayAlwaysOn],
+                    ['Special Charger', () => settings.specialCharger],
+                    ['Smart Sleep Enabled', () => settings.smartSleepEnabled],
+                    ['Disable PCL Module', () => settings.disablePclModule],
+                    ['Timed Stored Data', () => settings.timedStoredData],
+                    ['Charging Float Mode', () => settings.chargingFloatMode],
+                    // wire resistances:
+                    ...settings.cellResistances
+                    .map((r, i) => [`Wire Res ${i+1}`, () => `${r.toFixed(3)} mΩ`])
+                ];
+
+                // 2) Helper to render a titled table
+                const renderSection = (title, rows) => `
+                <div class="bg-gray-800 p-6 rounded-lg mb-6">
+                <h2 class="text-xl font-semibold mb-4">${title}</h2>
                 <table class="w-full text-gray-400">
-                  <tr><th class="text-left py-1">Total Voltage</th><td class="py-1">${status.totalVoltage !== undefined ? status.totalVoltage + ' V' : 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">Current</th><td class="py-1">${status.current !== undefined ? status.current + ' A' : 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">Power</th><td class="py-1">${status.power !== undefined ? status.power + ' W' : 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">MOSFET Temp</th><td class="py-1">${status.mosfetTemp !== undefined ? status.mosfetTemp + ' °C' : 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">Temp Probe 1</th><td class="py-1">${status.tempProbe1 !== undefined ? status.tempProbe1 + ' °C' : 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">Temp Probe 2</th><td class="py-1">${status.tempProbe2 !== undefined ? status.tempProbe2 + ' °C' : 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">Cycle Count</th><td class="py-1">${status.cycleCount !== undefined ? status.cycleCount : 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">State of Health</th><td class="py-1">${status.soh !== undefined ? status.soh + ' %' : 'N/A'}</td></tr>
-              `;
-
-                //cell voltages
-                status.cellVoltages.forEach((cell, index) => {
-                    if (cell === 0) return;
-                    html += `
-                    <tr><th class="text-left py-1">Voltage cell ${index}</th><td class="py-1">${cell !== undefined ? cell + ' V' : 'N/A'}</td></tr>
-                `;
-                });
-
-                status.cellResistances.forEach((cell, index) => {
-                    if (cell === 0) return;
-                    html += `
-                    <tr><th class="text-left py-1">Resistance cell ${index}</th><td class="py-1">${cell !== undefined ? cell + ' V' : 'N/A'}</td></tr>
-                `;
-                });
-
-                html += `
+                    ${rows.map(([label, fn]) => `
+                    <tr>
+                        <th class="text-left py-1">${label}</th>
+                        <td class="py-1">${fn()}</td>
+                    </tr>
+                    `).join('')}
                 </table>
                 </div>
-                `;
-
-                //   <tr><th class="text-left py-1">Warnings</th><td class="py-1 ${criticalWarnings.length ? 'text-red-600 font-semibold' : ''}">
-                //     ${warnings.length ? warnings.join(', ') : 'None'}
-                //     ${criticalWarnings.length ? '<br><span class="text-red-600">Critical errors may prevent system from working!</span>' : ''}
-                //   </td></tr>
-                //   <tr><th class="text-left py-1">Est. Charge Time</th><td class="py-1">${Utils.estimateChargeTime(status)}</td></tr>
-
-                html += `
-            <div class="bg-gray-800 p-6 rounded-lg">
-                <h2 class="text-xl font-semibold mb-4">Device info</h2>
-                <table class="w-full text-gray-400">
-                  <tr><th class="text-left py-1">Vendor</th><td class="py-1">${info.vendor || 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">Hardware</th><td class="py-1">${info.hardware || 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">Software</th><td class="py-1">${info.software || 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">Device Name</th><td class="py-1">${info.deviceName || 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">Serial Number</th><td class="py-1">${info.serialNumber || 'N/A'}</td></tr>
-                  <tr><th class="text-left py-1">Manufactured</th><td class="py-1">${Utils.formatManufDate(info.manufacturingDate)}</td></tr>
-                  <tr><th class="text-left py-1">Uptime</th><td class="py-1">${Utils.formatUptime(info.uptime)}</td></tr>
-                  <tr><th class="text-left py-1">Power-Ups</th><td class="py-1">${info.powerUpTimes}</td></tr>
-                  <tr><th class="text-left py-1">Device Passcode</th><td class="py-1">${info.devicePasscode || '–'}</td></tr>
-                  <tr><th class="text-left py-1">Passcode</th><td class="py-1">${info.passCode || '–'}</td></tr>
-                  <tr><th class="text-left py-1">Setup Passcode</th><td class="py-1">${info.setupPasscode || '–'}</td></tr>
-                  <tr><th class="text-left py-1">User Data</th><td class="py-1">${info.userData || '–'}</td></tr>
-                </table>
-            </div>
             `;
 
-
-                html += `
-            <div class="bg-gray-800 p-6 rounded-lg">
-                <h2 class="text-xl font-semibold mb-4">All Settings</h2>
-                <table class="w-full text-gray-400">
-                    <tr><th class="text-left py-1">Cell Count</th><td class="py-1">${settings.cellCount}</td></tr>
-                    <tr><th class="text-left py-1">Nominal Capacity</th><td class="py-1">${settings.nominalBatteryCapacity.toFixed(2)} Ah</td></tr>
-                    <tr><th class="text-left py-1">Balance Trigger Voltage</th><td class="py-1">${settings.balanceTriggerVoltage.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">Start Balance Voltage</th><td class="py-1">${settings.startBalanceVoltage.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">Max Balance Current</th><td class="py-1">${settings.maxBalanceCurrent.toFixed(3)} A</td></tr>
-                    <tr><th class="text-left py-1">Cell OVP</th><td class="py-1">${settings.cellOvp.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">Cell Charge Req. Voltage</th><td class="py-1">${settings.cellRequestChargeVoltage.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">SOC-100% Voltage</th><td class="py-1">${settings.soc100Voltage.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">Cell OVPR</th><td class="py-1">${settings.cellOvpr.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">Cell UVPR</th><td class="py-1">${settings.cellUvpr.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">SOC-0% Voltage</th><td class="py-1">${settings.soc0Voltage.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">Cell UVP</th><td class="py-1">${settings.cellUvp.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">Power-Off Voltage</th><td class="py-1">${settings.powerOffVoltage.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">Cell Float Req. Voltage</th><td class="py-1">${settings.cellRequestFloatVoltage.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">Smart-Sleep Voltage</th><td class="py-1">${settings.smartSleepVoltage.toFixed(3)} V</td></tr>
-                    <tr><th class="text-left py-1">Smart-Sleep Hours</th><td class="py-1">${settings.smartSleepHours} h</td></tr>
-                    <tr><th class="text-left py-1">Max Charge Current</th><td class="py-1">${settings.maxChargeCurrent.toFixed(3)} A</td></tr>
-                    <tr><th class="text-left py-1">Charge OCP Delay</th><td class="py-1">${settings.chargeOcpDelay} s</td></tr>
-                    <tr><th class="text-left py-1">Charge OCP Recovery</th><td class="py-1">${settings.chargeOcpRecovery} s</td></tr>
-                    <tr><th class="text-left py-1">Max Discharge Current</th><td class="py-1">${settings.maxDischargeCurrent.toFixed(3)} A</td></tr>
-                    <tr><th class="text-left py-1">Discharge OCP Delay</th><td class="py-1">${settings.dischargeOcpDelay} s</td></tr>
-                    <tr><th class="text-left py-1">Discharge OCP Recovery</th><td class="py-1">${settings.dischargeOcpRecovery} s</td></tr>
-                    <tr><th class="text-left py-1">Charge OTP</th><td class="py-1">${settings.chargeOtp.toFixed(1)} °C</td></tr>
-                    <tr><th class="text-left py-1">Charge OTP Recovery</th><td class="py-1">${settings.chargeOtpRecovery.toFixed(1)} °C</td></tr>
-                    <tr><th class="text-left py-1">Discharge OTP</th><td class="py-1">${settings.dischargeOtp.toFixed(1)} °C</td></tr>
-                    <tr><th class="text-left py-1">Discharge OTP Recovery</th><td class="py-1">${settings.dischargeOtpRecovery.toFixed(1)} °C</td></tr>
-                    <tr><th class="text-left py-1">Charge UTP</th><td class="py-1">${settings.chargeUtp.toFixed(1)} °C</td></tr>
-                    <tr><th class="text-left py-1">Charge UTP Recovery</th><td class="py-1">${settings.chargeUtpRecovery.toFixed(1)} °C</td></tr>
-                    <tr><th class="text-left py-1">MOSFET OTP</th><td class="py-1">${settings.mosOtp.toFixed(1)} °C</td></tr>
-                    <tr><th class="text-left py-1">MOSFET OTP Recovery</th><td class="py-1">${settings.mosOtpRecovery.toFixed(1)} °C</td></tr>
-                    <tr><th class="text-left py-1">SCP Delay</th><td class="py-1">${settings.shortCircuitProtectionDelay} s</td></tr>
-                    <tr><th class="text-left py-1">SCP Recovery</th><td class="py-1">${settings.shortCircuitProtectionRecovery} s</td></tr>
-                    <tr><th class="text-left py-1">Device Addr (raw)</th><td class="py-1">${settings.deviceAddressByte}</td></tr>
-                    <tr><th class="text-left py-1">Precharge Time</th><td class="py-1">${settings.prechargeTimeSec} s</td></tr>
-                    <tr><th class="text-left py-1">Data Field Enable Ctrl</th><td class="py-1">${settings.dataFieldEnableControl}</td></tr>
-                    <tr><th class="text-left py-1">Charge Switch</th><td class="py-1">${settings.chargeSwitch}</td></tr>
-                    <tr><th class="text-left py-1">Discharge Switch</th><td class="py-1">${settings.dischargeSwitch}</td></tr>
-                    <tr><th class="text-left py-1">Balancer Switch</th><td class="py-1">${settings.balancerSwitch}</td></tr>
-                    <tr><th class="text-left py-1">Controls Bitmask</th><td class="py-1">0x${settings.controlsBitmask.toString(16).padStart(4, '0')}</td></tr>
-                    <tr><th class="text-left py-1">Heating Enabled</th><td class="py-1">${settings.heatingEnabled}</td></tr>
-                    <tr><th class="text-left py-1">Disable Temp Sensors</th><td class="py-1">${settings.disableTemperatureSensors}</td></tr>
-                    <tr><th class="text-left py-1">GPS Heartbeat</th><td class="py-1">${settings.gpsHeartbeat}</td></tr>
-                    <tr><th class="text-left py-1">Port Switch</th><td class="py-1">${settings.portSwitch}</td></tr>
-                    <tr><th class="text-left py-1">Display Always On</th><td class="py-1">${settings.displayAlwaysOn}</td></tr>
-                    <tr><th class="text-left py-1">Special Charger</th><td class="py-1">${settings.specialCharger}</td></tr>
-                    <tr><th class="text-left py-1">Smart Sleep Enabled</th><td class="py-1">${settings.smartSleepEnabled}</td></tr>
-                    <tr><th class="text-left py-1">Disable PCL Module</th><td class="py-1">${settings.disablePclModule}</td></tr>
-                    <tr><th class="text-left py-1">Timed Stored Data</th><td class="py-1">${settings.timedStoredData}</td></tr>
-                    <tr><th class="text-left py-1">Charging Float Mode</th><td class="py-1">${settings.chargingFloatMode}</td></tr>
-                    ${settings.cellResistances.map((r, i) => `
-                        <tr><th class="text-left py-1">Wire Res ${i + 1}</th><td class="py-1">${r.toFixed(3)} mΩ</td></tr>
-                    `).join('')}
-                    </table>
-                </div>
-         `;
-
-
-              element.innerHTML = html;        
+            // 3) Assemble & inject
+            $container.innerHTML = [
+                renderSection('Raw realtime',  rawRows),
+                renderSection('Device info',   infoRows),
+                renderSection('All Settings',  settingsRows),
+            ].join('');
         }
     }
 
@@ -1515,6 +1509,12 @@
                     appendLog('✅ Connected to GATT server. Fetching services...');   
 
                     const services = await this.gatt.getPrimaryServices();
+
+                    this.device.addEventListener('gattserverdisconnected', (event) => {
+                        appendLog(`🔌 Device ${this.device.name || this.device.id} disconnected.`);
+                        this.gatt = null;
+                        this.manager.batteryDataReceivedListener(this, 'disconnected');
+                    });
 
                     if (!services || services.length === 0) {
                         appendLog('❌ No services found on GATT server.');
