@@ -1,0 +1,1910 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JK BMS JK_B2A8S20P Bluetooth Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes gradientShift {
+            0% {
+                background-position: 0% 50%;
+            }
+            50% {
+                background-position: 100% 50%;
+            }
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(45deg, #1e3a8a, #3b82f6, #1e3a8a);
+            background-size: 200% 200%;
+            animation: gradientShift 15s ease infinite;
+        }
+        
+        .fade-in {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+        
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .gauge {
+            position: relative;
+            width: 120px;
+            height: 60px;
+            overflow: hidden;
+        }
+        /* fill arc uses CSS variable for its color */
+        
+        .gauge::before {
+            content: '';
+            position: absolute;
+            width: 100px;
+            height: 100px;
+            /* var(--gauge-color) up to var(--gauge-value), then dark grey */
+            background: conic-gradient( var(--gauge-color) 0% var(--gauge-value), #1f2937 var(--gauge-value) 100%);
+            border-radius: 50%;
+            top: 10px;
+            left: 10px;
+            transform: rotate(-90deg);
+        }
+        /* inner circle unchanged */
+        
+        .gauge::after {
+            content: '';
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            background: #111827;
+            border-radius: 50%;
+            top: 20px;
+            left: 20px;
+        }
+    </style>
+</head>
+
+
+<body class="flex flex-col min-h-screen bg-gray-900 text-white font-sans">
+
+
+    <header class="gradient-bg py-8 pb-1 text-center">
+
+        <h1 class="text-3xl md:text-3xl font-bold tracking-tight">🔋 JK BMS JK_B2A8S20P Bluetooth Dashboard</h1>
+        <section class="mb-8 mt-2 fade-in">
+            <div id="batterySelection" class="flex justify-center items-center w-32 gap-2 mx-auto" style="width: 10rem;">
+                <button id="connectBtn" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+           Connect & Request Info
+         </button>
+            </div>
+        </section>
+    </header>
+
+    <section class="flex justify-center items-center gap-6 mb-0 mt-3 fade-in" style="transition-delay: 0.2s;">
+        <div class="flex justify-center items-center">
+            <span class="w-4 h-4 rounded-full mr-2 bg-gray-500" id="chargeIndicator"></span>
+            <span>Charge</span>
+        </div>
+        <div class="flex items-center">
+            <span class="w-4 h-4 rounded-full mr-2 bg-gray-500" id="dischargeIndicator"></span>
+            <span>Discharge</span>
+        </div>
+        <div class="flex items-center">
+            <span class="w-4 h-4 rounded-full mr-2 bg-gray-500" id="balancingIndicator"></span>
+            <span>Balancing</span>
+        </div>
+        <div class="flex items-center">
+            <span class="w-4 h-4 rounded-full mr-2 bg-gray-500" id="tempIndicator"></span>
+            <span>Temp sensors</span>
+        </div>
+        <div class="flex items-center">
+            <span class="w-4 h-4 rounded-full mr-2 bg-gray-500" id="heatingIndicator"></span>
+            <span>Heating</span>
+        </div>
+    </section>
+
+    <main class="flex-grow pb-48">
+        <main class="max-w-7xl mx-auto py-8 px-4 pt-2">
+
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4" id="gaugesTopContainer"> </section>
+            <!-- Additional Metrics -->
+            <section class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4" id="additionalMetrics"> </section>
+
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4" id="cellvoltagesContainer"> </section>
+
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4" id="allinfopContainer"> </section>
+
+        </main>
+    </main>
+
+    <!-- fixed log, always visible at viewport bottom -->
+    <section class="fixed bottom-0 left-0 w-full bg-black z-20 fade-in" style="transition-delay: 0.4s;">
+        <div class="max-w-4xl mx-auto p-6">
+            <pre id="log" style="max-height: 100px;" class="bg-gray-800 text-gray-200 p-6 rounded-lg max-h-80 overflow-y-auto whitespace-pre-wrap"></pre>
+        </div>
+    </section>
+
+    <!-- sticky footer in normal flow, sits at bottom when main is short,
+         or below content otherwise -->
+    <footer class="bg-gray-800 py-6 text-center">
+        <p class="text-gray-400">© 2025 Gillis Haasnoot</p>
+    </footer>
+</body>
+
+
+
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const fadeIns = document.querySelectorAll('.fade-in');
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, {
+            threshold: 0.1
+        });
+        fadeIns.forEach(element => observer.observe(element));
+    });
+
+    const elements = {
+        log: document.getElementById('log'),
+    };
+
+    // Utility Functions
+    function appendLog(msg) {
+        elements.log.textContent += msg + '\n';
+        elements.log.scrollTop = elements.log.scrollHeight;
+    }
+
+    function dumpHex(buf) {
+        const arr = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+        return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join(' ');
+    }
+
+    function readString(buffer, offset, maxLen) {
+        const bytes = new Uint8Array(buffer, offset, maxLen);
+        const end = bytes.indexOf(0) === -1 ? maxLen : bytes.indexOf(0);
+        return new TextDecoder('utf-8').decode(bytes.slice(0, end));
+    }
+
+    class Utils {
+        static formatUptime(seconds) {
+            const d = Math.floor(seconds / 86400);
+            const h = Math.floor((seconds % 86400) / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            const s = seconds % 60;
+            return `${d}d ${h}h ${m}m ${s}s`;
+        }
+
+        static formatManufDate(yyMMdd) {
+            if (!/^\d{6}$/.test(yyMMdd)) return yyMMdd;
+            const yy = parseInt(yyMMdd.slice(0, 2), 10);
+            const year = yy + (yy >= 70 ? 1900 : 2000);
+            const month = parseInt(yyMMdd.slice(2, 4), 10) - 1;
+            const day = parseInt(yyMMdd.slice(4, 6), 10);
+            return new Date(year, month, day).toLocaleDateString(undefined, {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
+
+        static estimateChargeTime(battery) {
+            const status = battery.data;
+            if (!status.current || !status.remainingCapacity || !status.nominalCapacity || !battery.settings) return 'N/A';
+            const current = parseFloat(status.current);
+            const chargeSwitch = battery.settings.chargeSwitch;
+            if (!chargeSwitch || current <= 0) return current < 0 ? 'Discharging' : 'Not charging';
+            const maxChargeCurrent = battery.settings.maxChargeCurrent || 1;
+            const effectiveCurrent = current > 0 ? current : maxChargeCurrent;
+            const remainingAh = parseFloat(status.nominalCapacity) - parseFloat(status.remainingCapacity);
+            const efficiency = 0.9;
+            const hours = remainingAh / (effectiveCurrent * efficiency);
+            if (hours <= 0 || !isFinite(hours)) return 'N/A';
+            const h = Math.floor(hours);
+            const m = Math.round((hours - h) * 60);
+            return `${h}h ${m}m`;
+        }
+
+        static estimateDischargeTime(battery) {
+            const status = battery.data;
+            if (!status.current || !status.remainingCapacity || !status.nominalCapacity || !battery.settings) {
+                return 'N/A';
+            }
+            const current = parseFloat(status.current);
+            const dischargeSwitch = battery.settings.dischargeSwitch;
+            if (!dischargeSwitch || current >= 0) {
+                return current > 0 ? 'Charging' : 'Not discharging';
+            }
+            const maxDischargeCurrent = battery.settings.maxDischargeCurrent || 1;
+            const effectiveCurrent = Math.abs(current) > 0 ?
+                Math.abs(current) :
+                maxDischargeCurrent;
+            const remainingAh = parseFloat(status.remainingCapacity);
+            const efficiency = 0.9;
+            const hours = remainingAh / (effectiveCurrent * efficiency);
+            if (hours <= 0 || !isFinite(hours)) {
+                return 'N/A';
+            }
+            const h = Math.floor(hours);
+            const m = Math.round((hours - h) * 60);
+            return `${h}h ${m}m`;
+        }
+
+        static calcBattPerc(totalVoltage, {
+            soc100Voltage,
+            cellCount,
+            cellUvp
+        }) {
+            if (totalVoltage === undefined) return 0;
+
+            const minV = cellUvp * cellCount;
+            const maxV = soc100Voltage * cellCount;
+            const span = maxV - minV;
+
+            if (span <= 0) return 0; // guard against bad settings
+
+            // compute percentage
+            let pct = ((totalVoltage - minV) / span) * 100;
+
+            // clamp 0–100
+            pct = Math.max(0, Math.min(100, pct));
+
+            return pct;
+        }
+    }
+
+    class JKBms {
+
+        static PROTOCOL_VERSION = 'JK02_32S'; // default protocol version
+        static SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
+        static CHARACTERISTIC_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
+
+        static ERROR_FLAGS = [
+            "Charge Overtemperature", "Charge Undertemperature", "Coprocessor communication error",
+            "Cell Undervoltage", "Battery pack undervoltage", "Discharge overcurrent",
+            "Discharge short circuit", "Discharge overtemperature", "Wire resistance",
+            "Mosfet overtemperature", "Cell count mismatch", "Current sensor anomaly",
+            "Cell Overvoltage", "Battery pack overvoltage", "Charge overcurrent protection",
+            "Charge short circuit"
+        ];
+        static CRITICAL_ERRORS = [
+            "Cell Undervoltage", "Battery pack undervoltage", "Discharge overcurrent",
+            "Discharge short circuit", "Cell Overvoltage", "Battery pack overvoltage",
+            "Charge overcurrent protection", "Charge short circuit"
+        ];
+        static PROTOCOL_DEFINITIONS = {
+            'JK02_32S': {
+                MIN_FRAME_SIZE: 300,
+                MAX_FRAME_SIZE: 384 + 16,
+                error_flags: [
+                    "Charge Overtemperature", "Charge Undertemperature", "Coprocessor communication error",
+                    "Cell Undervoltage", "Battery pack undervoltage", "Discharge overcurrent",
+                    "Discharge short circuit", "Discharge overtemperature", "Wire resistance",
+                    "Mosfet overtemperature", "Cell count mismatch", "Current sensor anomaly",
+                    "Cell Overvoltage", "Battery pack overvoltage", "Charge overcurrent protection",
+                    "Charge short circuit"
+                ],
+                critical_errors: [
+                    "Cell Undervoltage", "Battery pack undervoltage", "Discharge overcurrent",
+                    "Discharge short circuit", "Cell Overvoltage", "Battery pack overvoltage",
+                    "Charge overcurrent protection", "Charge short circuit"
+                ],
+                read_commands: {
+                    getDeviceInfo: new Uint8Array([0xaa, 0x55, 0x90, 0xeb, 0x97, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x11]),
+                    getRealtimeData: new Uint8Array([0xaa, 0x55, 0x90, 0xeb, 0x96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10]), //triggers also settings
+                    getSettings: new Uint8Array([0xaa, 0x55, 0x90, 0xeb, 0x95, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0F]), //doesnt work at all
+                },
+                write_commands: {
+                    setCellCount: {
+                        cmdCode: 0x1C,
+                        recordType: 0x04,
+                        payloadBytes: 4,
+                        scale: v => v
+                    },
+                    setCellOVP: {
+                        cmdCode: 0x04,
+                        recordType: 0x04,
+                        payloadBytes: 4,
+                        scale: v => Math.round(v / 0.001)
+                    },
+                    setMaxChargeCurrent: {
+                        cmdCode: 0x0C,
+                        recordType: 0x04,
+                        payloadBytes: 4,
+                        scale: v => Math.round(v * 1000)
+                    },
+                    setMaxDischargeCurrent: {
+                        cmdCode: 0x0F,
+                        recordType: 0x04,
+                        payloadBytes: 4,
+                        scale: v => Math.round(v * 1000)
+                    },
+                    setBalanceTriggerDiffVolt: {
+                        cmdCode: 0x06,
+                        recordType: 0x04,
+                        payloadBytes: 4,
+                        scale: v => Math.round(v / 0.001)
+                    },
+                    setCalibrationVoltage: {
+                        cmdCode: 0x64,
+                        recordType: 0x04,
+                        payloadBytes: 4,
+                        scale: v => Math.round(v * 1000)
+                    },
+                    setBalanceStart: {
+                        cmdCode: 0x26,
+                        recordType: 0x04,
+                        payloadBytes: 4,
+                        scale: v => Math.round(v * 1000)
+                    },
+                    setMaxCapacity: {
+                        cmdCode: 0x20,
+                        recordType: 0x04,
+                        payloadBytes: 4,
+                        scale: v => Math.round(v * 1000)
+                    },
+                    toggleChargeMOS: {
+                        cmdCode: 0x1D,
+                        recordType: 0x01,
+                        payloadBytes: 1,
+                        scale: v => v ? 1 : 0
+                    },
+                    toggleDischargeMOS: {
+                        cmdCode: 0x1E,
+                        recordType: 0x01,
+                        payloadBytes: 1,
+                        scale: v => v ? 1 : 0
+                    },
+                    toggleBalanceMOS: {
+                        cmdCode: 0x1F,
+                        recordType: 0x01,
+                        payloadBytes: 1,
+                        scale: v => v ? 1 : 0
+                    },
+                },
+                frameParsers: {
+                    0x01: {
+                        cellCount: {
+                            offset: 114,
+                            type: 'u8',
+                            scale: 1
+                        },
+                        nominalBatteryCapacity: {
+                            offset: 130,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        balanceTriggerVoltage: {
+                            offset: 26,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        startBalanceVoltage: {
+                            offset: 138,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        maxBalanceCurrent: {
+                            offset: 78,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        cellOvp: {
+                            offset: 18,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        cellRequestChargeVoltage: {
+                            offset: 38,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        soc100Voltage: {
+                            offset: 30,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        cellOvpr: {
+                            offset: 22,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        cellUvpr: {
+                            offset: 14,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        soc0Voltage: {
+                            offset: 34,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        cellUvp: {
+                            offset: 10,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        powerOffVoltage: {
+                            offset: 46,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        cellRequestFloatVoltage: {
+                            offset: 42,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        smartSleepVoltage: {
+                            offset: 6,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        smartSleepHours: {
+                            offset: 286,
+                            type: 'u8',
+                            scale: 1
+                        },
+                        maxChargeCurrent: {
+                            offset: 50,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        chargeOcpDelay: {
+                            offset: 54,
+                            type: 'u32',
+                            scale: 1
+                        },
+                        chargeOcpRecovery: {
+                            offset: 58,
+                            type: 'u32',
+                            scale: 1
+                        },
+                        maxDischargeCurrent: {
+                            offset: 62,
+                            type: 'u32',
+                            scale: v => v * 0.001
+                        },
+                        dischargeOcpDelay: {
+                            offset: 66,
+                            type: 'u32',
+                            scale: 1
+                        },
+                        dischargeOcpRecovery: {
+                            offset: 70,
+                            type: 'u32',
+                            scale: 1
+                        },
+                        chargeOtp: {
+                            offset: 82,
+                            type: 'u16',
+                            scale: v => v * 0.1
+                        },
+                        chargeOtpRecovery: {
+                            offset: 86,
+                            type: 'u16',
+                            scale: v => v * 0.1
+                        },
+                        dischargeOtp: {
+                            offset: 90,
+                            type: 'u16',
+                            scale: v => v * 0.1
+                        },
+                        dischargeOtpRecovery: {
+                            offset: 94,
+                            type: 'u16',
+                            scale: v => v * 0.1
+                        },
+                        chargeUtp: {
+                            offset: 98,
+                            type: 'i16',
+                            scale: v => v * 0.1
+                        },
+                        chargeUtpRecovery: {
+                            offset: 102,
+                            type: 'i16',
+                            scale: v => v * 0.1
+                        },
+                        mosOtp: {
+                            offset: 106,
+                            type: 'i16',
+                            scale: v => v * 0.1
+                        },
+                        mosOtpRecovery: {
+                            offset: 110,
+                            type: 'i16',
+                            scale: v => v * 0.1
+                        },
+                        shortCircuitProtectionDelay: {
+                            offset: 134,
+                            type: 'u32',
+                            scale: 1
+                        },
+                        shortCircuitProtectionRecovery: {
+                            offset: 74,
+                            type: 'u32',
+                            scale: 1
+                        },
+                        deviceAddressByte: {
+                            offset: 270,
+                            type: 'u8',
+                            scale: 1
+                        },
+                        chargeSwitch: {
+                            offset: 118,
+                            type: 'u8',
+                            scale: 1,
+                            post: v => !!v
+                        },
+                        dischargeSwitch: {
+                            offset: 122,
+                            type: 'u8',
+                            scale: 1,
+                            post: v => !!v
+                        },
+                        balancerSwitch: {
+                            offset: 126,
+                            type: 'u8',
+                            scale: 1,
+                            post: v => !!v
+                        },
+                        controlsBitmask: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1
+                        },
+                        heatingEnabled: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0001)
+                        },
+                        disableTemperatureSensors: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0002)
+                        },
+                        gpsHeartbeat: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0004)
+                        },
+                        portSwitch: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => (v & 0x0008) ? 'RS485' : 'CAN'
+                        },
+                        displayAlwaysOn: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0010)
+                        },
+                        specialCharger: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0020)
+                        },
+                        smartSleepEnabled: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0040)
+                        },
+                        disablePclModule: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0080)
+                        },
+                        timedStoredData: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0100)
+                        },
+                        chargingFloatMode: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0200)
+                        },
+                        prechargeTimeSec: {
+                            offset: 274,
+                            type: 'u8',
+                            scale: 1
+                        },
+                        dataFieldEnableControl: {
+                            offset: 272,
+                            type: 'u8',
+                            scale: 1,
+                            post: v => !!v
+                        },
+                        cellResistances: {
+                            type: 'iterate',
+                            offset: 142,
+                            itemSize: 4,
+                            maxItemCount: 24,
+                            itemType: 'u16',
+                            littleEndian: true,
+                            scale: v => v * 0.001,
+                            post: v => parseFloat(v.toFixed(3))
+                        },
+                    },
+                    0x02: {
+                        mosfetTemp: {
+                            offset: 144,
+                            type: 'i16',
+                            littleEndian: true,
+                            scale: v => v * 0.1,
+                            post: v => parseFloat(v.toFixed(1))
+                        },
+                        totalVoltage: {
+                            offset: 150,
+                            type: 'i32',
+                            littleEndian: true,
+                            scale: v => v * 0.001,
+                            post: v => parseFloat(v.toFixed(4))
+                        },
+                        power: {
+                            offset: 154,
+                            type: 'i32',
+                            littleEndian: true,
+                            scale: v => v * 0.001,
+                            post: v => parseFloat(v.toFixed(4))
+                        },
+                        current: {
+                            offset: 158,
+                            type: 'i32',
+                            littleEndian: true,
+                            scale: v => v * 0.001,
+                            post: v => parseFloat(v.toFixed(4))
+                        },
+                        tempProbe1: {
+                            offset: 162,
+                            type: 'i16',
+                            littleEndian: true,
+                            scale: v => v * 0.1,
+                            post: v => parseFloat(v.toFixed(1))
+                        },
+                        tempProbe2: {
+                            offset: 164,
+                            type: 'i16',
+                            littleEndian: true,
+                            scale: v => v * 0.1,
+                            post: v => parseFloat(v.toFixed(1))
+                        },
+                        soc: {
+                            offset: 173,
+                            type: 'u8',
+                            scale: 1
+                        },
+                        remainingCapacity: {
+                            offset: 174,
+                            type: 'u32',
+                            littleEndian: true,
+                            scale: v => v * 0.001,
+                            post: v => parseFloat(v.toFixed(3))
+                        },
+                        nominalCapacity: {
+                            offset: 178,
+                            type: 'u32',
+                            littleEndian: true,
+                            scale: v => v * 0.001,
+                            post: v => parseFloat(v.toFixed(3))
+                        },
+                        cycleCount: {
+                            offset: 182,
+                            type: 'u32',
+                            littleEndian: true,
+                            scale: 1
+                        },
+                        soh: {
+                            offset: 190,
+                            type: 'u8',
+                            scale: 1
+                        },
+                        cellVoltages: {
+                            type: 'iterate',
+                            offset: 6,
+                            itemSize: 2,
+                            maxItemCount: 24,
+                            itemType: 'u16',
+                            littleEndian: true,
+                            scale: v => v * 0.001,
+                            post: v => parseFloat(v.toFixed(3))
+                        },
+                        cellResistances: {
+                            type: 'iterate',
+                            offset: 80,
+                            itemSize: 2,
+                            maxItemCount: 24,
+                            itemType: 'u16',
+                            littleEndian: true,
+                            scale: v => v * 0.001,
+                            post: v => parseFloat(v.toFixed(3))
+                        },
+                        rawErrorsBitmask: {
+                            offset: 166,
+                            type: 'u16',
+                            post: v => ((v & 0xFF) << 8) | (v >> 8)
+                        },
+                        errors: {
+                            offset: 166,
+                            type: 'u16',
+                            post: v => {
+                                const mask = ((v & 0xFF) << 8) | (v >> 8);
+                                return JKBms.errorBitsToReadable(mask);
+                            }
+                        },
+                    },
+                    0x03: {
+                        vendor: {
+                            offset: 6,
+                            length: 16,
+                            type: "cstring"
+                        },
+                        hardware: {
+                            offset: 22,
+                            length: 8,
+                            type: "cstring"
+                        },
+                        software: {
+                            offset: 30,
+                            length: 8,
+                            type: "cstring"
+                        },
+                        uptime: {
+                            offset: 38,
+                            type: 'u32'
+                        },
+                        powerUpTimes: {
+                            offset: 42,
+                            type: 'u32'
+                        },
+                        deviceName: {
+                            offset: 46,
+                            length: 16,
+                            type: "cstring"
+                        },
+                        devicePasscode: {
+                            offset: 62,
+                            length: 16,
+                            type: "cstring"
+                        },
+                        passCode: {
+                            offset: 97,
+                            length: 5,
+                            type: "cstring"
+                        },
+                        manufacturingDate: {
+                            offset: 78,
+                            length: 8,
+                            type: "cstring"
+                        },
+                        serialNumber: {
+                            offset: 86,
+                            length: 11,
+                            type: "cstring"
+                        },
+                        userData: {
+                            offset: 102,
+                            length: 16,
+                            type: "cstring"
+                        },
+                        setupPasscode: {
+                            offset: 118,
+                            length: 16,
+                            type: "cstring"
+                        },
+                    }
+                }
+            }
+        }
+
+        static decodeDeviceInfo(buffer, frametype) {
+            const dv = new DataView(buffer.buffer);
+            const settings = {};
+            for (const key in JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].frameParsers[frametype]) {
+                var def = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].frameParsers[frametype][key];
+                let raw;
+                switch (def.type) {
+                    case 'u8':
+                        raw = dv.getUint8(def.offset);
+                        break;
+                    case 'u16':
+                        raw = dv.getUint16(def.offset, true);
+                        break;
+                    case 'i16':
+                        raw = dv.getInt16(def.offset, true);
+                        break;
+                    case 'u32':
+                        raw = dv.getUint32(def.offset, true);
+                        break;
+                    case 'i32':
+                        raw = dv.getInt32(def.offset, true);
+                        break;
+                    case 'cstring':
+                        raw = readString(buffer.buffer, def.offset, def.length)
+                        break;
+                    case 'iterate':
+                        raw = Array.from({
+                            length: def.maxItemCount
+                        }, (_, i) => {
+                            const off = def.offset + i * def.itemSize;
+                            let sraw;
+                            switch (def.itemType) {
+                                case 'u16':
+                                    sraw = dv.getUint16(off, def.littleEndian);
+                                    break;
+                                case 'i16':
+                                    sraw = dv.getInt16(off, def.littleEndian);
+                                    break;
+                                case 'u32':
+                                    sraw = dv.getUint32(off, def.littleEndian);
+                                    break;
+                                default:
+                                    throw new Error(`Unknown item type ${def.itemType}`);
+                            }
+                            return sraw;
+                        });
+                        //console.log("raw",raw)
+                        break;
+                    default:
+                        throw new Error(`Unknown type ${def.type}`);
+                }
+                const scaled = typeof def.scale === 'function' ?
+                    (Array.isArray(raw) ?
+                        raw.map(def.scale) :
+                        def.scale(raw)) :
+                    raw;
+
+                // 2. apply post if present (and map over arrays), otherwise keep scaled
+                const val = typeof def.post === 'function' ?
+                    (Array.isArray(scaled) ?
+                        scaled.map(def.post) :
+                        def.post(scaled)) :
+                    scaled;
+
+                settings[key] = val;
+            };
+            return settings;
+        }
+
+        static decodeSettingInfo(buffer) {
+            const dv = new DataView(buffer.buffer || buffer);
+            const tmp = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer.buffer || buffer);
+
+            const settings = {};
+            const used = new Set();
+            const totalBytes = tmp.length;
+
+            JKBms.FIELD_DEFS.forEach(def => {
+                let raw;
+                switch (def.type) {
+                    case 'u8':
+                        raw = dv.getUint8(def.offset);
+                        break;
+                    case 'u16':
+                        raw = dv.getUint16(def.offset, true);
+                        break;
+                    case 'i16':
+                        raw = dv.getInt16(def.offset, true);
+                        break;
+                    case 'u32':
+                        raw = dv.getUint32(def.offset, true);
+                        break;
+                    case 'i32':
+                        raw = dv.getInt32(def.offset, true);
+                        break;
+                    default:
+                        throw new Error(`Unknown type ${def.type}`);
+                }
+                let val = def.scale ? def.scale(raw) : raw;
+                if (def.post) val = def.post(val);
+                settings[def.key] = val;
+                const len = def.type === 'u8' ? 1 : def.type === 'u16' ? 2 : 4;
+                for (let i = 0; i < len; i++) used.add(def.offset + i);
+            });
+
+            settings.connectionWireResistances = Array.from({
+                length: 24
+            }, (_, i) => {
+                const off = 142 + i * 4;
+                used.add(off);
+                used.add(off + 1);
+                used.add(off + 2);
+                used.add(off + 3);
+                return (dv.getUint32(off, true) * 0.001);
+            });
+
+            for (let i = 0; i < totalBytes; i++) {
+                if (!used.has(i)) settings[`unknown_${i}`] = dv.getUint8(i);
+            }
+
+            return settings;
+        }
+
+        static decodeBmsData(buffer) {
+            const dv = new DataView(buffer.buffer);
+            const bmsData = {
+                cells: [],
+                status: {}
+            };
+            const len = buffer.byteLength;
+            const offset = 32;
+
+            let totalVoltage = 0;
+            for (let i = 0; i < 24; i++) {
+                const off = 6 + (i * 2);
+                if (len < off + 2) break;
+                const millivolts = dv.getInt16(off, true);
+                if (millivolts > 0) {
+                    const voltage = millivolts * 0.001;
+                    totalVoltage += voltage;
+                    bmsData.cells.push({
+                        voltage: voltage.toFixed(3)
+                    });
+                }
+            }
+
+            for (let i = 0; i < bmsData.cells.length; i++) {
+                const off = 80 + (i * 2);
+                if (len < off + 2) break;
+                bmsData.cells[i].resistance = dv.getInt16(off, true);
+            }
+
+            if (len >= 144 + offset) bmsData.status.mosfetTemp = (dv.getInt16(112 + offset, true) * 0.1).toFixed(1);
+            if (len >= 150 + offset) bmsData.status.totalVoltage = (dv.getInt32(118 + offset, true) * 0.001).toFixed(2);
+            if (len >= 154 + offset) bmsData.status.power = (dv.getInt32(122 + offset, true) * 0.001).toFixed(2);
+            if (len >= 158 + offset) bmsData.status.current = (dv.getInt32(126 + offset, true) * 0.001).toFixed(2);
+            if (len >= 162 + offset) bmsData.status.tempProbe1 = (dv.getInt16(130 + offset, true) * 0.1).toFixed(1);
+            if (len >= 164 + offset) bmsData.status.tempProbe2 = (dv.getInt16(132 + offset, true) * 0.1).toFixed(1);
+            if (len >= 173 + offset) bmsData.status.soc = dv.getUint8(141 + offset);
+            if (len >= 178 + offset) bmsData.status.remainingCapacity = (dv.getUint32(142 + offset, true) * 0.001).toFixed(3);
+            if (len >= 182 + offset) bmsData.status.nominalCapacity = (dv.getUint32(146 + offset, true) * 0.001).toFixed(3);
+            if (len >= 186 + offset) bmsData.status.cycleCount = dv.getUint32(150 + offset, true);
+            if (len >= 190 + offset) bmsData.status.soh = dv.getUint8(158 + offset);
+
+            const errOff = 134 + offset;
+            if (len >= errOff + 2) {
+                const mask = (dv.getUint8(errOff) << 8) | dv.getUint8(errOff + 1);
+                bmsData.status.rawErrorsBitmask = mask;
+                bmsData.status.errors = JKBms.errorBitsToReadable(mask);
+            }
+
+
+            return bmsData;
+        }
+
+        static createWriteCommand(def, value) {
+            const raw = def.scale(value);
+            const frame = new Uint8Array(20).fill(0);
+            frame.set([0xAA, 0x55, 0x90, 0xEB, def.cmdCode, def.recordType], 0);
+            for (let i = 0; i < def.payloadBytes; i++) {
+                frame[6 + i] = (raw >>> (8 * i)) & 0xFF;
+            }
+            frame[19] = frame.subarray(0, 19).reduce((sum, b) => (sum + b) & 0xFF, 0);
+            return frame;
+
+            // const frame = new Uint8Array(20).fill(0);
+            // frame.set([0xAA, 0x55, 0x90, 0xEB, address, length], 0);
+            // const valueBytes = new Uint8Array(4);
+            // valueBytes[0] = value & 0xFF;
+            // valueBytes[1] = (value >> 8) & 0xFF;
+            // valueBytes[2] = (value >> 16) & 0xFF;
+            // valueBytes[3] = (value >> 24) & 0xFF;
+            // frame.set(valueBytes.slice(0, length), 6);
+            // if (usePassword && protocolVersion === 'JK04') {
+            //     const pwd = setupPasscode.padEnd(6, '\0').slice(0, 6);
+            //     frame.set(new TextEncoder().encode(pwd), 10);
+            // }
+            // frame[19] = Array.from(frame.subarray(0, 19)).reduce((sum, b) => (sum + b) & 0xFF, 0);
+            // appendLog(`📤 Write command: ${dumpHex(frame)} (usePassword: ${usePassword})`);
+            // return frame;
+        }
+
+        static errorBitsToReadable(mask) {
+            const errors = [];
+            for (let i = 0; i < JKBms.ERROR_FLAGS.length; i++) {
+                if (mask & (1 << i)) {
+                    errors.push(JKBms.ERROR_FLAGS[i]);
+                }
+            }
+            return errors;
+        }
+    }
+
+    class UIManager {
+        batteryManager = null;
+        constructor(batteryManager) {
+            this.batteryManager = batteryManager;
+        }
+        async bindConnectButton() {
+            document.getElementById('connectBtn').addEventListener('click', async() => {
+                appendLog('🔍 Requesting JK BMS Bluetooth device...');
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{
+                        services: [JKBms.SERVICE_UUID]
+                    }]
+                });
+                connect(device);
+            });
+        }
+        async refresh() {
+            this.renderBatterySelection(this.batteryManager.batteries);
+
+            if (this.batteryManager.activeBattery && this.batteryManager.activeBattery.deviceInfo && this.batteryManager.activeBattery.data && this.batteryManager.activeBattery.settings) {
+                this.renderStatus(this.batteryManager.activeBattery);
+                this.renderAdditionalMetrics(this.batteryManager.activeBattery);
+                this.renderCellInfo(this.batteryManager.activeBattery);
+                this.updateIndicators(this.batteryManager.activeBattery);
+                this.renderAllSettings(this.batteryManager.activeBattery);
+            }
+        }
+        connectViaDialog() {
+            const manager = this.batteryManager;
+            navigator.bluetooth.requestDevice({
+                    filters: [{
+                        services: [JKBms.SERVICE_UUID]
+                    }]
+                })
+                .then(device => {
+                    appendLog(`🔗 Requesting connection to device: ${device.name || device.id}`);
+                    console.log("===>", manager);
+                    var battery = manager.findBatteryById(device.id);
+                    if (!battery) {
+                        appendLog(`🔗 Creating new battery instance for ${device.name || device.id}`);
+                        battery = new Battery(device, manager);
+                        manager.addBattery(battery);
+                    }
+                    this.batteryManager.connectBattery(battery, (connected) => {
+                        if (connected) {
+                            battery.listen((error) => {
+                                if (error) {
+                                    appendLog(`❌ Failed to listen to ${battery.device.name || battery.device.id}`);
+                                    this.refresh();
+                                }
+                            });
+                            this.refresh();
+                        } else {
+                            appendLog(`❌ Failed to connect to ${battery.device.name || battery.device.id}`);
+                        }
+                    });
+                })
+                .then((device => connect(device)))
+                .catch(err => appendLog(`❌ Error connecting: ${err.message}`));
+        }
+
+        updateIndicators(battery) {
+            document.getElementById("chargeIndicator").className = `w-4 h-4 rounded-full mr-2 ${battery.settings.chargeSwitch ? 'bg-green-500' : 'bg-red-500'}`;
+            document.getElementById("dischargeIndicator").className = `w-4 h-4 rounded-full mr-2 ${battery.settings.dischargeSwitch ? 'bg-green-500' : 'bg-red-500'}`;
+            document.getElementById("balancingIndicator").className = `w-4 h-4 rounded-full mr-2 ${battery.settings.balancerSwitch ? 'bg-green-500' : 'bg-red-500'}`;
+            document.getElementById("heatingIndicator").className = `w-4 h-4 rounded-full mr-2 ${battery.settings.heatingEnabled ? 'bg-green-500' : 'bg-gray-500'}`;
+            document.getElementById("tempIndicator").className = `w-4 h-4 rounded-full mr-2 ${!battery.settings.disableTemperatureSensors ? 'bg-green-500' : 'bg-gray-500'}`;
+        }
+
+
+
+        renderGaugeStatus(target, title, perc, color, text1, inlineText, belowText) {
+            const html = `
+                                <!-- Overall Status -->
+                    <!-- Overall Status -->
+                    <div class="bg-gray-800 p-6 rounded-lg">
+
+                
+        <div class="flex flex-col gap-4">
+        <div class="bg-gray-800 p-6 rounded-lg flex flex-col items-center text-center">
+            <h3 class="text-lg font-semibold mb-4">${title}</h3>
+            <div class="gauge mb-2" id="socGauge"
+                style="--gauge-color: ${color}; --gauge-value: ${(perc/2)}%;"></div>
+            
+            <!-- wrapper for your two-line text block -->
+            <div class="flex flex-col items-center">
+            <!-- first line: big % + small inline text -->
+            <div class="flex items-baseline justify-center space-x-2">
+                <p class="text-2xl font-bold" id="socText">${text1}</p>
+                <p class="text-gray-400 text-sm" id="inlineText">${inlineText}</p>
+            </div>
+            <!-- second line: small gray text -->
+            <p class="text-gray-400 text-sm mt-1" id="belowText">${belowText}</p>
+            </div>
+            
+        </div>
+        </div>
+        </div>
+        `;
+            target.insertAdjacentHTML('beforeend', html);
+        }
+
+        renderStatus(battery) {
+            const status = battery.data;;
+            const warnings = status.errors || [];
+            const criticalWarnings = warnings.filter(w => CRITICAL_ERRORS.includes(w));
+
+            const elements = {
+                gaugesTopContainer: document.getElementById('gaugesTopContainer'),
+            };
+            elements.gaugesTopContainer.innerHTML = ''; // Clear previous gauges
+
+            //Update Battery Capacity Gauge
+            const soc = status.soc !== undefined ? status.soc : 0;
+            const remainingCapacity = status.remainingCapacity !== undefined ? status.remainingCapacity : '—';
+            const nominalCapacity = status.nominalCapacity !== undefined ? status.nominalCapacity : '—';
+            // elements.socGauge.style.setProperty('--gauge-value', `${soc}%`);
+            // elements.socText.textContent = `${soc}%`;
+            // elements.capacityText.textContent = `Remaining: ${remainingCapacity} / ${nominalCapacity} Ah`;
+
+            let color;
+            if (soc >= 60) color = '#10B981'; // emerald-green
+            else if (soc >= 20) color = '#F59E0B'; // amber
+            else color = '#EF4444'; // red
+
+            this.renderGaugeStatus(elements.gaugesTopContainer, "Capacity", soc, color, soc + "%", "/ " + nominalCapacity + " Ah", "remaining: " + remainingCapacity + " Ah");
+
+            if (battery.settings) {
+                const battPerc = Utils.calcBattPerc(status.totalVoltage, battery.settings);
+                color = battPerc >= 60 ? '#10B981' : battPerc >= 20 ? '#F59E0B' : '#EF4444';
+                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", battPerc, color, status.totalVoltage + " V ", "/ " + (battery.settings.soc100Voltage * battery.settings.cellCount) + " V", "nominal cell voltage: " + battery.settings.soc100Voltage + " V");
+            } else {
+                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", 0, color, status.totalVoltage + " V");
+            }
+
+            //if charging
+            var text = "";
+            var text2 = "";
+            if (status.current > 0) {
+                text = "Remaining Charge time: " + Utils.estimateChargeTime(battery);
+                text2 = status.power + " W - max " + battery.settings.maxChargeCurrent + "A";
+                var loadPerc = (status.current / battery.settings.maxChargeCurrent) * 100;
+            } else if (status.current < 0) {
+                text = "Estimated discharge time: " + Utils.estimateDischargeTime(battery);
+                text2 = status.power + " W - max " + battery.settings.maxDischargeCurrent + "A";
+                var loadPerc = (Math.abs(status.current) / battery.settings.maxDischargeCurrent) * 100;
+            } else {
+                text = 'status idle'; // gray for idle
+                text2 = "max charge: " + battery.settings.maxChargeCurrent + "A";
+                var loadPerc = 0;
+            }
+            color = loadPerc <= 70 ? '#10B981' : loadPerc <= 90 ? '#F59E0B' : '#EF4444'; // color based on load percentage
+
+            if (warnings.includes("Charge overcurrent protection")) {
+                loadPerc = 100; // show 100% if overvoltage warning
+                color = '#EF4444'; // red for overvoltage
+                //text red color
+
+                text = `<p style=color:red>Charge overcurrent protection! ${battery.settings.maxChargeCurrent} A<p>`;
+            }
+
+            this.renderGaugeStatus(elements.gaugesTopContainer, "Power Load", loadPerc, color, status.current + " A ", text2, text);
+        }
+
+        renderCellInfo(battery) {
+            const targetElement = document.getElementById('cellvoltagesContainer');
+
+            var html = "";
+
+            const THRESHOLD = battery.settings.balanceTriggerVoltage;
+            const voltages = battery.data.cellVoltages.filter(v => v !== 0);
+            const resistances = battery.data.cellResistances.filter(v => v !== 0);
+
+
+            const maxV = Math.max(...voltages);
+            const minV = Math.min(...voltages);
+            const deltaV = maxV - minV;
+
+            const color = deltaV < THRESHOLD ? 'text-green-500' : 'text-red-500';
+            //loop over cells
+            let i = 0;
+            voltages.forEach(cell => {
+                if (cell == 0) return;
+                html += `
+                    <div class="bg-gray-800 p-4 rounded-lg">
+                    <h2 class="text-xl font-semibold mb-0">Cell ${i+1}</h2>
+                    <div class="text-gray-400">
+                    <div class="grid grid-cols-2 w-full border-b border-gray-700 py-2">
+                    <div class="text-left ${color}">
+                        ${voltages[i]}V
+                    </div>
+                    <div class="text-right">
+                        ${resistances[i]}mΩ
+                    </div>
+                    </div>
+                    </div>
+                </div>
+                `;
+                i++;
+            });
+
+            targetElement.innerHTML = html;
+        }
+
+        renderAdditionalMetrics(battery) {
+
+            const targetElement = document.getElementById('additionalMetrics');
+
+            const mosfetColor = battery.data.mosfetTemp > 60 ? 'text-red-500' : battery.data.mosfetTemp > 50 ? 'text-yellow-500' : 'text-green-500';
+            const probe1Color = battery.data.tempProbe1 > 60 ? 'text-red-500' : battery.data.tempProbe1 > 50 ? 'text-yellow-500' : 'text-green-500';
+            const probe2Color = battery.data.tempProbe2 > 60 ? 'text-red-500' : battery.data.tempProbe2 > 50 ? 'text-yellow-500' : 'text-green-500';
+
+            const temperature = `
+                <div class="bg-gray-800 p-6 rounded-lg">
+                <h2 class="text-xl font-semibold mb-4">🌡️ Temperatures</h2>
+                <div id="temperatureInfo" class="text-gray-400">
+                    <table class="w-full border-collapse">
+                        <tbody>
+                            <tr class="border-b border-gray-700">
+                                <td class="py-2">mosfet</td>
+                                <td class="py-2 ${mosfetColor}">${battery.data.mosfetTemp}°C</td>
+                                <td class="py-2 text-xs">(${battery.settings.mosOtp}°C)</td>
+                            </tr>
+                            <tr class="border-b border-gray-700">
+                                <td class="py-2">Probe 1</td>
+                                <td class="py-2 ${probe1Color}">${battery.data.tempProbe1}°C</td>
+                                <td class="py-2 text-xs">(${battery.settings.chargeUtp}°C / ${battery.settings.chargeOtp}°C)</td>
+                            </tr>
+                            <tr>
+                                <td class="py-2">Probe 2</td>
+                                <td class="py-2 ${probe2Color}">${battery.data.tempProbe1}°C</td>
+                                <td class="py-2 text-xs">(${battery.settings.chargeUtp}°C / ${battery.settings.chargeOtp}°C)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            `;
+
+
+            let errors = "no errors";
+            var statusColor = "text-green-500";
+            var statusText = "Operational";
+            if (battery.data.errors && battery.data.errors.length > 0) {
+                errors = "";
+                statusColor = "text-red-500";
+                statusText = "Error";
+                const errorMessages = battery.data.errors.map(error => `<li class="text-red-500">${error}</li>`).join('');
+                const errorSection = `
+                    
+                        <ul class="list-disc pl-5 text-gray-400">
+                            ${errorMessages}
+                        </ul>
+                    
+                `;
+                errors += errorSection;
+            }
+
+            const protections = `
+             <div class="bg-gray-800 p-6 rounded-lg" style="transition-delay: 0.2s;">
+                <h3 class="text-lg font-semibold mb-2">Cycle Count</h3>
+                <p class="text-2xl font-bold">${battery.data.cycleCount}</p>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-lg" style="transition-delay: 0.4s;">
+                <h3 class="text-lg font-semibold mb-2">State of Health</h3>
+                <p class="text-2xl font-bold">${battery.data.soh}%</p>
+                <p class="text-gray-400">Uptime: ${Utils.formatUptime(battery.deviceInfo.uptime)}</p>
+            </div>
+            <div class="bg-gray-800 p-6 rounded-lg" style="transition-delay: 0.6s;">
+                <h3 class="text-lg font-semibold mb-2">Status</h3>
+                <p class="text-2xl font-bold ${statusColor}">${statusText}</p>
+                <p class="text-gray-400">${errors}</p>
+            </div>
+            `;
+
+            var html = temperature + protections;
+
+
+            targetElement.innerHTML = html;
+        }
+        renderBatterySelection(batteries) {
+            var el = document.getElementById('batterySelection');
+            el.innerHTML = '';
+            if (batteries.length === 0) {
+                const connectBtn = document.createElement('button');
+                connectBtn.className = 'w-full bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition battery-btn';
+                connectBtn.textContent = 'Click to connect';
+                connectBtn.addEventListener('click', () => {
+                    this.connectViaDialog();
+                });
+
+                el.appendChild(connectBtn);
+            } else {
+
+                const connectBtn = document.createElement('button');
+                connectBtn.className = 'w-full whitespace-nowrap bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition battery-btn';
+                connectBtn.textContent = 'pair new device';
+                connectBtn.addEventListener('click', () => {
+                    this.connectViaDialog();
+                });
+                el.appendChild(connectBtn);
+
+
+                batteries.forEach(battery => {
+                    const device = battery.device;
+                    const btn = document.createElement('button');
+                    let isActive = false;
+                    let hasConnectionError = battery.hasConnectionError || false;
+
+                    if (this.batteryManager.activeBattery) {
+                        isActive = battery.device.id == this.batteryManager.activeBattery.device.id;
+                    }
+                    btn.className = `flex-1 text-white px-4 py-2 rounded-lg battery-btn  ${hasConnectionError ? 'bg-red-500' : isActive ? 'bg-green-500' : 'bg-blue-500'}`;
+                    btn.textContent = device.name || `Battery ${device.id}`;
+
+                    el.appendChild(btn);
+                    btn.addEventListener('click', async() => {
+
+                        await this.batteryManager.disconnectAll();
+
+                        //timeout 5 seconds
+                        await setTimeout(() => {}, 5000);
+
+
+                        console.debug('Battery button clicked', device);
+                        let batterySelection = this.batteryManager.findBatteryById(device.id);
+                        if (!batterySelection) {
+                            appendLog(`🔗 Creating new battery instance for ${device.name || device.id}`);
+                            batterySelection = new Battery(device, this.batteryManager);
+                            this.batteryManager.addBattery(battery);
+                        }
+                        appendLog(`🔗 Connecting to battery: ${batterySelection.device.name || batterySelection.device.id}`);
+                        this.batteryManager.connectBattery(batterySelection, (connected) => {
+                            if (connected) {
+                                batterySelection.listen((error) => {
+                                    if (error) {
+                                        appendLog(`❌ Failed to listen to ${batterySelection.device.name || batterySelection.device.id}`);
+                                        this.refresh();
+                                    }
+                                });
+                                this.refresh();
+                            } else {
+                                appendLog(`❌ Failed to listen to ${batterySelection.device.name || batterySelection.device.id}`);
+                            }
+                        });
+                    });
+
+                });
+            }
+        }
+
+        renderAllSettings(battery) {
+                const settings = battery.settings;
+                const info = battery.deviceInfo;
+                const element = document.getElementById('allinfopContainer');
+                const status = battery.data;
+
+
+                let html = `
+               <div class="bg-gray-800 p-6 rounded-lg">
+                <h2 class="text-xl font-semibold mb-4">Raw realtime</h2>
+                <table class="w-full text-gray-400">
+                  <tr><th class="text-left py-1">Total Voltage</th><td class="py-1">${status.totalVoltage !== undefined ? status.totalVoltage + ' V' : 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">Current</th><td class="py-1">${status.current !== undefined ? status.current + ' A' : 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">Power</th><td class="py-1">${status.power !== undefined ? status.power + ' W' : 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">MOSFET Temp</th><td class="py-1">${status.mosfetTemp !== undefined ? status.mosfetTemp + ' °C' : 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">Temp Probe 1</th><td class="py-1">${status.tempProbe1 !== undefined ? status.tempProbe1 + ' °C' : 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">Temp Probe 2</th><td class="py-1">${status.tempProbe2 !== undefined ? status.tempProbe2 + ' °C' : 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">Cycle Count</th><td class="py-1">${status.cycleCount !== undefined ? status.cycleCount : 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">State of Health</th><td class="py-1">${status.soh !== undefined ? status.soh + ' %' : 'N/A'}</td></tr>
+              `;
+
+                //cell voltages
+                status.cellVoltages.forEach((cell, index) => {
+                    if (cell === 0) return;
+                    html += `
+                    <tr><th class="text-left py-1">Voltage cell ${index}</th><td class="py-1">${cell !== undefined ? cell + ' V' : 'N/A'}</td></tr>
+                `;
+                });
+
+                status.cellResistances.forEach((cell, index) => {
+                    if (cell === 0) return;
+                    html += `
+                    <tr><th class="text-left py-1">Resistance cell ${index}</th><td class="py-1">${cell !== undefined ? cell + ' V' : 'N/A'}</td></tr>
+                `;
+                });
+
+                html += `
+                </table>
+                </div>
+                `;
+
+                //   <tr><th class="text-left py-1">Warnings</th><td class="py-1 ${criticalWarnings.length ? 'text-red-600 font-semibold' : ''}">
+                //     ${warnings.length ? warnings.join(', ') : 'None'}
+                //     ${criticalWarnings.length ? '<br><span class="text-red-600">Critical errors may prevent system from working!</span>' : ''}
+                //   </td></tr>
+                //   <tr><th class="text-left py-1">Est. Charge Time</th><td class="py-1">${Utils.estimateChargeTime(status)}</td></tr>
+
+                html += `
+            <div class="bg-gray-800 p-6 rounded-lg">
+                <h2 class="text-xl font-semibold mb-4">Device info</h2>
+                <table class="w-full text-gray-400">
+                  <tr><th class="text-left py-1">Vendor</th><td class="py-1">${info.vendor || 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">Hardware</th><td class="py-1">${info.hardware || 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">Software</th><td class="py-1">${info.software || 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">Device Name</th><td class="py-1">${info.deviceName || 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">Serial Number</th><td class="py-1">${info.serialNumber || 'N/A'}</td></tr>
+                  <tr><th class="text-left py-1">Manufactured</th><td class="py-1">${Utils.formatManufDate(info.manufacturingDate)}</td></tr>
+                  <tr><th class="text-left py-1">Uptime</th><td class="py-1">${Utils.formatUptime(info.uptime)}</td></tr>
+                  <tr><th class="text-left py-1">Power-Ups</th><td class="py-1">${info.powerUpTimes}</td></tr>
+                  <tr><th class="text-left py-1">Device Passcode</th><td class="py-1">${info.devicePasscode || '–'}</td></tr>
+                  <tr><th class="text-left py-1">Passcode</th><td class="py-1">${info.passCode || '–'}</td></tr>
+                  <tr><th class="text-left py-1">Setup Passcode</th><td class="py-1">${info.setupPasscode || '–'}</td></tr>
+                  <tr><th class="text-left py-1">User Data</th><td class="py-1">${info.userData || '–'}</td></tr>
+                </table>
+            </div>
+            `;
+
+
+                html += `
+            <div class="bg-gray-800 p-6 rounded-lg">
+                <h2 class="text-xl font-semibold mb-4">All Settings</h2>
+                <table class="w-full text-gray-400">
+                    <tr><th class="text-left py-1">Cell Count</th><td class="py-1">${settings.cellCount}</td></tr>
+                    <tr><th class="text-left py-1">Nominal Capacity</th><td class="py-1">${settings.nominalBatteryCapacity.toFixed(2)} Ah</td></tr>
+                    <tr><th class="text-left py-1">Balance Trigger Voltage</th><td class="py-1">${settings.balanceTriggerVoltage.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">Start Balance Voltage</th><td class="py-1">${settings.startBalanceVoltage.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">Max Balance Current</th><td class="py-1">${settings.maxBalanceCurrent.toFixed(3)} A</td></tr>
+                    <tr><th class="text-left py-1">Cell OVP</th><td class="py-1">${settings.cellOvp.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">Cell Charge Req. Voltage</th><td class="py-1">${settings.cellRequestChargeVoltage.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">SOC-100% Voltage</th><td class="py-1">${settings.soc100Voltage.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">Cell OVPR</th><td class="py-1">${settings.cellOvpr.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">Cell UVPR</th><td class="py-1">${settings.cellUvpr.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">SOC-0% Voltage</th><td class="py-1">${settings.soc0Voltage.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">Cell UVP</th><td class="py-1">${settings.cellUvp.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">Power-Off Voltage</th><td class="py-1">${settings.powerOffVoltage.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">Cell Float Req. Voltage</th><td class="py-1">${settings.cellRequestFloatVoltage.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">Smart-Sleep Voltage</th><td class="py-1">${settings.smartSleepVoltage.toFixed(3)} V</td></tr>
+                    <tr><th class="text-left py-1">Smart-Sleep Hours</th><td class="py-1">${settings.smartSleepHours} h</td></tr>
+                    <tr><th class="text-left py-1">Max Charge Current</th><td class="py-1">${settings.maxChargeCurrent.toFixed(3)} A</td></tr>
+                    <tr><th class="text-left py-1">Charge OCP Delay</th><td class="py-1">${settings.chargeOcpDelay} s</td></tr>
+                    <tr><th class="text-left py-1">Charge OCP Recovery</th><td class="py-1">${settings.chargeOcpRecovery} s</td></tr>
+                    <tr><th class="text-left py-1">Max Discharge Current</th><td class="py-1">${settings.maxDischargeCurrent.toFixed(3)} A</td></tr>
+                    <tr><th class="text-left py-1">Discharge OCP Delay</th><td class="py-1">${settings.dischargeOcpDelay} s</td></tr>
+                    <tr><th class="text-left py-1">Discharge OCP Recovery</th><td class="py-1">${settings.dischargeOcpRecovery} s</td></tr>
+                    <tr><th class="text-left py-1">Charge OTP</th><td class="py-1">${settings.chargeOtp.toFixed(1)} °C</td></tr>
+                    <tr><th class="text-left py-1">Charge OTP Recovery</th><td class="py-1">${settings.chargeOtpRecovery.toFixed(1)} °C</td></tr>
+                    <tr><th class="text-left py-1">Discharge OTP</th><td class="py-1">${settings.dischargeOtp.toFixed(1)} °C</td></tr>
+                    <tr><th class="text-left py-1">Discharge OTP Recovery</th><td class="py-1">${settings.dischargeOtpRecovery.toFixed(1)} °C</td></tr>
+                    <tr><th class="text-left py-1">Charge UTP</th><td class="py-1">${settings.chargeUtp.toFixed(1)} °C</td></tr>
+                    <tr><th class="text-left py-1">Charge UTP Recovery</th><td class="py-1">${settings.chargeUtpRecovery.toFixed(1)} °C</td></tr>
+                    <tr><th class="text-left py-1">MOSFET OTP</th><td class="py-1">${settings.mosOtp.toFixed(1)} °C</td></tr>
+                    <tr><th class="text-left py-1">MOSFET OTP Recovery</th><td class="py-1">${settings.mosOtpRecovery.toFixed(1)} °C</td></tr>
+                    <tr><th class="text-left py-1">SCP Delay</th><td class="py-1">${settings.shortCircuitProtectionDelay} s</td></tr>
+                    <tr><th class="text-left py-1">SCP Recovery</th><td class="py-1">${settings.shortCircuitProtectionRecovery} s</td></tr>
+                    <tr><th class="text-left py-1">Device Addr (raw)</th><td class="py-1">${settings.deviceAddressByte}</td></tr>
+                    <tr><th class="text-left py-1">Precharge Time</th><td class="py-1">${settings.prechargeTimeSec} s</td></tr>
+                    <tr><th class="text-left py-1">Data Field Enable Ctrl</th><td class="py-1">${settings.dataFieldEnableControl}</td></tr>
+                    <tr><th class="text-left py-1">Charge Switch</th><td class="py-1">${settings.chargeSwitch}</td></tr>
+                    <tr><th class="text-left py-1">Discharge Switch</th><td class="py-1">${settings.dischargeSwitch}</td></tr>
+                    <tr><th class="text-left py-1">Balancer Switch</th><td class="py-1">${settings.balancerSwitch}</td></tr>
+                    <tr><th class="text-left py-1">Controls Bitmask</th><td class="py-1">0x${settings.controlsBitmask.toString(16).padStart(4, '0')}</td></tr>
+                    <tr><th class="text-left py-1">Heating Enabled</th><td class="py-1">${settings.heatingEnabled}</td></tr>
+                    <tr><th class="text-left py-1">Disable Temp Sensors</th><td class="py-1">${settings.disableTemperatureSensors}</td></tr>
+                    <tr><th class="text-left py-1">GPS Heartbeat</th><td class="py-1">${settings.gpsHeartbeat}</td></tr>
+                    <tr><th class="text-left py-1">Port Switch</th><td class="py-1">${settings.portSwitch}</td></tr>
+                    <tr><th class="text-left py-1">Display Always On</th><td class="py-1">${settings.displayAlwaysOn}</td></tr>
+                    <tr><th class="text-left py-1">Special Charger</th><td class="py-1">${settings.specialCharger}</td></tr>
+                    <tr><th class="text-left py-1">Smart Sleep Enabled</th><td class="py-1">${settings.smartSleepEnabled}</td></tr>
+                    <tr><th class="text-left py-1">Disable PCL Module</th><td class="py-1">${settings.disablePclModule}</td></tr>
+                    <tr><th class="text-left py-1">Timed Stored Data</th><td class="py-1">${settings.timedStoredData}</td></tr>
+                    <tr><th class="text-left py-1">Charging Float Mode</th><td class="py-1">${settings.chargingFloatMode}</td></tr>
+                    ${settings.cellResistances.map((r, i) => `
+                        <tr><th class="text-left py-1">Wire Res ${i + 1}</th><td class="py-1">${r.toFixed(3)} mΩ</td></tr>
+                    `).join('')}
+                    </table>
+                </div>
+         `;
+
+
+              element.innerHTML = html;        
+        }
+    }
+
+    class Battery {
+        device = null;
+        data = null;
+        data2 = null;
+        deviceInfo = null;
+        settings = null;
+        settings3= null;
+        gatt = null;
+        advertisementreceivedListener = null;
+        manager = null;
+        hasConnectionError = false;
+        characteristic = null;
+
+        dataReceivedListener = null;
+
+        constructor(dev,manager) {
+            this.device = dev;
+            this.manager = manager;
+        }
+
+        setDataReceivedListener(listener) {
+            this.dataReceivedListener = listener;
+        }
+
+        async toggleCharge(){
+            if (!this.settings) {
+                appendLog('ℹ️ Settings not loaded yet.');
+                return;
+            }
+            const command = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].write_commands.toggleChargeMOS;
+            const value = this.settings.chargeSwitch ? 0 : 1;
+            const writeCommand = JKBms.createWriteCommand(command, value);
+            await this.write(writeCommand);
+            this.settings.chargeSwitch = !this.settings.chargeSwitch;
+            appendLog(`🔄 Charge MOS toggled to ${this.settings.chargeSwitch ? 'ON' : 'OFF'}`);
+            this.refresh();
+        }
+
+        async toggleDischarge(){
+            if (!this.settings) {
+                appendLog('ℹ️ Settings not loaded yet.');
+                return;
+            }
+            const command = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].write_commands.toggleDischargeMOS;
+            const value = this.settings.dischargeSwitch ? 0 : 1;
+            const writeCommand = JKBms.createWriteCommand(command, value);
+            await this.write(writeCommand);
+            this.settings.dischargeSwitch = !this.settings.dischargeSwitch;
+            appendLog(`🔄 Discharge MOS toggled to ${this.settings.dischargeSwitch ? 'ON' : 'OFF'}`);
+            this.refresh();
+        }
+
+        async toggleBalance(){
+            if (!this.settings) {
+                appendLog('ℹ️ Settings not loaded yet.');
+                return;
+            }
+            const command = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].write_commands.toggleBalanceMOS;
+            const value = this.settings.balancerSwitch ? 0 : 1;
+            const writeCommand = JKBms.createWriteCommand(command, value);
+            await this.write(writeCommand);
+            this.settings.balancerSwitch = !this.settings.balancerSwitch;
+            appendLog(`🔄 Balance MOS toggled to ${this.settings.balancerSwitch ? 'ON' : 'OFF'}`);
+            this.refresh();
+        }
+
+        async setMaxChargeCurrent(current) {
+            if (!this.settings) {
+                appendLog('ℹ️ Settings not loaded yet.');
+                return;
+            }
+            const command = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].write_commands.setMaxChargeCurrent;
+            const writeCommand = JKBms.createWriteCommand(command, current);
+            await this.write(writeCommand);
+            this.settings.maxChargeCurrent = current;
+            appendLog(`🔄 Max Charge Current set to ${current} A`);
+            this.refresh();
+        }
+
+        async setMaxDischargeCurrent(current) {
+            if (!this.settings) {
+                appendLog('ℹ️ Settings not loaded yet.');
+                return;
+            }
+            const command = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].write_commands.setMaxDischargeCurrent;
+            const writeCommand = JKBms.createWriteCommand(command, current);
+            await this.write(writeCommand);
+            this.settings.maxDischargeCurrent = current;
+            appendLog(`🔄 Max Discharge Current set to ${current} A`);
+            this.refresh();
+        }
+
+        async connect(cb) {        
+            let abortController;
+            if (!this.device.gatt.connected) {
+                appendLog(`🔗 Connecting to battery: ${this.device.name || this.device.id}`);
+                abortController = new AbortController();
+                console.log(this.device);
+                await this.device.watchAdvertisements({signal: abortController.signal});
+                //this.device.removeEventListener('characteristicvaluechanged');
+                this.device.addEventListener('advertisementreceived', async (evt) => {
+                    console.log("Advertisement received: connecting to gatt", evt); 
+                    appendLog(`🔗 Advertisement received from: ${this.device.name || this.device.id} waiting for gatt....`);    
+                    abortController.abort();
+                    this.gatt = await this.device.gatt.connect();
+                    appendLog('✅ Connected to GATT server. Fetching services...');   
+
+                    const services = await this.gatt.getPrimaryServices();
+
+                    if (!services || services.length === 0) {
+                        appendLog('❌ No services found on GATT server.');
+                        if (cb)cb(false);
+                        return;
+                    }
+
+                    appendLog('✅ fetched services');
+
+                    // 3. log their UUIDs
+                    console.log('supported services:', services.map(svc => svc.uuid));
+
+
+                    console.debug('🔗 Connected to GATT server', this);
+                    clearTimeout(timer);
+                    appendLog('📡 Connected to GATT server');
+                    this.manager.activeBattery = this;
+                    if (cb)cb(true);
+                },{ once: true });
+            } else {
+                appendLog('ℹ️ Already connected to battery.');
+                if (cb)cb(false);
+                return null;
+            }
+
+            const timer = setTimeout(() => {
+                if (abortController) abortController.abort();
+                cb(false);
+            }, 10000); // 10 seconds timeout
+        }
+
+        async write(command){
+            await this.characteristic.writeNoAck(command);
+        }
+
+        async disconnect() {
+            if (this.gatt && this.gatt.connected) {
+                appendLog('🔌 Disconnecting from BMS...');
+                console.debug('🔌 Disconnecting from GATT server', this);
+                this.manager.activeBattery = null;
+                await this.gatt.disconnect();
+                this.gatt = null;
+                appendLog('✅ Device disconnected.');
+            } else {
+                console.debug('🔌 Already disconnected from GATT server', this);
+                appendLog('ℹ️ Already disconnected.');
+            }
+        }
+
+        async listen(cb) {
+            console.debug('Battery => Listening for advertisements...',this);
+            try {       
+                const timeoutTimer = setTimeout(()=>{
+                    appendLog('❌ No data received within 8 seconds. Disconnecting...');
+                    this.hasConnectionError = true;
+                    this.disconnect();
+                    cb(true)
+                },5000);
+
+                const device = this.device;
+                let recvBuffer;
+                appendLog(`🔗 Listen to: ${device.name || device.id}`);
+                const server = this.gatt;
+                appendLog('📡 Connected to GATT server');
+
+                const service = await server.getPrimaryService(JKBms.SERVICE_UUID);
+                const allChars = await service.getCharacteristics();
+                const writeChar = allChars.find(c => c.properties.write || c.properties.writeWithoutResponse);
+                const notifyChar = allChars.find(c => c.properties.notify);
+                let lastSigType = null;
+
+                if (!writeChar || !notifyChar) throw new Error('Couldn’t find read+write endpoints');
+                await notifyChar.startNotifications();
+                this.characteristic = {
+                    write: val => writeChar.writeValue(val),
+                    writeNoAck: writeChar.writeValueWithoutResponse ? val => writeChar.writeValueWithoutResponse(val) : null,
+                    notify: notifyChar 
+                };
+
+                if (this.advertisementreceivedListener) {
+                    this.characteristic.notify.removeEventListener('characteristicvaluechanged', this.advertisementreceivedListener);
+                }
+                this.advertisementreceivedListener = async event => {
+        
+                    this.hasConnectionError = false;
+                    
+                    const chunk = new Uint8Array(event.target.value.buffer);
+                    if (chunk.length === 20 && chunk[0] === 0xAA && chunk[1] === 0x55 &&
+                        chunk[2] === 0x90 && chunk[3] === 0xEB) {
+                        console.debug('💧 Dropped our own write echo');
+                        return;
+                    }
+
+                    if (chunk[0] === 0x55 && chunk[1] === 0xAA && chunk[2] === 0xEB && chunk[3] === 0x90) {
+                        recvBuffer = new Uint8Array(0);
+                    }
+
+                    const tmp = new Uint8Array(recvBuffer.length + chunk.length);
+                    tmp.set(recvBuffer, 0);
+                    tmp.set(chunk, recvBuffer.length);
+                    recvBuffer = tmp;
+
+                    if (recvBuffer.length >= JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].MIN_FRAME_SIZE) {
+
+                        if (timeoutTimer){
+                            clearTimeout(timeoutTimer);
+                        }
+
+                        const crc = Array.from(recvBuffer.subarray(0, -1)).reduce((sum, b) => (sum + b) & 0xFF, 0);
+                        if (crc !== recvBuffer[recvBuffer.length - 1]) {
+                            appendLog(`❌ Bad CRC: ${crc} != ${recvBuffer[recvBuffer.length - 1]}`);
+                            recvBuffer = new Uint8Array(0);
+                            return;
+                        }
+
+                        const sig = recvBuffer[4];
+                        if (!lastSigType || lastSigType !== sig) {
+                            if (lastSigType) {
+                                appendLog(`📬 New frame with sig=${lastSigType.toString(16).padStart(2, '0')} (${recvBuffer.length} bytes) processed`);
+                            }
+                        }
+                        let data = {};
+                        if (sig === 0x03) {
+                            appendLog('✅ Device Info frame received');
+                            this.deviceInfo = JKBms.decodeDeviceInfo(recvBuffer,0x03);
+                            if (this.dataReceivedListener) this.dataReceivedListener(data);
+                        } else if (sig === 0x02) {
+                            this.data = JKBms.decodeDeviceInfo(recvBuffer,0x02)
+                            if (this.dataReceivedListener) this.dataReceivedListener(data);
+                        } else if (sig === 0x01) {
+                            appendLog('✅ Settings frame received');
+                            this.settings = JKBms.decodeDeviceInfo(recvBuffer,0x01);
+                            if (this.dataReceivedListener) this.dataReceivedListener(data);
+                        } else {
+                            appendLog(`⚠️ Unknown frame signature: 0x${sig.toString(16).padStart(2, '0')}`);
+                        }
+                        lastSigType = sig;
+                        recvBuffer = new Uint8Array(0);
+                    }
+                };
+                this.characteristic.notify.addEventListener('characteristicvaluechanged', this.advertisementreceivedListener);
+                appendLog('📤 Requesting device info and realtime data');
+                await this.characteristic.write(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getDeviceInfo);         
+                await new Promise(r => setTimeout(r, 200));
+                await this.characteristic.write(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getRealtimeData);
+                await new Promise(r => setTimeout(r, 200));
+            } catch (err) {
+                appendLog(`❌ Error: ${err.message}`);
+                console.error(err);
+                cb(true);
+            }
+        }
+
+        refresh() {
+            if (!this.characteristic) {
+                appendLog('❌ Not connected. Please connect first.');
+                return;
+            }
+            appendLog('📤 Request new update from device');
+            if (this.characteristic.writeNoAck) {
+                this.characteristic.writeNoAck(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getRealtimeData);
+            } else {
+                this.characteristic.write(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getRealtimeData);
+            }
+        }
+    }
+
+    class BatteryManager {
+
+        selectedBattery = null;
+        batteryDataReceivedListener = null;
+        constructor() {
+            this.batteries = [];
+        }
+
+        setBatteryDataReceivedListener(listener) {
+            this.batteryDataReceivedListener = listener;
+        }
+
+        addBattery(device) {
+            console.log(`Adding battery: ${device.name || device.id}`);
+            const battery = new Battery(device,this);
+            this.batteries.push(battery);
+
+            battery.setDataReceivedListener((data) => {
+                if (this.batteryDataReceivedListener) {
+                    this.batteryDataReceivedListener(battery,data);
+                }
+            });
+
+            return battery;
+        }
+
+        findBatteryById(deviceId) {
+            return this.batteries.find(b => b.device.id === deviceId);
+        }
+
+        async disconnectAll() {
+            for (const battery of this.batteries) {
+                await this.disconnectBattery(battery);
+            }
+        }
+
+        async connectBattery(battery,cb){
+            await battery.connect(cb);
+        }
+
+        async disconnectBattery(battery) {
+            if (battery) {
+                await battery.disconnect();
+                this.selectedBattery = null;
+                this.batteries = this.batteries.filter(b => b.device.id !== battery.id);
+                appendLog(`✅ Disconnected from battery: ${battery.device.name}`);
+            } else {
+                appendLog(`❌ No battery found with ID: ${battery.device.name}`);
+            }
+        }
+
+        async resolvePairedBatteries() {
+            const devices = await navigator.bluetooth.getDevices();
+            this.batteries = devices.map(device => this.addBattery(device,this));
+            return this.batteries;
+        }
+
+        async autoReconnect(cb) {
+            if (this.batteries.length === 0) {
+                cb();
+                return;
+            }
+            const battery = this.batteries[0];
+            battery.connect(async (connected) => {
+                if (connected) {
+                    this.selectedBattery = battery;
+                    cb(battery);
+                } else {
+                    cb();
+                }
+            });
+        }
+    }
+
+    async function main(){
+
+        const batteryManager = new BatteryManager();
+        window.bm = batteryManager;
+        batteryManager.setBatteryDataReceivedListener((battery, data) => {
+            UI.refresh();
+        });
+        const UI = new UIManager(batteryManager);
+        await batteryManager.resolvePairedBatteries();
+
+        //UI.bindConnectButton();
+
+        if (batteryManager.batteries.length === 0) {
+            UI.refresh();
+            appendLog('ℹ️ No batteries found. Please pair a battery first.');
+            return;
+        }
+
+        UI.renderBatterySelection(batteryManager.batteries);
+
+        await batteryManager.autoReconnect(async (battery)=>{
+            if (battery) {
+                appendLog('🔗 Successfully reconnected to battery.');
+                UI.refresh();
+                battery.listen((error)=>{
+                    if (error){
+                        appendLog(`❌ Failed to listen to ${battery.device.name}`);
+                        UI.refresh();
+                    }
+                });
+                //await battery.connect();
+            } else {
+                appendLog('ℹ️ Could not auto reconnect, use button to select device.');
+            }
+        });
+    }
+
+    
+
+    main();
+</script>
+</body>
+
+</html>
+
+</html>
