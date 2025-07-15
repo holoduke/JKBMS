@@ -1,4 +1,4 @@
-# JKBMS
+# JK BMS
 
 A component to monitor and control a Jikong Battery Management System (JK-BMS) via BLE
 Only the JK_B2A8S20P is tested. 
