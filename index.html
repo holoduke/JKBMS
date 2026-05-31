@@ -121,6 +121,25 @@
 
             <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4" id="allinfopContainer"> </section>
 
+            <!-- Dev tool: replay & gap-analyse a captured frame (no Bluetooth needed) -->
+            <section class="mb-4">
+                <details class="bg-gray-800 rounded-lg p-4">
+                    <summary class="cursor-pointer font-semibold">🛠️ Dev: replay &amp; gap-analyse a captured frame</summary>
+                    <p class="text-sm text-gray-400 mt-2">
+                        Paste a raw frame hex dump — any of <code>55 AA EB 90 03 …</code>, <code>0x55,0xAA,…</code>, newlines are fine.
+                        Frame type is auto-detected from byte&nbsp;4 (<code>01</code>=settings, <code>02</code>=realtime, <code>03</code>=device info).
+                        The analysis highlights bytes that <em>no</em> field currently decodes.
+                    </p>
+                    <textarea id="replayInput" class="w-full h-32 bg-gray-900 text-gray-200 p-3 rounded mt-2 font-mono text-xs"
+                        placeholder="55 AA EB 90 03 ..."></textarea>
+                    <div class="flex gap-3 mt-2 items-center">
+                        <button id="replayBtn" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">Decode &amp; analyse</button>
+                        <span id="replayMeta" class="text-sm text-gray-400"></span>
+                    </div>
+                    <div id="replayOutput" class="mt-3"></div>
+                </details>
+            </section>
+
         </div>
     </main>
 
@@ -281,18 +300,44 @@
         static SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
         static CHARACTERISTIC_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
 
+        // JK02_32S 32-bit error/alarm bitmask (bit index = array index).
+        // Transcribed from syssi/esphome-jk-bms ERRORS_JK02[]. Empty = reserved/unlabeled bit.
         static ERROR_FLAGS = [
-            "Charge Overtemperature", "Charge Undertemperature", "Coprocessor communication error",
-            "Cell Undervoltage", "Battery pack undervoltage", "Discharge overcurrent",
-            "Discharge short circuit", "Discharge overtemperature", "Wire resistance",
-            "Mosfet overtemperature", "Cell count mismatch", "Current sensor anomaly",
-            "Cell Overvoltage", "Battery pack overvoltage", "Charge overcurrent protection",
-            "Charge short circuit"
+            "Wire resistance",                      // bit 0
+            "MOSFET overtemperature",               // bit 1
+            "Cell count is not equal to settings",  // bit 2
+            "",                                     // bit 3 (was "Current sensor anomaly")
+            "Battery is fully charged",             // bit 4
+            "Battery pack overvoltage",             // bit 5
+            "Charge overcurrent",                   // bit 6
+            "Charge short circuit",                 // bit 7
+            "Charge overtemperature",               // bit 8
+            "Charge undertemperature",              // bit 9
+            "Coprocessor communication error",      // bit 10
+            "Cell undervoltage",                    // bit 11
+            "Battery pack undervoltage",            // bit 12
+            "Discharge overcurrent",                // bit 13
+            "Discharge short circuit",              // bit 14
+            "Discharge overtemperature",            // bit 15
+            "Charging MOSFET abnormal",             // bit 16
+            "Discharging MOSFET abnormal",          // bit 17
+            "GPS disconnected",                     // bit 18
+            "Modify password in time",              // bit 19
+            "Discharge on failed",                  // bit 20
+            "Battery overtemperature",              // bit 21
+            "Temperature sensor anomaly",           // bit 22
+            "PL module anomaly",                    // bit 23
+            "SCP release failed",                   // bit 24
+            "Discharge OCP II",                     // bit 25
+            "Discharge OCP III",                    // bit 26
+            "Discharge undertemperature alarm",     // bit 27
+            "GPS remote lock",                      // bit 28
+            "", "", ""                              // bits 29-31 (reserved)
         ];
         static CRITICAL_ERRORS = [
-            "Cell Undervoltage", "Battery pack undervoltage", "Discharge overcurrent",
-            "Discharge short circuit", "Cell Overvoltage", "Battery pack overvoltage",
-            "Charge overcurrent protection", "Charge short circuit"
+            "Cell undervoltage", "Battery pack undervoltage", "Discharge overcurrent",
+            "Discharge short circuit", "Battery pack overvoltage", "Charge overcurrent",
+            "Charge short circuit", "Charging MOSFET abnormal", "Discharging MOSFET abnormal"
         ];
         static PROTOCOL_DEFINITIONS = {
             'JK02_32S': {
@@ -518,22 +563,22 @@
                         },
                         chargeUtp: {
                             offset: 98,
-                            type: 'i16',
+                            type: 'i32',
                             scale: v => v * 0.1
                         },
                         chargeUtpRecovery: {
                             offset: 102,
-                            type: 'i16',
+                            type: 'i32',
                             scale: v => v * 0.1
                         },
                         mosOtp: {
                             offset: 106,
-                            type: 'i16',
+                            type: 'i32',
                             scale: v => v * 0.1
                         },
                         mosOtpRecovery: {
                             offset: 110,
-                            type: 'i16',
+                            type: 'i32',
                             scale: v => v * 0.1
                         },
                         shortCircuitProtectionDelay: {
@@ -633,6 +678,44 @@
                             type: 'u16',
                             scale: 1,
                             post: v => !!(v & 0x0200)
+                        },
+                        emergencyButtonTrigger: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0400)
+                        },
+                        dryContactAlarmIntermittent: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x0800)
+                        },
+                        dischargeOcp2: {
+                            offset: 282,
+                            type: 'u16',
+                            scale: 1,
+                            post: v => !!(v & 0x1000)
+                        },
+                        heatingStartTemp: {
+                            offset: 284,
+                            type: 'i8',
+                            scale: 1
+                        },
+                        heatingStopTemp: {
+                            offset: 285,
+                            type: 'i8',
+                            scale: 1
+                        },
+                        dischargeUtp: {
+                            offset: 296,
+                            type: 'i8',
+                            scale: 1
+                        },
+                        dischargeUtpRecovery: {
+                            offset: 297,
+                            type: 'i8',
+                            scale: 1
                         },
                         prechargeTimeSec: {
                             offset: 274,
@@ -751,16 +834,68 @@
                         },
                         rawErrorsBitmask: {
                             offset: 166,
-                            type: 'u16',
-                            post: v => ((v & 0xFF) << 8) | (v >> 8)
+                            type: 'u32',
                         },
                         errors: {
                             offset: 166,
-                            type: 'u16',
-                            post: v => {
-                                const mask = ((v & 0xFF) << 8) | (v >> 8);
-                                return JKBms.errorBitsToReadable(mask);
-                            }
+                            type: 'u32',
+                            post: v => JKBms.errorBitsToReadable(v)
+                        },
+                        balanceCurrent: {
+                            offset: 170,
+                            type: 'i16',
+                            littleEndian: true,
+                            scale: v => v * 0.001,
+                            post: v => parseFloat(v.toFixed(3))
+                        },
+                        chargingMosEnabled: {
+                            offset: 198,
+                            type: 'u8',
+                            scale: 1,
+                            post: v => !!v
+                        },
+                        dischargingMosEnabled: {
+                            offset: 199,
+                            type: 'u8',
+                            scale: 1,
+                            post: v => !!v
+                        },
+                        balancerWorking: {
+                            offset: 201,
+                            type: 'u8',
+                            scale: 1,
+                            post: v => !!v
+                        },
+                        tempProbe3: {
+                            offset: 254,
+                            type: 'i16',
+                            littleEndian: true,
+                            scale: v => v * 0.1,
+                            post: v => parseFloat(v.toFixed(1))
+                        },
+                        tempProbe4: {
+                            offset: 256,
+                            type: 'i16',
+                            littleEndian: true,
+                            scale: v => v * 0.1,
+                            post: v => parseFloat(v.toFixed(1))
+                        },
+                        tempProbe5: {
+                            offset: 258,
+                            type: 'i16',
+                            littleEndian: true,
+                            scale: v => v * 0.1,
+                            post: v => parseFloat(v.toFixed(1))
+                        },
+                        batteryTypeId: {
+                            offset: 275,
+                            type: 'u8',
+                            scale: 1
+                        },
+                        chargeStatusId: {
+                            offset: 280,
+                            type: 'u8',
+                            scale: 1
                         },
                     },
                     0x03: {
@@ -822,6 +957,31 @@
                             length: 16,
                             type: "cstring"
                         },
+                        uart1ProtocolNum: {
+                            offset: 184,
+                            type: 'u8',
+                            scale: 1
+                        },
+                        canProtocolNum: {
+                            offset: 185,
+                            type: 'u8',
+                            scale: 1
+                        },
+                        hardwareOption: {
+                            offset: 190,
+                            length: 12,
+                            type: "cstring"
+                        },
+                        uart1ProtocolsEnabledBitmask: {
+                            offset: 186,
+                            type: 'u32',
+                            scale: 1
+                        },
+                        canProtocolsEnabledBitmask: {
+                            offset: 202,
+                            type: 'u32',
+                            scale: 1
+                        },
                     }
                 }
             }
@@ -836,6 +996,9 @@
                 switch (def.type) {
                     case 'u8':
                         raw = dv.getUint8(def.offset);
+                        break;
+                    case 'i8':
+                        raw = dv.getInt8(def.offset);
                         break;
                     case 'u16':
                         raw = dv.getUint16(def.offset, true);
@@ -926,7 +1089,8 @@
         static errorBitsToReadable(mask) {
             const errors = [];
             for (let i = 0; i < JKBms.ERROR_FLAGS.length; i++) {
-                if (mask & (1 << i)) {
+                // mask can use bit 31, so use >>> to stay unsigned
+                if (((mask >>> i) & 1) && JKBms.ERROR_FLAGS[i]) {
                     errors.push(JKBms.ERROR_FLAGS[i]);
                 }
             }
@@ -1038,7 +1202,7 @@
         renderStatus(battery) {
             const status = battery.data;;
             const warnings = status.errors || [];
-            const criticalWarnings = warnings.filter(w => CRITICAL_ERRORS.includes(w));
+            const criticalWarnings = warnings.filter(w => JKBms.CRITICAL_ERRORS.includes(w));
 
             const elements = {
                 gaugesTopContainer: document.getElementById('gaugesTopContainer'),
@@ -1133,9 +1297,20 @@
 
             const targetElement = document.getElementById('additionalMetrics');
 
-            const mosfetColor = battery.data.mosfetTemp > 60 ? 'text-red-500' : battery.data.mosfetTemp > 50 ? 'text-yellow-500' : 'text-green-500';
-            const probe1Color = battery.data.tempProbe1 > 60 ? 'text-red-500' : battery.data.tempProbe1 > 50 ? 'text-yellow-500' : 'text-green-500';
-            const probe2Color = battery.data.tempProbe2 > 60 ? 'text-red-500' : battery.data.tempProbe2 > 50 ? 'text-yellow-500' : 'text-green-500';
+            const tempColor = t => t > 60 ? 'text-red-500' : t > 50 ? 'text-yellow-500' : 'text-green-500';
+            const mosfetColor = tempColor(battery.data.mosfetTemp);
+            const probe1Color = tempColor(battery.data.tempProbe1);
+            const probe2Color = tempColor(battery.data.tempProbe2);
+            // Probes 3-5 only exist on some packs; skip absent sensors (report 0 / very low).
+            const extraProbeRows = [3, 4, 5].map(n => {
+                const v = battery.data['tempProbe' + n];
+                if (v == null || v === 0 || v <= -50) return '';
+                return `<tr class="border-b border-gray-700">
+                                <td class="py-2">Probe ${n}</td>
+                                <td class="py-2 ${tempColor(v)}">${v}°C</td>
+                                <td class="py-2 text-xs"></td>
+                            </tr>`;
+            }).join('');
 
             const temperature = `
                 <div class="bg-gray-800 p-6 rounded-lg">
@@ -1153,11 +1328,12 @@
                                 <td class="py-2 ${probe1Color}">${battery.data.tempProbe1}°C</td>
                                 <td class="py-2 text-xs">(${battery.settings.chargeUtp}°C / ${battery.settings.chargeOtp}°C)</td>
                             </tr>
-                            <tr>
+                            <tr class="border-b border-gray-700">
                                 <td class="py-2">Probe 2</td>
                                 <td class="py-2 ${probe2Color}">${battery.data.tempProbe2}°C</td>
                                 <td class="py-2 text-xs">(${battery.settings.chargeUtp}°C / ${battery.settings.chargeOtp}°C)</td>
                             </tr>
+                            ${extraProbeRows}
                         </tbody>
                     </table>
                 </div>
@@ -1295,6 +1471,15 @@
                     ['Temp Probe 2', () => status.tempProbe2 != null ? `${status.tempProbe2} °C` : 'N/A'],
                     ['Cycle Count', () => status.cycleCount != null ? status.cycleCount : 'N/A'],
                     ['State of Health', () => status.soh != null ? `${status.soh} %` : 'N/A'],
+                    ['Temp Probe 3', () => (status.tempProbe3 != null && status.tempProbe3 !== 0 && status.tempProbe3 > -50) ? `${status.tempProbe3} °C` : '–'],
+                    ['Temp Probe 4', () => (status.tempProbe4 != null && status.tempProbe4 !== 0 && status.tempProbe4 > -50) ? `${status.tempProbe4} °C` : '–'],
+                    ['Temp Probe 5', () => (status.tempProbe5 != null && status.tempProbe5 !== 0 && status.tempProbe5 > -50) ? `${status.tempProbe5} °C` : '–'],
+                    ['Charge MOSFET (actual)', () => status.chargingMosEnabled != null ? (status.chargingMosEnabled ? 'ON' : 'OFF') : 'N/A'],
+                    ['Discharge MOSFET (actual)', () => status.dischargingMosEnabled != null ? (status.dischargingMosEnabled ? 'ON' : 'OFF') : 'N/A'],
+                    ['Balancer Working', () => status.balancerWorking != null ? (status.balancerWorking ? 'YES' : 'no') : 'N/A'],
+                    ['Balance Current', () => status.balanceCurrent != null ? `${status.balanceCurrent} A` : 'N/A'],
+                    ['Battery Type', () => status.batteryTypeId != null ? (['LFP', 'Li-ion', 'LTO'][status.batteryTypeId] ?? status.batteryTypeId) : 'N/A'],
+                    ['Charge Stage', () => status.chargeStatusId != null ? (['Bulk', 'Absorption', 'Float'][status.chargeStatusId] ?? status.chargeStatusId) : 'N/A'],
                     // add cell voltages dynamically below…
                 ];
 
@@ -1319,6 +1504,11 @@
                     ['Passcode', () => info.passCode || '–'],
                     ['Setup Passcode', () => info.setupPasscode || '–'],
                     ['User Data', () => info.userData || '–'],
+                    ['Hardware Option', () => info.hardwareOption || '–'],
+                    ['RS485 Protocol #', () => info.uart1ProtocolNum != null ? info.uart1ProtocolNum : '–'],
+                    ['CAN Protocol #', () => info.canProtocolNum != null ? info.canProtocolNum : '–'],
+                    ['RS485 Protocols Enabled', () => info.uart1ProtocolsEnabledBitmask != null ? `0x${info.uart1ProtocolsEnabledBitmask.toString(16)}` : '–'],
+                    ['CAN Protocols Enabled', () => info.canProtocolsEnabledBitmask != null ? `0x${info.canProtocolsEnabledBitmask.toString(16)}` : '–'],
                 ];
 
                 const settingsRows = [
@@ -1350,6 +1540,10 @@
                     ['Discharge OTP Recovery', () => `${settings.dischargeOtpRecovery.toFixed(1)} °C`],
                     ['Charge UTP', () => `${settings.chargeUtp.toFixed(1)} °C`],
                     ['Charge UTP Recovery', () => `${settings.chargeUtpRecovery.toFixed(1)} °C`],
+                    ['Discharge UTP', () => `${settings.dischargeUtp} °C`],
+                    ['Discharge UTP Recovery', () => `${settings.dischargeUtpRecovery} °C`],
+                    ['Heating Start Temp', () => `${settings.heatingStartTemp} °C`],
+                    ['Heating Stop Temp', () => `${settings.heatingStopTemp} °C`],
                     ['MOSFET OTP', () => `${settings.mosOtp.toFixed(1)} °C`],
                     ['MOSFET OTP Recovery', () => `${settings.mosOtpRecovery.toFixed(1)} °C`],
                     ['SCP Delay', () => `${settings.shortCircuitProtectionDelay} s`],
@@ -1371,6 +1565,9 @@
                     ['Disable PCL Module', () => settings.disablePclModule],
                     ['Timed Stored Data', () => settings.timedStoredData],
                     ['Charging Float Mode', () => settings.chargingFloatMode],
+                    ['Emergency Button Trigger', () => settings.emergencyButtonTrigger],
+                    ['Dry-Contact Alarm Intermittent', () => settings.dryContactAlarmIntermittent],
+                    ['Discharge OCP2', () => settings.dischargeOcp2],
                     // wire resistances:
                     ...settings.cellResistances
                     .map((r, i) => [`Wire Res ${i+1}`, () => `${r.toFixed(3)} mΩ`])
@@ -1828,6 +2025,129 @@
             }
         });
     }
+
+    // ---------------------------------------------------------------------
+    // Dev replay tool: decode a pasted frame and report undecoded byte ranges
+    // ---------------------------------------------------------------------
+    const ReplayTool = {
+        TYPE_SIZES: { u8: 1, i8: 1, u16: 2, i16: 2, u32: 4, i32: 4 },
+
+        parseHexDump(text) {
+            const tokens = text.trim().replace(/0x/gi, '').split(/[^0-9a-fA-F]+/).filter(Boolean);
+            const bytes = [];
+            for (const tok of tokens) {
+                if (tok.length % 2 !== 0) throw new Error(`Odd-length hex token "${tok}" — bytes must be 2 hex digits`);
+                for (let i = 0; i < tok.length; i += 2) bytes.push(parseInt(tok.slice(i, i + 2), 16));
+            }
+            return new Uint8Array(bytes);
+        },
+
+        // Returns { covered:Uint8Array, fields:[{key,start,end}] } for a frame type
+        computeCoverage(frametype, byteLen) {
+            const defs = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].frameParsers[frametype] || {};
+            const covered = new Uint8Array(byteLen);
+            const fields = [];
+            // Structural bytes: header (0-3), frame type (4), counter (5), CRC (last)
+            for (let i = 0; i < 6 && i < byteLen; i++) covered[i] = 1;
+            if (byteLen > 0) covered[byteLen - 1] = 1;
+            for (const key in defs) {
+                const d = defs[key];
+                let len = 0;
+                if (d.type === 'iterate') len = d.maxItemCount * d.itemSize;
+                else if (d.type === 'cstring') len = d.length;
+                else len = ReplayTool.TYPE_SIZES[d.type] || 0;
+                for (let i = d.offset; i < d.offset + len && i < byteLen; i++) covered[i] = 1;
+                fields.push({ key, start: d.offset, end: d.offset + len - 1 });
+            }
+            return { covered, fields };
+        },
+
+        // Collapse the uncovered mask into runs, flagging runs that contain non-zero data
+        uncoveredRuns(bytes, covered) {
+            const runs = [];
+            let start = -1;
+            for (let i = 0; i < bytes.length; i++) {
+                if (!covered[i] && start === -1) start = i;
+                if ((covered[i] || i === bytes.length - 1) && start !== -1) {
+                    const end = covered[i] ? i - 1 : i;
+                    const slice = Array.from(bytes.slice(start, end + 1));
+                    runs.push({ start, end, slice, nonZero: slice.some(b => b !== 0) });
+                    start = -1;
+                }
+            }
+            return runs;
+        },
+
+        hex: arr => Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join(' '),
+
+        run() {
+            const out = document.getElementById('replayOutput');
+            const meta = document.getElementById('replayMeta');
+            out.innerHTML = '';
+            meta.textContent = '';
+            let bytes;
+            try {
+                bytes = ReplayTool.parseHexDump(document.getElementById('replayInput').value);
+            } catch (e) {
+                out.innerHTML = `<p class="text-red-500">Parse error: ${e.message}</p>`;
+                return;
+            }
+            if (bytes.length < 6) {
+                out.innerHTML = `<p class="text-red-500">Need at least 6 bytes (got ${bytes.length}).</p>`;
+                return;
+            }
+            const headerOk = bytes[0] === 0x55 && bytes[1] === 0xAA && bytes[2] === 0xEB && bytes[3] === 0x90;
+            const frametype = bytes[4];
+            const typeName = { 0x01: 'Settings', 0x02: 'Realtime/Cell info', 0x03: 'Device info', 0x05: 'Logbook' }[frametype] || 'Unknown';
+            const crcCalc = bytes.subarray(0, -1).reduce((s, b) => (s + b) & 0xFF, 0);
+            const crcOk = crcCalc === bytes[bytes.length - 1];
+            meta.innerHTML =
+                `${bytes.length} bytes · type 0x${frametype.toString(16).padStart(2, '0')} (${typeName}) · ` +
+                `header ${headerOk ? '✅' : '❌'} · CRC ${crcOk ? '✅' : `❌ calc 0x${crcCalc.toString(16)}`}`;
+
+            // Decode
+            let decoded = {};
+            try {
+                decoded = JKBms.decodeDeviceInfo(bytes, frametype);
+            } catch (e) {
+                out.innerHTML += `<p class="text-red-500">Decode error: ${e.message}</p>`;
+            }
+
+            // Coverage / gap analysis
+            const { covered } = ReplayTool.computeCoverage(frametype, bytes.length);
+            const runs = ReplayTool.uncoveredRuns(bytes, covered);
+            const coveredCount = covered.reduce((s, b) => s + b, 0);
+            const undecodedNonZero = runs.filter(r => r.nonZero);
+
+            const runRows = runs.map(r => {
+                const cls = r.nonZero ? 'text-yellow-400' : 'text-gray-500';
+                const flag = r.nonZero ? '⚠️ data' : 'zeros';
+                const range = r.start === r.end ? `${r.start}` : `${r.start}–${r.end}`;
+                return `<tr class="${cls}"><td class="pr-4 py-0.5">${range}</td><td class="pr-4">${r.end - r.start + 1}</td><td class="pr-4">${flag}</td><td class="font-mono text-xs">${ReplayTool.hex(r.slice)}</td></tr>`;
+            }).join('');
+
+            out.innerHTML += `
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="bg-gray-900 p-4 rounded">
+                        <h3 class="font-semibold mb-2">Decoded (${Object.keys(decoded).length} fields)</h3>
+                        <pre class="text-xs text-gray-300 overflow-auto" style="max-height:360px">${JSON.stringify(decoded, null, 2)}</pre>
+                    </div>
+                    <div class="bg-gray-900 p-4 rounded">
+                        <h3 class="font-semibold mb-2">Coverage: ${coveredCount}/${bytes.length} bytes decoded
+                            · <span class="${undecodedNonZero.length ? 'text-yellow-400' : 'text-green-400'}">${undecodedNonZero.length} undecoded non-zero run(s)</span>
+                        </h3>
+                        <table class="w-full text-sm"><thead><tr class="text-gray-400 text-left"><th class="pr-4">offset</th><th class="pr-4">len</th><th class="pr-4">flag</th><th>bytes</th></tr></thead>
+                        <tbody>${runRows || '<tr><td colspan="4" class="text-green-400">Every byte is decoded 🎉</td></tr>'}</tbody></table>
+                        <p class="text-xs text-gray-500 mt-2">⚠️ = bytes carrying non-zero data that no field reads — candidates for fields we don't decode yet. Zero runs are usually padding/unused.</p>
+                    </div>
+                </div>`;
+        }
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('replayBtn');
+        if (btn) btn.addEventListener('click', () => ReplayTool.run());
+    });
 
     main();
 </script>
