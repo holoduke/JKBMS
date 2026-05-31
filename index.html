@@ -121,6 +121,10 @@
         .field { background: rgba(0, 0, 0, .35); border: 1px solid var(--border); border-radius: 10px; color: var(--text); padding: .5rem .7rem; width: 100%; transition: border-color .2s; }
         .field:focus { outline: none; border-color: var(--accent); }
 
+        /* inline edit icon in settings rows */
+        .edit-btn { margin-left: .5rem; padding: 0 .4rem; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-size: .72rem; line-height: 1.5; transition: .2s; }
+        .edit-btn:hover { color: var(--accent); border-color: var(--accent); }
+
         /* confirm modal */
         .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .6); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 50; padding: 1rem; }
         .modal-backdrop.show { display: flex; animation: fadeIn .15s ease; }
@@ -165,8 +169,6 @@
 
             <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 fade-in" id="gaugesTopContainer"> </section>
             <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 fade-in" id="additionalMetrics"> </section>
-
-            <section class="mb-4 fade-in" id="controlsContainer"></section>
 
             <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6 fade-in" id="cellvoltagesContainer"> </section>
 
@@ -219,7 +221,11 @@
                 <span class="text-xl">⚠️</span>
                 <div class="text-lg font-semibold" id="confirmTitle"></div>
             </div>
-            <div class="text-sm mb-5" style="color:var(--muted)" id="confirmBody"></div>
+            <div class="text-sm mb-4" style="color:var(--muted)" id="confirmBody"></div>
+            <div class="mb-5 flex gap-2 items-center" id="confirmInputWrap" style="display:none">
+                <input class="field metric" type="number" id="confirmInput">
+                <span class="text-sm" style="color:var(--muted)" id="confirmInputUnit"></span>
+            </div>
             <div class="flex justify-end gap-2">
                 <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
                 <button class="btn btn-danger" id="confirmOk">Confirm &amp; write</button>
@@ -1193,8 +1199,6 @@
                 this.renderAdditionalMetrics(this.batteryManager.activeBattery);
                 this.renderCellInfo(this.batteryManager.activeBattery);
                 this.updateIndicators(this.batteryManager.activeBattery);
-                this.renderControls(this.batteryManager.activeBattery);
-                this.updateControlsState(this.batteryManager.activeBattery);
                 this.renderAllSettings(this.batteryManager.activeBattery);
             }
         }
@@ -1245,112 +1249,70 @@
         }
 
         // In-page confirmation gate for any BMS write. Shows exactly what will be sent.
-        confirmAction(title, body, onConfirm) {
+        // Pass `input` ({ value, unit, min, max, step }) to collect a number; onConfirm
+        // then receives the parsed value.
+        confirmAction(title, body, onConfirm, input) {
             const modal = document.getElementById('confirmModal');
             const ok = document.getElementById('confirmOk');
             const cancel = document.getElementById('confirmCancel');
+            const wrap = document.getElementById('confirmInputWrap');
+            const field = document.getElementById('confirmInput');
             document.getElementById('confirmTitle').textContent = title;
             document.getElementById('confirmBody').textContent = body;
+
+            if (input) {
+                wrap.style.display = '';
+                field.value = input.value;
+                field.min = input.min; field.max = input.max; field.step = input.step;
+                document.getElementById('confirmInputUnit').textContent = input.unit || '';
+            } else {
+                wrap.style.display = 'none';
+            }
+
             modal.classList.add('show');
+            if (input) field.focus();
             const cleanup = () => { modal.classList.remove('show'); ok.onclick = null; cancel.onclick = null; };
-            ok.onclick = () => { cleanup(); try { onConfirm(); } catch (e) { appendLog(`❌ Write failed: ${e.message}`); } };
+            ok.onclick = () => {
+                const val = input ? parseFloat(field.value) : undefined;
+                if (input && (!isFinite(val) || val < 0)) { appendLog('❌ Invalid value'); return; }
+                cleanup();
+                try { onConfirm(val); } catch (e) { appendLog(`❌ Write failed: ${e.message}`); }
+            };
             cancel.onclick = cleanup;
         }
 
-        // Build the controls card once per device (re-rendering would destroy input focus/state).
-        renderControls(battery) {
-            const el = document.getElementById('controlsContainer');
-            if (!el) return;
-            const id = String(battery.device.id);
-            if (el.dataset.built === '1' && el.dataset.deviceId === id) return;
-            el.dataset.built = '1';
-            el.dataset.deviceId = id;
+        // Writable settings, keyed by their row label in the "All Settings" table.
+        SETTING_EDITORS = {
+            'Charge Switch':         { kind: 'toggle', label: 'Charge MOSFET',  method: 'toggleCharge',  stateKey: 'chargeSwitch' },
+            'Discharge Switch':      { kind: 'toggle', label: 'Discharge MOSFET', method: 'toggleDischarge', stateKey: 'dischargeSwitch' },
+            'Balancer Switch':       { kind: 'toggle', label: 'Balancer',       method: 'toggleBalance', stateKey: 'balancerSwitch' },
+            'Max Charge Current':    { kind: 'number', label: 'Max charge current',    method: 'setMaxChargeCurrent',    unit: 'A',  key: 'maxChargeCurrent',       min: 0, max: 200,  step: 0.5 },
+            'Max Discharge Current': { kind: 'number', label: 'Max discharge current', method: 'setMaxDischargeCurrent', unit: 'A',  key: 'maxDischargeCurrent',    min: 0, max: 200,  step: 0.5 },
+            'Nominal Capacity':      { kind: 'number', label: 'Nominal capacity',      method: 'setMaxCapacity',         unit: 'Ah', key: 'nominalBatteryCapacity', min: 0, max: 2000, step: 1 }
+        };
 
-            const s = battery.settings;
-            const toggle = (key, label, on) => `
-                <div class="flex items-center justify-between py-2">
-                    <span class="text-sm">${label}</span>
-                    <button class="switch ${on ? 'on' : ''}" data-toggle="${key}" aria-pressed="${!!on}"><span></span></button>
-                </div>`;
-            const numField = (key, label, val, unit, min, max, step) => `
-                <div>
-                    <label class="card-title block mb-1">${label}</label>
-                    <div class="flex gap-2">
-                        <input class="field metric" type="number" id="ctl_${key}" value="${val}" min="${min}" max="${max}" step="${step}">
-                        <button class="btn btn-ghost" data-apply="${key}">Set</button>
-                        <span class="self-center text-xs" style="color:var(--muted)">${unit}</span>
-                    </div>
-                </div>`;
+        // Triggered by the ✎ icon on a writable settings row.
+        editSetting(label) {
+            const battery = this.batteryManager.activeBattery;
+            if (!battery || !battery.settings) return;
+            const spec = this.SETTING_EDITORS[label];
+            if (!spec) return;
 
-            el.innerHTML = `
-                <div class="card p-5">
-                    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-                        <div class="card-title">⚙ Controls</div>
-                        <span class="pill" style="color:var(--warn)"><span class="dot warnc"></span>writes to BMS · confirmation required</span>
-                    </div>
-                    <div class="grid md:grid-cols-3 gap-x-8 gap-y-4">
-                        <div>
-                            ${toggle('charge', 'Charge MOSFET', s.chargeSwitch)}
-                            ${toggle('discharge', 'Discharge MOSFET', s.dischargeSwitch)}
-                            ${toggle('balance', 'Balancer', s.balancerSwitch)}
-                        </div>
-                        <div class="md:col-span-2 grid sm:grid-cols-3 gap-4">
-                            ${numField('maxCharge', 'Max charge current', s.maxChargeCurrent, 'A', 0, 200, 0.5)}
-                            ${numField('maxDischarge', 'Max discharge current', s.maxDischargeCurrent, 'A', 0, 200, 0.5)}
-                            ${numField('capacity', 'Nominal capacity', s.nominalBatteryCapacity, 'Ah', 0, 2000, 1)}
-                        </div>
-                    </div>
-                </div>`;
-
-            const toggleMap = {
-                charge: ['Charge MOSFET', 'chargeSwitch', 'toggleCharge'],
-                discharge: ['Discharge MOSFET', 'dischargeSwitch', 'toggleDischarge'],
-                balance: ['Balancer', 'balancerSwitch', 'toggleBalance']
-            };
-            el.querySelectorAll('[data-toggle]').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const [label, key, method] = toggleMap[btn.dataset.toggle];
-                    const next = battery.settings[key] ? 'OFF' : 'ON';
-                    this.confirmAction(
-                        `Turn ${next} — ${label}?`,
-                        `This sends a command to the BMS and changes the ${label.toLowerCase()} state. Make sure the load/charger can handle this.`,
-                        () => battery[method]()
-                    );
-                });
-            });
-
-            const applyMap = {
-                maxCharge: ['Max charge current', 'A', 'setMaxChargeCurrent'],
-                maxDischarge: ['Max discharge current', 'A', 'setMaxDischargeCurrent'],
-                capacity: ['Nominal capacity', 'Ah', 'setMaxCapacity']
-            };
-            el.querySelectorAll('[data-apply]').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const [label, unit, method] = applyMap[btn.dataset.apply];
-                    const input = document.getElementById('ctl_' + btn.dataset.apply);
-                    const val = parseFloat(input.value);
-                    if (!isFinite(val) || val < 0) { appendLog('❌ Invalid value'); return; }
-                    this.confirmAction(
-                        `Set ${label} = ${val} ${unit}?`,
-                        `This writes a new protection setting to the BMS, replacing the current value.`,
-                        () => battery[method](val)
-                    );
-                });
-            });
-        }
-
-        // Cheap per-frame update of the toggle visuals (does not rebuild inputs).
-        updateControlsState(battery) {
-            const el = document.getElementById('controlsContainer');
-            if (!el || el.dataset.built !== '1') return;
-            const s = battery.settings;
-            const setSw = (key, on) => {
-                const b = el.querySelector(`[data-toggle="${key}"]`);
-                if (b) { b.classList.toggle('on', !!on); b.setAttribute('aria-pressed', !!on); }
-            };
-            setSw('charge', s.chargeSwitch);
-            setSw('discharge', s.dischargeSwitch);
-            setSw('balance', s.balancerSwitch);
+            if (spec.kind === 'toggle') {
+                const next = battery.settings[spec.stateKey] ? 'OFF' : 'ON';
+                this.confirmAction(
+                    `Turn ${next} — ${spec.label}?`,
+                    `This sends a command to the BMS and changes the ${spec.label.toLowerCase()} state. Make sure the load/charger can handle this.`,
+                    () => battery[spec.method]()
+                );
+            } else {
+                this.confirmAction(
+                    `Set ${spec.label}?`,
+                    `This writes a new protection setting to the BMS, replacing the current value.`,
+                    (val) => battery[spec.method](val),
+                    { value: battery.settings[spec.key], unit: spec.unit, min: spec.min, max: spec.max, step: spec.step }
+                );
+            }
         }
 
 
@@ -1707,21 +1669,34 @@
                     .map((r, i) => [`Wire Res ${i+1}`, () => `${r.toFixed(3)} mΩ`])
                 ];
 
-                // 2) Helper to render a titled card with key/value rows
-                const renderSection = (title, rows) => `
+                // 2) Helper to render a titled card with key/value rows.
+                //    `editable` (a Set of labels) gets a ✎ icon that opens the write modal.
+                const renderSection = (title, rows, editable) => `
                 <div class="card p-5">
                     <div class="card-title mb-3">${title}</div>
-                    <div>${rows.map(([label, fn]) =>
-                        `<div class="kv"><span class="k">${label}</span><span class="v">${escapeHtml(fn())}</span></div>`
-                    ).join('')}</div>
+                    <div>${rows.map(([label, fn]) => {
+                        const pencil = editable && editable.has(label)
+                            ? `<button class="edit-btn" data-edit="${escapeHtml(label)}" title="Edit ${escapeHtml(label)}">✎</button>`
+                            : '';
+                        return `<div class="kv"><span class="k">${label}</span><span class="v">${escapeHtml(fn())}${pencil}</span></div>`;
+                    }).join('')}</div>
                 </div>`;
 
-            // 3) Assemble & inject
+            // 3) Assemble & inject (only the settings section gets editable ✎ rows)
             $container.innerHTML = [
                 renderSection('Raw realtime',  rawRows),
                 renderSection('Device info',   infoRows),
-                renderSection('All Settings',  settingsRows),
+                renderSection('All Settings',  settingsRows, new Set(Object.keys(this.SETTING_EDITORS))),
             ].join('');
+
+            // Delegated handler survives the per-frame innerHTML rebuilds (bound once on the stable parent).
+            if ($container.dataset.editWired !== '1') {
+                $container.dataset.editWired = '1';
+                $container.addEventListener('click', (e) => {
+                    const btn = e.target.closest('[data-edit]');
+                    if (btn) this.editSetting(btn.dataset.edit);
+                });
+            }
         }
     }
 
