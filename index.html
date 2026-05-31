@@ -269,12 +269,15 @@
 
         static calcBattPerc(totalVoltage, {
             soc100Voltage,
+            soc0Voltage,
             cellCount,
             cellUvp
         }) {
             if (totalVoltage === undefined) return 0;
 
-            const minV = cellUvp * cellCount;
+            // Prefer the configured 0%-SOC cell voltage; fall back to UVP if unset.
+            const lowCellVoltage = soc0Voltage || cellUvp;
+            const minV = lowCellVoltage * cellCount;
             const maxV = soc100Voltage * cellCount;
             const span = maxV - minV;
 
@@ -999,7 +1002,7 @@
             const dv = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
             const settings = {};
             for (const key in JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].frameParsers[frametype]) {
-                var def = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].frameParsers[frametype][key];
+                const def = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].frameParsers[frametype][key];
                 let raw;
                 switch (def.type) {
                     case 'u8':
@@ -1223,7 +1226,7 @@
             if (battery.settings) {
                 const battPerc = Utils.calcBattPerc(status.totalVoltage, battery.settings);
                 color = battPerc >= 60 ? '#10B981' : battPerc >= 20 ? '#F59E0B' : '#EF4444';
-                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", battPerc, color, Utils.formatAuto(status.totalVoltage, "V"), "/ " + (battery.settings.soc100Voltage * battery.settings.cellCount) + " V", "nominal cell voltage: " + battery.settings.soc100Voltage + " V", "voltageGauge");
+                this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", battPerc, color, Utils.formatAuto(status.totalVoltage, "V"), "/ " + (battery.settings.soc100Voltage * battery.settings.cellCount) + " V", "100% SOC cell voltage: " + battery.settings.soc100Voltage + " V", "voltageGauge");
             } else {
                 this.renderGaugeStatus(elements.gaugesTopContainer, "Voltage", 0, color, Utils.formatAuto(status.totalVoltage, "V"), "", "", "voltageGauge");
             }
@@ -1423,12 +1426,8 @@
 
 
                         console.debug('Battery button clicked', device);
-                        let batterySelection = this.batteryManager.findBatteryById(device.id);
-                        if (!batterySelection) {
-                            appendLog(`🔗 Creating new battery instance for ${device.name || device.id}`);
-                            batterySelection = new Battery(device, this.batteryManager);
-                            this.batteryManager.addBattery(battery);
-                        }
+                        // addBattery is register-or-return, so this never creates a duplicate.
+                        const batterySelection = this.batteryManager.addBattery(device);
                         appendLog(`🔗 Connecting to battery: ${batterySelection.device.name || batterySelection.device.id}`);
                         this.batteryManager.connectBattery(batterySelection, (connected) => {
                             if (connected) {
@@ -1596,10 +1595,8 @@
     class Battery {
         device = null;
         data = null;
-        data2 = null;
         deviceInfo = null;
         settings = null;
-        settings3= null;
         gatt = null;
         advertisementreceivedListener = null;
         manager = null;
@@ -1698,48 +1695,60 @@
             this.refresh();
         }
 
-        async connect(cb) {        
-            let abortController;
-            if (!this.device.gatt.connected) {
-                appendLog(`🔗 Connecting to battery:`);
-                abortController = new AbortController();
-                console.log(this.device);
-                await this.device.watchAdvertisements({signal: abortController.signal});
-                //this.device.removeEventListener('characteristicvaluechanged');
-                this.device.addEventListener('advertisementreceived', async (evt) => {
-                    console.log("Advertisement received: connecting to gatt", evt); 
-                    appendLog(`🔗 Advertisement received from: ${this.device.name || this.device.id} waiting for gatt....`);    
-                    abortController.abort();
-                    this.gatt = await this.device.gatt.connect();
-                    appendLog('✅ Connected to GATT server. Fetching services...');   
+        // Open the GATT connection and verify services. Shared by both the
+        // advertisement-driven path and the direct-connect fallback.
+        async _finishConnect(cb) {
+            this.gatt = await this.device.gatt.connect();
+            appendLog('✅ Connected to GATT server. Fetching services...');
+            const services = await this.gatt.getPrimaryServices();
 
-                    const services = await this.gatt.getPrimaryServices();
+            this.device.addEventListener('gattserverdisconnected', () => {
+                appendLog(`🔌 Device ${this.device.name || this.device.id} disconnected.`);
+                this.gatt = null;
+                this.manager.batteryDataReceivedListener(this, 'disconnected');
+            });
 
-                    this.device.addEventListener('gattserverdisconnected', (event) => {
-                        appendLog(`🔌 Device ${this.device.name || this.device.id} disconnected.`);
-                        this.gatt = null;
-                        this.manager.batteryDataReceivedListener(this, 'disconnected');
-                    });
+            if (!services || services.length === 0) {
+                appendLog('❌ No services found on GATT server.');
+                if (cb) cb(false);
+                return;
+            }
+            this.manager.activeBattery = this;
+            if (cb) cb(true);
+        }
 
-                    if (!services || services.length === 0) {
-                        appendLog('❌ No services found on GATT server.');
-                        if (cb)cb(false);
-                        return;
-                    }
-                    clearTimeout(timer);
-                    this.manager.activeBattery = this;
-                    if (cb)cb(true);
-                },{ once: true });
-            } else {
+        async connect(cb) {
+            if (this.device.gatt.connected) {
                 appendLog('ℹ️ Already connected to battery.');
-                if (cb)cb(false);
+                if (cb) cb(false);
                 return null;
             }
+            appendLog(`🔗 Connecting to battery:`);
 
+            let abortController;
             const timer = setTimeout(() => {
                 if (abortController) abortController.abort();
-                cb(false);
+                if (cb) cb(false);
             }, 10000); // 10 seconds timeout
+
+            // Preferred path: wait for an advertisement (device known in range), then connect.
+            try {
+                abortController = new AbortController();
+                await this.device.watchAdvertisements({ signal: abortController.signal });
+            } catch (e) {
+                // watchAdvertisements is experimental and may be unavailable on stock Chrome.
+                appendLog(`ℹ️ Advertisement scan unavailable; connecting directly...`);
+                clearTimeout(timer);
+                try { await this._finishConnect(cb); } catch (err) { appendLog(`❌ Connect failed: ${err.message}`); if (cb) cb(false); }
+                return;
+            }
+
+            this.device.addEventListener('advertisementreceived', async () => {
+                appendLog(`🔗 Advertisement received from: ${this.device.name || this.device.id} waiting for gatt....`);
+                abortController.abort();
+                clearTimeout(timer);
+                try { await this._finishConnect(cb); } catch (err) { appendLog(`❌ Connect failed: ${err.message}`); if (cb) cb(false); }
+            }, { once: true });
         }
 
         async write(command){
@@ -1780,7 +1789,6 @@
                 const allChars = await service.getCharacteristics();
                 const writeChar = allChars.find(c => c.properties.write || c.properties.writeWithoutResponse);
                 const notifyChar = allChars.find(c => c.properties.notify);
-                let lastSigType = null;
 
                 if (!writeChar || !notifyChar) throw new Error('Couldn’t find read+write endpoints');
                 await notifyChar.startNotifications();
@@ -1793,16 +1801,19 @@
                 if (this.advertisementreceivedListener) {
                     this.characteristic.notify.removeEventListener('characteristicvaluechanged', this.advertisementreceivedListener);
                 }
+                const FRAME_SIZE = JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].MIN_FRAME_SIZE;
                 this.advertisementreceivedListener = async event => {
-        
+
                     this.hasConnectionError = false;
-                    
+
                     const chunk = new Uint8Array(event.target.value.buffer);
+                    // Ignore the 20-byte echo of our own command (header AA 55 90 EB).
                     if (chunk.length === 20 && chunk[0] === 0xAA && chunk[1] === 0x55 &&
                         chunk[2] === 0x90 && chunk[3] === 0xEB) {
                         return;
                     }
 
+                    // A chunk that starts with the response header resyncs to a fresh frame.
                     if (chunk[0] === 0x55 && chunk[1] === 0xAA && chunk[2] === 0xEB && chunk[3] === 0x90) {
                         recvBuffer = new Uint8Array(0);
                     }
@@ -1812,42 +1823,38 @@
                     tmp.set(chunk, recvBuffer.length);
                     recvBuffer = tmp;
 
-                    if (recvBuffer.length >= JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].MIN_FRAME_SIZE) {
+                    // Process every complete 300-byte frame; keep any remainder for the next chunk.
+                    while (recvBuffer.length >= FRAME_SIZE) {
+                        if (timeoutTimer) clearTimeout(timeoutTimer);
 
-                        if (timeoutTimer){
-                            clearTimeout(timeoutTimer);
+                        const frame = recvBuffer.slice(0, FRAME_SIZE);
+                        recvBuffer = recvBuffer.slice(FRAME_SIZE);
+
+                        const crc = frame.subarray(0, -1).reduce((sum, b) => (sum + b) & 0xFF, 0);
+                        if (crc !== frame[FRAME_SIZE - 1]) {
+                            appendLog(`❌ Bad CRC: ${crc} != ${frame[FRAME_SIZE - 1]}`);
+                            continue;
                         }
 
-                        const crc = Array.from(recvBuffer.subarray(0, -1)).reduce((sum, b) => (sum + b) & 0xFF, 0);
-                        if (crc !== recvBuffer[recvBuffer.length - 1]) {
-                            appendLog(`❌ Bad CRC: ${crc} != ${recvBuffer[recvBuffer.length - 1]}`);
-                            recvBuffer = new Uint8Array(0);
-                            return;
-                        }
-
-                        const sig = recvBuffer[4];
-                        if (!lastSigType || lastSigType !== sig) {
-                            if (lastSigType) {
-                                appendLog(`📬 New frame with sig=${lastSigType.toString(16).padStart(2, '0')} (${recvBuffer.length} bytes) processed`);
+                        const sig = frame[4];
+                        try {
+                            if (sig === 0x03) {
+                                appendLog('✅ Device Info frame received');
+                                this.deviceInfo = JKBms.decodeDeviceInfo(frame, 0x03);
+                            } else if (sig === 0x02) {
+                                this.data = JKBms.decodeDeviceInfo(frame, 0x02);
+                            } else if (sig === 0x01) {
+                                appendLog('✅ Settings frame received');
+                                this.settings = JKBms.decodeDeviceInfo(frame, 0x01);
+                            } else {
+                                appendLog(`⚠️ Unknown frame signature: 0x${sig.toString(16).padStart(2, '0')}`);
+                                continue;
                             }
+                        } catch (err) {
+                            appendLog(`❌ Decode error (sig 0x${sig.toString(16).padStart(2, '0')}): ${err.message}`);
+                            continue;
                         }
-                        let data = {};
-                        if (sig === 0x03) {
-                            appendLog('✅ Device Info frame received');
-                            this.deviceInfo = JKBms.decodeDeviceInfo(recvBuffer,0x03);
-                            if (this.dataReceivedListener) this.dataReceivedListener(data);
-                        } else if (sig === 0x02) {
-                            this.data = JKBms.decodeDeviceInfo(recvBuffer,0x02)
-                            if (this.dataReceivedListener) this.dataReceivedListener(data);
-                        } else if (sig === 0x01) {
-                            appendLog('✅ Settings frame received');
-                            this.settings = JKBms.decodeDeviceInfo(recvBuffer,0x01);
-                            if (this.dataReceivedListener) this.dataReceivedListener(data);
-                        } else {
-                            appendLog(`⚠️ Unknown frame signature: 0x${sig.toString(16).padStart(2, '0')}`);
-                        }
-                        lastSigType = sig;
-                        recvBuffer = new Uint8Array(0);
+                        if (this.dataReceivedListener) this.dataReceivedListener({});
                     }
                 };
                 this.characteristic.notify.addEventListener('characteristicvaluechanged', this.advertisementreceivedListener);
@@ -1890,13 +1897,17 @@
             this.batteryDataReceivedListener = listener;
         }
 
+        // Register-or-return: never create a duplicate Battery for the same device id.
         addBattery(device) {
-            const battery = new Battery(device,this);
+            const existing = this.findBatteryById(device.id);
+            if (existing) return existing;
+
+            const battery = new Battery(device, this);
             this.batteries.push(battery);
 
             battery.setDataReceivedListener((data) => {
                 if (this.batteryDataReceivedListener) {
-                    this.batteryDataReceivedListener(battery,data);
+                    this.batteryDataReceivedListener(battery, data);
                 }
             });
 
@@ -1930,7 +1941,7 @@
 
         async resolvePairedBatteries() {
             const devices = await navigator.bluetooth.getDevices();
-            this.batteries = devices.map(device => this.addBattery(device,this));
+            devices.forEach(device => this.addBattery(device));
             return this.batteries;
         }
 
