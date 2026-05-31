@@ -1405,12 +1405,20 @@
             this.renderGaugeStatus(elements.gaugesTopContainer, "Power Load", loadPerc, color, Utils.formatAuto(status.current, "A"), text2, text, "powerGauge");
         }
 
+        // Active cells, bounded by the configured cell count (so unused/noisy
+        // channels never show up as phantom cells).
+        activeCells(battery) {
+            const all = battery.data.cellVoltages || [];
+            const count = (battery.settings && battery.settings.cellCount) ? battery.settings.cellCount : all.length;
+            return all.slice(0, count)
+                .map((v, i) => ({ v, r: (battery.data.cellResistances || [])[i], i }))
+                .filter(c => c.v > 0);
+        }
+
         renderCellInfo(battery) {
             const target = document.getElementById('cellvoltagesContainer');
             const TH = battery.settings.balanceTriggerVoltage;
-            const cells = battery.data.cellVoltages
-                .map((v, i) => ({ v, r: battery.data.cellResistances[i], i }))
-                .filter(c => c.v > 0);
+            const cells = this.activeCells(battery);
 
             if (!cells.length) { target.innerHTML = ''; return; }
 
@@ -1515,7 +1523,7 @@
 
         // Per-cell deviation from the pack average (current snapshot), as a bar chart.
         balanceCard(battery) {
-            const cells = (battery.data.cellVoltages || []).map((v, i) => ({ v, i })).filter(c => c.v > 0);
+            const cells = this.activeCells(battery);
             if (!cells.length) return '';
             const avg = cells.reduce((a, c) => a + c.v, 0) / cells.length;
             const devs = cells.map(c => ({ i: c.i, mv: (c.v - avg) * 1000 }));
@@ -1714,12 +1722,13 @@
                     // add cell voltages dynamically below…
                 ];
 
-                // append cell voltages & resistances
-                status.cellVoltages.forEach((v, i) => {
-                    if (v > 0) rawRows.push([`Voltage cell ${i}`, () => `${v} V`]);
+                // append cell voltages & resistances, bounded by the configured cell count
+                const cellCount = settings.cellCount || status.cellVoltages.length;
+                status.cellVoltages.slice(0, cellCount).forEach((v, i) => {
+                    if (v > 0) rawRows.push([`Voltage cell ${i + 1}`, () => `${v} V`]);
                 });
-                status.cellResistances.forEach((r, i) => {
-                    if (r > 0) rawRows.push([`Resistance cell ${i}`, () => `${r} mΩ`]);
+                status.cellResistances.slice(0, cellCount).forEach((r, i) => {
+                    if (r > 0) rawRows.push([`Resistance cell ${i + 1}`, () => `${r} mΩ`]);
                 });
 
                 const infoRows = [
