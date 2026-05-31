@@ -1513,20 +1513,72 @@
             </div>`;
         }
 
+        // Per-cell deviation from the pack average (current snapshot), as a bar chart.
+        balanceCard(battery) {
+            const cells = (battery.data.cellVoltages || []).map((v, i) => ({ v, i })).filter(c => c.v > 0);
+            if (!cells.length) return '';
+            const avg = cells.reduce((a, c) => a + c.v, 0) / cells.length;
+            const devs = cells.map(c => ({ i: c.i, mv: (c.v - avg) * 1000 }));
+            const maxAbs = Math.max(5, ...devs.map(d => Math.abs(d.mv)));
+            const trig = (battery.settings.balanceTriggerVoltage || 0.01) * 1000;
+            const w = 300, h = 120, mid = h / 2, gap = w / cells.length, bw = Math.max(3, gap * 0.55);
+            const bars = devs.map((d, k) => {
+                const x = k * gap + (gap - bw) / 2;
+                const bh = Math.min(mid - 6, Math.abs(d.mv) / maxAbs * (mid - 6));
+                const y = d.mv >= 0 ? mid - bh : mid;
+                const col = Math.abs(d.mv) <= trig ? '#34d399' : Math.abs(d.mv) <= trig * 2 ? '#fbbf24' : '#f87171';
+                return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, bh).toFixed(1)}" rx="2" fill="${col}"><title>Cell ${d.i + 1}: ${d.mv >= 0 ? '+' : ''}${d.mv.toFixed(0)} mV</title></rect>`;
+            }).join('');
+            return `<div class="card p-4">
+                <div class="flex items-baseline justify-between mb-2">
+                    <div class="card-title">Cell balance · deviation from avg</div>
+                    <div class="text-xs" style="color:var(--muted)">avg ${avg.toFixed(3)} V · ±${maxAbs.toFixed(0)} mV</div>
+                </div>
+                <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:120px">
+                    <line x1="0" y1="${mid}" x2="${w}" y2="${mid}" stroke="rgba(255,255,255,.18)" vector-effect="non-scaling-stroke"/>
+                    ${bars}
+                </svg>
+            </div>`;
+        }
+
         renderTrends(battery) {
             const el = document.getElementById('trendsContainer');
             if (!el) return;
             const h = battery.history || [];
-            if (h.length < 2) { el.innerHTML = '<div class="text-sm" style="color:var(--muted)">Collecting data for trends…</div>'; return; }
-            const charts =
-                this.chartCard('Pack Voltage', h.map(s => s.v), 'V', '#38bdf8') +
-                this.chartCard('Current', h.map(s => s.i), 'A', '#34d399', true) +
-                this.chartCard('Power', h.map(s => s.p), 'W', '#a78bfa', true) +
-                this.chartCard('SOC', h.map(s => s.soc), '%', '#fbbf24', false, 0, 100);
-            el.innerHTML = `
-                <h2 class="text-base font-semibold mb-2">Trends <span class="text-sm font-normal" style="color:var(--muted)">· ${h.length} samples</span></h2>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">${charts}</div>
-                ${this.sessionStats(h)}`;
+            const header = `
+                <div class="flex items-center justify-between mb-2">
+                    <h2 class="text-base font-semibold">Trends <span class="text-sm font-normal" style="color:var(--muted)">· ${h.length} samples</span></h2>
+                    <button class="edit-btn" data-clear-history title="Clear history">clear</button>
+                </div>`;
+
+            if (h.length < 2) {
+                el.innerHTML = header
+                    + `<div class="text-sm mb-4" style="color:var(--muted)">Collecting data for trends…</div>`
+                    + this.balanceCard(battery);
+            } else {
+                const charts =
+                    this.chartCard('Pack Voltage', h.map(s => s.v), 'V', '#38bdf8') +
+                    this.chartCard('Current', h.map(s => s.i), 'A', '#34d399', true) +
+                    this.chartCard('Power', h.map(s => s.p), 'W', '#a78bfa', true) +
+                    this.chartCard('SOC', h.map(s => s.soc), '%', '#fbbf24', false, 0, 100) +
+                    this.chartCard('MOSFET Temp', h.map(s => s.mt), '°C', '#fb7185');
+                el.innerHTML = header
+                    + `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">${charts}</div>`
+                    + `<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                           <div class="lg:col-span-2">${this.sessionStats(h)}</div>
+                           ${this.balanceCard(battery)}
+                       </div>`;
+            }
+
+            // Clear-history handler, bound once on the stable parent.
+            if (el.dataset.clearWired !== '1') {
+                el.dataset.clearWired = '1';
+                el.addEventListener('click', (e) => {
+                    if (!e.target.closest('[data-clear-history]')) return;
+                    const b = this.batteryManager.activeBattery;
+                    if (b && b.clearHistory) { b.clearHistory(); appendLog('🧹 Trend history cleared.'); this.refresh(); }
+                });
+            }
         }
 
         renderAdditionalMetrics(battery) {
@@ -1801,10 +1853,32 @@
         reconnectTimer = null;
 
         history = [];               // rolling time-series of realtime samples
+        _histSaveCounter = 0;
 
         constructor(dev,manager) {
             this.device = dev;
             this.manager = manager;
+            this.loadHistory();
+        }
+
+        static HISTORY_CAP = 600;
+        historyKey() { return 'jkbms_hist_' + this.device.id; }
+
+        loadHistory() {
+            try {
+                const raw = localStorage.getItem(this.historyKey());
+                const arr = raw ? JSON.parse(raw) : null;
+                if (Array.isArray(arr)) this.history = arr.slice(-Battery.HISTORY_CAP);
+            } catch (e) { /* corrupt/unavailable storage → start fresh */ }
+        }
+
+        saveHistory() {
+            try { localStorage.setItem(this.historyKey(), JSON.stringify(this.history)); } catch (e) { /* quota/unavailable */ }
+        }
+
+        clearHistory() {
+            this.history = [];
+            try { localStorage.removeItem(this.historyKey()); } catch (e) { /* ignore */ }
         }
 
         // Append one realtime sample; keep a bounded rolling window (~10 min @ 1 Hz).
@@ -1818,8 +1892,11 @@
                 v: d.totalVoltage || 0, i: d.current || 0, p: d.power || 0,
                 soc: d.soc || 0, mt: d.mosfetTemp || 0, delta
             });
-            const CAP = 600;
-            if (this.history.length > CAP) this.history.splice(0, this.history.length - CAP);
+            if (this.history.length > Battery.HISTORY_CAP) {
+                this.history.splice(0, this.history.length - Battery.HISTORY_CAP);
+            }
+            // Throttle persistence to ~every 10 samples to limit storage writes.
+            if ((++this._histSaveCounter % 10) === 0) this.saveHistory();
         }
 
         setDataReceivedListener(listener) {
