@@ -170,6 +170,8 @@
             <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 fade-in" id="gaugesTopContainer"> </section>
             <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 fade-in" id="additionalMetrics"> </section>
 
+            <section class="mb-6 fade-in" id="trendsContainer"></section>
+
             <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6 fade-in" id="cellvoltagesContainer"> </section>
 
             <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4 fade-in" id="allinfopContainer"> </section>
@@ -1198,6 +1200,7 @@
                 this.renderStatus(this.batteryManager.activeBattery);
                 this.renderAdditionalMetrics(this.batteryManager.activeBattery);
                 this.renderCellInfo(this.batteryManager.activeBattery);
+                this.renderTrends(this.batteryManager.activeBattery);
                 this.updateIndicators(this.batteryManager.activeBattery);
                 this.renderAllSettings(this.batteryManager.activeBattery);
             }
@@ -1444,6 +1447,86 @@
             }).join('');
 
             target.innerHTML = header + tiles;
+        }
+
+        // One inline-SVG sparkline card (no charting library).
+        chartCard(title, values, unit, color, signed, fixedMin, fixedMax) {
+            const w = 300, h = 64;
+            const dec = unit === '%' ? 0 : 2;
+            let min = fixedMin != null ? fixedMin : Math.min(...values);
+            let max = fixedMax != null ? fixedMax : Math.max(...values);
+            if (signed) { const a = Math.max(Math.abs(min), Math.abs(max), 0.001); min = -a; max = a; }
+            const range = (max - min) || 1;
+            const stepX = values.length > 1 ? w / (values.length - 1) : 0;
+            const xy = values.map((v, i) => [i * stepX, h - ((v - min) / range) * h]);
+            const line = xy.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ');
+            const area = `M0 ${h} ` + xy.map(p => `L${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ') + ` L${w} ${h} Z`;
+            const zeroY = signed ? (h - ((0 - min) / range) * h).toFixed(1) : null;
+            const last = values[values.length - 1];
+            const lo = Math.min(...values), hi = Math.max(...values);
+            const gid = 'g_' + title.replace(/\W/g, '');
+            return `<div class="card p-4">
+                <div class="flex items-baseline justify-between mb-1">
+                    <div class="card-title">${title}</div>
+                    <div class="text-lg font-bold metric">${(+last).toFixed(dec)} <span class="text-xs font-normal" style="color:var(--muted)">${unit}</span></div>
+                </div>
+                <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:64px">
+                    <defs><linearGradient id="${gid}" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stop-color="${color}" stop-opacity="0.32"/>
+                        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+                    </linearGradient></defs>
+                    ${zeroY ? `<line x1="0" y1="${zeroY}" x2="${w}" y2="${zeroY}" stroke="rgba(255,255,255,.15)" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>` : ''}
+                    <path d="${area}" fill="url(#${gid})"/>
+                    <path d="${line}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
+                </svg>
+                <div class="flex justify-between text-xs mt-1" style="color:var(--muted)"><span>min ${lo.toFixed(dec)}</span><span>max ${hi.toFixed(dec)}</span></div>
+            </div>`;
+        }
+
+        sessionStats(history) {
+            let chWh = 0, disWh = 0;
+            for (let k = 1; k < history.length; k++) {
+                const dtH = (history[k].t - history[k - 1].t) / 3600000; // ms → h
+                const wh = history[k].p * dtH;                          // W·h
+                if (wh > 0) chWh += wh; else disWh += -wh;
+            }
+            const V = history.map(s => s.v), P = history.map(s => s.p), D = history.map(s => s.delta * 1000);
+            const peakCh = Math.max(0, ...P), peakDis = Math.min(0, ...P);
+            const dur = Utils.formatUptime(Math.floor((history[history.length - 1].t - history[0].t) / 1000));
+            const row = (k, v) => `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+            return `<div class="card p-5">
+                <div class="card-title mb-3">Session stats</div>
+                <div class="grid sm:grid-cols-2 gap-x-8">
+                    <div>
+                        ${row('Duration', dur)}
+                        ${row('Samples', history.length)}
+                        ${row('Energy charged', chWh.toFixed(1) + ' Wh')}
+                        ${row('Energy discharged', disWh.toFixed(1) + ' Wh')}
+                    </div>
+                    <div>
+                        ${row('Pack V min/max', Math.min(...V).toFixed(2) + ' / ' + Math.max(...V).toFixed(2) + ' V')}
+                        ${row('Peak charge', peakCh.toFixed(0) + ' W')}
+                        ${row('Peak discharge', Math.abs(peakDis).toFixed(0) + ' W')}
+                        ${row('Max cell Δ', Math.max(0, ...D).toFixed(0) + ' mV')}
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        renderTrends(battery) {
+            const el = document.getElementById('trendsContainer');
+            if (!el) return;
+            const h = battery.history || [];
+            if (h.length < 2) { el.innerHTML = '<div class="text-sm" style="color:var(--muted)">Collecting data for trends…</div>'; return; }
+            const charts =
+                this.chartCard('Pack Voltage', h.map(s => s.v), 'V', '#38bdf8') +
+                this.chartCard('Current', h.map(s => s.i), 'A', '#34d399', true) +
+                this.chartCard('Power', h.map(s => s.p), 'W', '#a78bfa', true) +
+                this.chartCard('SOC', h.map(s => s.soc), '%', '#fbbf24', false, 0, 100);
+            el.innerHTML = `
+                <h2 class="text-base font-semibold mb-2">Trends <span class="text-sm font-normal" style="color:var(--muted)">· ${h.length} samples</span></h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">${charts}</div>
+                ${this.sessionStats(h)}`;
         }
 
         renderAdditionalMetrics(battery) {
@@ -1717,9 +1800,26 @@
         reconnectAttempts = 0;
         reconnectTimer = null;
 
+        history = [];               // rolling time-series of realtime samples
+
         constructor(dev,manager) {
             this.device = dev;
             this.manager = manager;
+        }
+
+        // Append one realtime sample; keep a bounded rolling window (~10 min @ 1 Hz).
+        recordHistory() {
+            const d = this.data;
+            if (!d) return;
+            const vs = (d.cellVoltages || []).filter(v => v > 0);
+            const delta = vs.length ? (Math.max(...vs) - Math.min(...vs)) : 0;
+            this.history.push({
+                t: Date.now(),
+                v: d.totalVoltage || 0, i: d.current || 0, p: d.power || 0,
+                soc: d.soc || 0, mt: d.mosfetTemp || 0, delta
+            });
+            const CAP = 600;
+            if (this.history.length > CAP) this.history.splice(0, this.history.length - CAP);
         }
 
         setDataReceivedListener(listener) {
@@ -1997,6 +2097,7 @@
                                 this.deviceInfo = JKBms.decodeDeviceInfo(frame, 0x03);
                             } else if (sig === 0x02) {
                                 this.data = JKBms.decodeDeviceInfo(frame, 0x02);
+                                this.recordHistory();
                             } else if (sig === 0x01) {
                                 appendLog('✅ Settings frame received');
                                 this.settings = JKBms.decodeDeviceInfo(frame, 0x01);
