@@ -108,6 +108,24 @@
         .btn-primary:hover { filter: brightness(1.08); transform: translateY(-1px); }
         .btn-ghost { background: var(--surface); border-color: var(--border); color: var(--text); }
         .btn-ghost:hover { border-color: var(--border-strong); }
+        .btn-danger { background: linear-gradient(180deg, var(--bad), #ef4444); color: #1a0606; box-shadow: 0 8px 22px -10px var(--bad); }
+        .btn-danger:hover { filter: brightness(1.08); transform: translateY(-1px); }
+
+        /* toggle switch */
+        .switch { position: relative; width: 46px; height: 26px; border-radius: 999px; background: rgba(255, 255, 255, .12); border: 1px solid var(--border); cursor: pointer; transition: .25s; flex: none; }
+        .switch.on { background: linear-gradient(180deg, var(--ok), #10b981); border-color: transparent; }
+        .switch > span { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 999px; background: #fff; transition: .25s; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+        .switch.on > span { transform: translateX(20px); }
+
+        /* numeric field */
+        .field { background: rgba(0, 0, 0, .35); border: 1px solid var(--border); border-radius: 10px; color: var(--text); padding: .5rem .7rem; width: 100%; transition: border-color .2s; }
+        .field:focus { outline: none; border-color: var(--accent); }
+
+        /* confirm modal */
+        .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .6); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 50; padding: 1rem; }
+        .modal-backdrop.show { display: flex; animation: fadeIn .15s ease; }
+        @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+        .modal { width: min(440px, 92vw); }
 
         /* scrollbars */
         *::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -147,6 +165,8 @@
 
             <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 fade-in" id="gaugesTopContainer"> </section>
             <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 fade-in" id="additionalMetrics"> </section>
+
+            <section class="mb-4 fade-in" id="controlsContainer"></section>
 
             <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6 fade-in" id="cellvoltagesContainer"> </section>
 
@@ -191,6 +211,21 @@
     <footer class="py-5 text-center text-sm" style="color:var(--muted)">
         © 2025 Gillis Haasnoot · JK-BMS Dashboard
     </footer>
+
+    <!-- Confirmation modal for any write to the BMS -->
+    <div class="modal-backdrop" id="confirmModal">
+        <div class="card modal p-6">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="text-xl">⚠️</span>
+                <div class="text-lg font-semibold" id="confirmTitle"></div>
+            </div>
+            <div class="text-sm mb-5" style="color:var(--muted)" id="confirmBody"></div>
+            <div class="flex justify-end gap-2">
+                <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+                <button class="btn btn-danger" id="confirmOk">Confirm &amp; write</button>
+            </div>
+        </div>
+    </div>
 </body>
 
 
@@ -1158,6 +1193,8 @@
                 this.renderAdditionalMetrics(this.batteryManager.activeBattery);
                 this.renderCellInfo(this.batteryManager.activeBattery);
                 this.updateIndicators(this.batteryManager.activeBattery);
+                this.renderControls(this.batteryManager.activeBattery);
+                this.updateControlsState(this.batteryManager.activeBattery);
                 this.renderAllSettings(this.batteryManager.activeBattery);
             }
         }
@@ -1205,6 +1242,115 @@
             set('balancingIndicator', s.balancerSwitch);
             set('heatingIndicator', s.heatingEnabled, 'idle');
             set('tempIndicator', !s.disableTemperatureSensors, 'idle');
+        }
+
+        // In-page confirmation gate for any BMS write. Shows exactly what will be sent.
+        confirmAction(title, body, onConfirm) {
+            const modal = document.getElementById('confirmModal');
+            const ok = document.getElementById('confirmOk');
+            const cancel = document.getElementById('confirmCancel');
+            document.getElementById('confirmTitle').textContent = title;
+            document.getElementById('confirmBody').textContent = body;
+            modal.classList.add('show');
+            const cleanup = () => { modal.classList.remove('show'); ok.onclick = null; cancel.onclick = null; };
+            ok.onclick = () => { cleanup(); try { onConfirm(); } catch (e) { appendLog(`❌ Write failed: ${e.message}`); } };
+            cancel.onclick = cleanup;
+        }
+
+        // Build the controls card once per device (re-rendering would destroy input focus/state).
+        renderControls(battery) {
+            const el = document.getElementById('controlsContainer');
+            if (!el) return;
+            const id = String(battery.device.id);
+            if (el.dataset.built === '1' && el.dataset.deviceId === id) return;
+            el.dataset.built = '1';
+            el.dataset.deviceId = id;
+
+            const s = battery.settings;
+            const toggle = (key, label, on) => `
+                <div class="flex items-center justify-between py-2">
+                    <span class="text-sm">${label}</span>
+                    <button class="switch ${on ? 'on' : ''}" data-toggle="${key}" aria-pressed="${!!on}"><span></span></button>
+                </div>`;
+            const numField = (key, label, val, unit, min, max, step) => `
+                <div>
+                    <label class="card-title block mb-1">${label}</label>
+                    <div class="flex gap-2">
+                        <input class="field metric" type="number" id="ctl_${key}" value="${val}" min="${min}" max="${max}" step="${step}">
+                        <button class="btn btn-ghost" data-apply="${key}">Set</button>
+                        <span class="self-center text-xs" style="color:var(--muted)">${unit}</span>
+                    </div>
+                </div>`;
+
+            el.innerHTML = `
+                <div class="card p-5">
+                    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                        <div class="card-title">⚙ Controls</div>
+                        <span class="pill" style="color:var(--warn)"><span class="dot warnc"></span>writes to BMS · confirmation required</span>
+                    </div>
+                    <div class="grid md:grid-cols-3 gap-x-8 gap-y-4">
+                        <div>
+                            ${toggle('charge', 'Charge MOSFET', s.chargeSwitch)}
+                            ${toggle('discharge', 'Discharge MOSFET', s.dischargeSwitch)}
+                            ${toggle('balance', 'Balancer', s.balancerSwitch)}
+                        </div>
+                        <div class="md:col-span-2 grid sm:grid-cols-3 gap-4">
+                            ${numField('maxCharge', 'Max charge current', s.maxChargeCurrent, 'A', 0, 200, 0.5)}
+                            ${numField('maxDischarge', 'Max discharge current', s.maxDischargeCurrent, 'A', 0, 200, 0.5)}
+                            ${numField('capacity', 'Nominal capacity', s.nominalBatteryCapacity, 'Ah', 0, 2000, 1)}
+                        </div>
+                    </div>
+                </div>`;
+
+            const toggleMap = {
+                charge: ['Charge MOSFET', 'chargeSwitch', 'toggleCharge'],
+                discharge: ['Discharge MOSFET', 'dischargeSwitch', 'toggleDischarge'],
+                balance: ['Balancer', 'balancerSwitch', 'toggleBalance']
+            };
+            el.querySelectorAll('[data-toggle]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const [label, key, method] = toggleMap[btn.dataset.toggle];
+                    const next = battery.settings[key] ? 'OFF' : 'ON';
+                    this.confirmAction(
+                        `Turn ${next} — ${label}?`,
+                        `This sends a command to the BMS and changes the ${label.toLowerCase()} state. Make sure the load/charger can handle this.`,
+                        () => battery[method]()
+                    );
+                });
+            });
+
+            const applyMap = {
+                maxCharge: ['Max charge current', 'A', 'setMaxChargeCurrent'],
+                maxDischarge: ['Max discharge current', 'A', 'setMaxDischargeCurrent'],
+                capacity: ['Nominal capacity', 'Ah', 'setMaxCapacity']
+            };
+            el.querySelectorAll('[data-apply]').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const [label, unit, method] = applyMap[btn.dataset.apply];
+                    const input = document.getElementById('ctl_' + btn.dataset.apply);
+                    const val = parseFloat(input.value);
+                    if (!isFinite(val) || val < 0) { appendLog('❌ Invalid value'); return; }
+                    this.confirmAction(
+                        `Set ${label} = ${val} ${unit}?`,
+                        `This writes a new protection setting to the BMS, replacing the current value.`,
+                        () => battery[method](val)
+                    );
+                });
+            });
+        }
+
+        // Cheap per-frame update of the toggle visuals (does not rebuild inputs).
+        updateControlsState(battery) {
+            const el = document.getElementById('controlsContainer');
+            if (!el || el.dataset.built !== '1') return;
+            const s = battery.settings;
+            const setSw = (key, on) => {
+                const b = el.querySelector(`[data-toggle="${key}"]`);
+                if (b) { b.classList.toggle('on', !!on); b.setAttribute('aria-pressed', !!on); }
+            };
+            setSw('charge', s.chargeSwitch);
+            setSw('discharge', s.dischargeSwitch);
+            setSw('balance', s.balancerSwitch);
         }
 
 
