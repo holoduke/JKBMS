@@ -1713,6 +1713,10 @@
 
         dataReceivedListener = null;
 
+        userDisconnected = false;   // true only after an explicit user disconnect
+        reconnectAttempts = 0;
+        reconnectTimer = null;
+
         constructor(dev,manager) {
             this.device = dev;
             this.manager = manager;
@@ -1720,6 +1724,41 @@
 
         setDataReceivedListener(listener) {
             this.dataReceivedListener = listener;
+        }
+
+        // Stable reference so repeated connects don't stack duplicate listeners
+        // (the cause of the repeated "🔌 ... disconnected" log lines).
+        handleDisconnect = () => {
+            this.gatt = null;
+            appendLog(`🔌 Device ${this.device.name || this.device.id} disconnected.`);
+            if (this.manager.batteryDataReceivedListener) this.manager.batteryDataReceivedListener(this, 'disconnected');
+            if (!this.userDisconnected) this.scheduleReconnect();
+        };
+
+        // Re-open the GATT connection with exponential backoff after an unexpected drop.
+        scheduleReconnect() {
+            if (this.userDisconnected || this.reconnectTimer) return;
+            const MAX_ATTEMPTS = 12;
+            if (this.reconnectAttempts >= MAX_ATTEMPTS) {
+                appendLog('⛔ Auto-reconnect gave up. Use the connect button to retry.');
+                return;
+            }
+            this.reconnectAttempts++;
+            const delay = Math.min(20000, Math.round(1000 * Math.pow(1.6, this.reconnectAttempts - 1)));
+            appendLog(`🔄 Reconnecting (attempt ${this.reconnectAttempts}) in ${Math.round(delay / 1000)}s...`);
+            this.reconnectTimer = setTimeout(async () => {
+                this.reconnectTimer = null;
+                if (this.userDisconnected) return;
+                try {
+                    this.gatt = await this.device.gatt.connect();
+                    this.manager.activeBattery = this;
+                    await this.listen((err) => { if (err) this.scheduleReconnect(); });
+                    appendLog('✅ Reconnected.');
+                } catch (e) {
+                    appendLog(`❌ Reconnect failed: ${e.message}`);
+                    this.scheduleReconnect();
+                }
+            }, delay);
         }
 
         async toggleCharge(){
@@ -1810,11 +1849,8 @@
             appendLog('✅ Connected to GATT server. Fetching services...');
             const services = await this.gatt.getPrimaryServices();
 
-            this.device.addEventListener('gattserverdisconnected', () => {
-                appendLog(`🔌 Device ${this.device.name || this.device.id} disconnected.`);
-                this.gatt = null;
-                this.manager.batteryDataReceivedListener(this, 'disconnected');
-            });
+            // Same function reference every time → the browser de-dupes, so no stacked handlers.
+            this.device.addEventListener('gattserverdisconnected', this.handleDisconnect);
 
             if (!services || services.length === 0) {
                 appendLog('❌ No services found on GATT server.');
@@ -1832,6 +1868,11 @@
                 return null;
             }
             appendLog(`🔗 Connecting to battery:`);
+
+            // Fresh user-initiated connect: clear any prior "stop reconnecting" state.
+            this.userDisconnected = false;
+            this.reconnectAttempts = 0;
+            if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
 
             let abortController;
             const timer = setTimeout(() => {
@@ -1863,7 +1904,11 @@
             await this.characteristic.writeNoAck(command);
         }
 
-        async disconnect() {
+        // userInitiated=true stops auto-reconnect (explicit user action);
+        // an unexpected drop or the no-data watchdog leaves it false so we retry.
+        async disconnect(userInitiated = false) {
+            if (userInitiated) this.userDisconnected = true;
+            if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
             if (this.gatt && this.gatt.connected) {
                 appendLog('🔌 Disconnecting from BMS...');
                 console.debug('🔌 Disconnecting from GATT server', this);
@@ -1913,6 +1958,7 @@
                 this.advertisementreceivedListener = async event => {
 
                     this.hasConnectionError = false;
+                    this.reconnectAttempts = 0; // healthy data flow resets the backoff
 
                     const chunk = new Uint8Array(event.target.value.buffer);
                     // Ignore the 20-byte echo of our own command (header AA 55 90 EB).
@@ -2038,7 +2084,7 @@
 
         async disconnectBattery(battery) {
             if (battery) {
-                await battery.disconnect();
+                await battery.disconnect(true); // user-initiated → no auto-reconnect
                 this.selectedBattery = null;
                 this.batteries = this.batteries.filter(b => b.device.id !== battery.device.id);
                 appendLog(`✅ Disconnected from battery: ${battery.device.name}`);
