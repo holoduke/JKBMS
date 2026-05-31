@@ -4,137 +4,169 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JK BMS JK_B2A8S20P Bluetooth Dashboard</title>
+    <title>JK-BMS Dashboard · JK-B2A8S20P</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        @keyframes gradientShift {
-            0% {
-                background-position: 0% 50%;
-            }
-            50% {
-                background-position: 100% 50%;
-            }
-            100% {
-                background-position: 0% 50%;
-            }
+        :root {
+            --bg: #070b16;
+            --surface: rgba(255, 255, 255, .04);
+            --surface-2: rgba(255, 255, 255, .06);
+            --border: rgba(255, 255, 255, .08);
+            --border-strong: rgba(255, 255, 255, .16);
+            --text: #e7eef8;
+            --muted: #8b98ad;
+            --accent: #38bdf8;
+            --accent-2: #6366f1;
+            --ok: #34d399;
+            --warn: #fbbf24;
+            --bad: #f87171;
+            --radius: 18px;
         }
-        
-        .gradient-bg {
-            background: linear-gradient(45deg, #1e3a8a, #3b82f6, #1e3a8a);
-            background-size: 200% 200%;
-            animation: gradientShift 15s ease infinite;
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            background-image:
+                radial-gradient(55rem 55rem at 110% -10%, rgba(99, 102, 241, .20), transparent 60%),
+                radial-gradient(50rem 50rem at -10% 5%, rgba(56, 189, 248, .15), transparent 55%);
+            background-attachment: fixed;
         }
-        
-        .fade-in {
-            opacity: 0;
-            transform: translateY(20px);
-            transition: opacity 0.6s ease, transform 0.6s ease;
+
+        .metric { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            backdrop-filter: blur(12px) saturate(140%);
+            -webkit-backdrop-filter: blur(12px) saturate(140%);
+            box-shadow: 0 1px 0 rgba(255, 255, 255, .04) inset, 0 12px 32px -16px rgba(0, 0, 0, .6);
+            transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
         }
-        
-        .fade-in.visible {
-            opacity: 1;
-            transform: translateY(0);
+        .card:hover {
+            border-color: var(--border-strong);
+            transform: translateY(-2px);
+            box-shadow: 0 1px 0 rgba(255, 255, 255, .07) inset, 0 20px 44px -18px rgba(0, 0, 0, .7);
         }
-        
-        .gauge {
-            position: relative;
-            width: 120px;
-            height: 60px;
-            overflow: hidden;
+        .card-title { font-size: .72rem; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+        .topbar {
+            position: sticky; top: 0; z-index: 30;
+            background: linear-gradient(180deg, rgba(7, 11, 22, .9), rgba(7, 11, 22, .55));
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border);
         }
-        /* fill arc uses CSS variable for its color */
-        
-        .gauge::before {
-            content: '';
-            position: absolute;
-            width: 100px;
-            height: 100px;
-            /* var(--gauge-color) up to var(--gauge-value), then dark grey */
-            background: conic-gradient( var(--gauge-color) 0% var(--gauge-value), #1f2937 var(--gauge-value) 100%);
-            border-radius: 50%;
-            top: 10px;
-            left: 10px;
-            transform: rotate(-90deg);
+
+        .pill {
+            display: inline-flex; align-items: center; gap: .45rem;
+            padding: .32rem .7rem; border-radius: 999px;
+            background: var(--surface); border: 1px solid var(--border);
+            font-size: .8rem; color: var(--text);
         }
-        /* inner circle unchanged */
-        
-        .gauge::after {
-            content: '';
-            position: absolute;
-            width: 80px;
-            height: 80px;
-            background: #111827;
-            border-radius: 50%;
-            top: 20px;
-            left: 20px;
+        .dot { width: .55rem; height: .55rem; border-radius: 999px; background: #475569; transition: .3s; }
+        .dot.on { background: var(--ok); box-shadow: 0 0 12px -1px var(--ok); }
+        .dot.off { background: var(--bad); box-shadow: 0 0 12px -1px var(--bad); }
+        .dot.idle { background: #475569; }
+        .dot.warnc { background: var(--warn); box-shadow: 0 0 12px -1px var(--warn); }
+        @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .4 } }
+        .dot.live { animation: pulse 1.6s ease-in-out infinite; }
+
+        /* SVG ring gauge */
+        .ring { width: 148px; height: 148px; position: relative; }
+        .ring svg { transform: rotate(-90deg); }
+        .ring .track { stroke: rgba(255, 255, 255, .07); }
+        .ring .prog {
+            stroke: var(--rc, var(--accent)); stroke-linecap: round;
+            transition: stroke-dashoffset .9s cubic-bezier(.22, 1, .36, 1), stroke .4s;
+            filter: drop-shadow(0 0 6px color-mix(in srgb, var(--rc, var(--accent)) 55%, transparent));
         }
+
+        /* cell tile */
+        .cell { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: .7rem .85rem; transition: transform .2s, border-color .2s; }
+        .cell:hover { transform: translateY(-1px); border-color: var(--border-strong); }
+        .cell .bar { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; margin-top: .55rem; }
+        .cell .bar > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .6s cubic-bezier(.22,1,.36,1); }
+        .tag { font-size: .58rem; padding: .08rem .38rem; border-radius: 6px; font-weight: 700; letter-spacing: .04em; }
+        .tag.hi { background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ok); }
+        .tag.lo { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+
+        /* key/value rows */
+        .kv { display: flex; justify-content: space-between; gap: 1rem; padding: .4rem 0; border-bottom: 1px solid var(--border); font-size: .9rem; }
+        .kv:last-child { border-bottom: 0; }
+        .kv .k { color: var(--muted); }
+        .kv .v { font-variant-numeric: tabular-nums; text-align: right; }
+
+        /* buttons */
+        .btn { display: inline-flex; align-items: center; gap: .5rem; padding: .55rem 1.05rem; border-radius: 12px; font-weight: 600; border: 1px solid transparent; cursor: pointer; transition: .2s; font-size: .9rem; white-space: nowrap; }
+        .btn-primary { background: linear-gradient(180deg, var(--accent), #0ea5e9); color: #04121e; box-shadow: 0 8px 22px -10px var(--accent); }
+        .btn-primary:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        .btn-ghost { background: var(--surface); border-color: var(--border); color: var(--text); }
+        .btn-ghost:hover { border-color: var(--border-strong); }
+
+        /* scrollbars */
+        *::-webkit-scrollbar { width: 10px; height: 10px; }
+        *::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .12); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
+        *::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .22); background-clip: content-box; }
+
+        .fade-in { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+        .fade-in.visible { opacity: 1; transform: translateY(0); }
     </style>
 </head>
 
 
-<body class="flex flex-col min-h-screen bg-gray-900 text-white font-sans">
+<body class="flex flex-col min-h-screen">
 
-
-    <header class="gradient-bg py-8 pb-1 text-center">
-
-        <h1 class="text-3xl md:text-3xl font-bold tracking-tight">🔋 JK BMS JK_B2A8S20P Bluetooth Dashboard</h1>
-        <section class="mb-8 mt-2 fade-in">
-            <div id="batterySelection" class="flex justify-center items-center w-32 gap-2 mx-auto" style="width: 10rem;">
-                <button id="connectBtn" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
-           Connect & Request Info
-         </button>
+    <header class="topbar">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4 flex-wrap">
+            <div class="flex items-center gap-3 mr-auto">
+                <span class="text-2xl">🔋</span>
+                <div>
+                    <div class="font-bold leading-tight tracking-tight">JK-BMS Dashboard</div>
+                    <div class="text-xs" style="color:var(--muted)">JK-B2A8S20P · JK02_32S</div>
+                </div>
             </div>
-        </section>
+            <div class="flex items-center gap-2 flex-wrap" id="statusPills">
+                <span class="pill"><span class="dot" id="chargeIndicator"></span>Charge</span>
+                <span class="pill"><span class="dot" id="dischargeIndicator"></span>Discharge</span>
+                <span class="pill"><span class="dot" id="balancingIndicator"></span>Balance</span>
+                <span class="pill"><span class="dot" id="tempIndicator"></span>Temp</span>
+                <span class="pill"><span class="dot" id="heatingIndicator"></span>Heating</span>
+            </div>
+            <div id="batterySelection" class="flex items-center gap-2"></div>
+        </div>
     </header>
 
-    <section class="flex justify-center items-center gap-6 mb-0 mt-3 fade-in" style="transition-delay: 0.2s;">
-        <div class="flex justify-center items-center">
-            <span class="w-4 h-4 rounded-full mr-2 bg-gray-500" id="chargeIndicator"></span>
-            <span>Charge</span>
-        </div>
-        <div class="flex items-center">
-            <span class="w-4 h-4 rounded-full mr-2 bg-gray-500" id="dischargeIndicator"></span>
-            <span>Discharge</span>
-        </div>
-        <div class="flex items-center">
-            <span class="w-4 h-4 rounded-full mr-2 bg-gray-500" id="balancingIndicator"></span>
-            <span>Balancing</span>
-        </div>
-        <div class="flex items-center">
-            <span class="w-4 h-4 rounded-full mr-2 bg-gray-500" id="tempIndicator"></span>
-            <span>Temp sensors</span>
-        </div>
-        <div class="flex items-center">
-            <span class="w-4 h-4 rounded-full mr-2 bg-gray-500" id="heatingIndicator"></span>
-            <span>Heating</span>
-        </div>
-    </section>
+    <main class="flex-grow pb-44">
+        <div class="max-w-7xl mx-auto py-6 px-4">
 
-    <main class="flex-grow pb-48">
-        <div class="max-w-7xl mx-auto py-8 px-4 pt-2">
+            <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 fade-in" id="gaugesTopContainer"> </section>
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 fade-in" id="additionalMetrics"> </section>
 
-            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4" id="gaugesTopContainer"> </section>
-            <!-- Additional Metrics -->
-            <section class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4" id="additionalMetrics"> </section>
+            <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6 fade-in" id="cellvoltagesContainer"> </section>
 
-            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4" id="cellvoltagesContainer"> </section>
-
-            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-4" id="allinfopContainer"> </section>
+            <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4 fade-in" id="allinfopContainer"> </section>
 
             <!-- Dev tool: replay & gap-analyse a captured frame (no Bluetooth needed) -->
             <section class="mb-4">
-                <details class="bg-gray-800 rounded-lg p-4">
-                    <summary class="cursor-pointer font-semibold">🛠️ Dev: replay &amp; gap-analyse a captured frame</summary>
-                    <p class="text-sm text-gray-400 mt-2">
+                <details class="card p-5">
+                    <summary class="cursor-pointer font-semibold select-none">🛠️ Dev · replay &amp; gap-analyse a captured frame</summary>
+                    <p class="text-sm mt-3" style="color:var(--muted)">
                         Paste a raw frame hex dump — any of <code>55 AA EB 90 03 …</code>, <code>0x55,0xAA,…</code>, newlines are fine.
                         Frame type is auto-detected from byte&nbsp;4 (<code>01</code>=settings, <code>02</code>=realtime, <code>03</code>=device info).
                         The analysis highlights bytes that <em>no</em> field currently decodes.
                     </p>
-                    <textarea id="replayInput" class="w-full h-32 bg-gray-900 text-gray-200 p-3 rounded mt-2 font-mono text-xs"
+                    <textarea id="replayInput" class="w-full h-32 p-3 rounded-xl mt-3 font-mono text-xs"
+                        style="background:rgba(0,0,0,.35);border:1px solid var(--border);color:var(--text)"
                         placeholder="55 AA EB 90 03 ..."></textarea>
-                    <div class="flex gap-3 mt-2 items-center">
-                        <button id="replayBtn" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">Decode &amp; analyse</button>
-                        <span id="replayMeta" class="text-sm text-gray-400"></span>
+                    <div class="flex gap-3 mt-3 items-center">
+                        <button id="replayBtn" class="btn btn-primary">Decode &amp; analyse</button>
+                        <span id="replayMeta" class="text-sm" style="color:var(--muted)"></span>
                     </div>
                     <div id="replayOutput" class="mt-3"></div>
                 </details>
@@ -143,17 +175,21 @@
         </div>
     </main>
 
-    <!-- fixed log, always visible at viewport bottom -->
-    <section class="fixed bottom-0 left-0 w-full bg-black z-20 fade-in" style="transition-delay: 0.4s;">
-        <div class="max-w-4xl mx-auto p-6">
-            <pre id="log" style="max-height: 100px;" class="bg-gray-800 text-gray-200 p-6 rounded-lg max-h-80 overflow-y-auto whitespace-pre-wrap"></pre>
+    <!-- fixed log dock -->
+    <section class="fixed bottom-0 left-0 w-full z-20" style="background:linear-gradient(180deg,transparent,var(--bg) 38%)">
+        <div class="max-w-7xl mx-auto px-4 pb-3">
+            <div class="card overflow-hidden">
+                <div class="flex items-center gap-2 px-4 py-2" style="border-bottom:1px solid var(--border)">
+                    <span class="dot live on"></span>
+                    <span class="text-xs font-semibold" style="color:var(--muted)">EVENT LOG</span>
+                </div>
+                <pre id="log" style="max-height: 92px; background:transparent; color:var(--text)" class="px-4 py-2 text-xs overflow-y-auto whitespace-pre-wrap font-mono"></pre>
+            </div>
         </div>
     </section>
 
-    <!-- sticky footer in normal flow, sits at bottom when main is short,
-         or below content otherwise -->
-    <footer class="bg-gray-800 py-6 text-center">
-        <p class="text-gray-400">© 2025 Gillis Haasnoot</p>
+    <footer class="py-5 text-center text-sm" style="color:var(--muted)">
+        © 2025 Gillis Haasnoot · JK-BMS Dashboard
     </footer>
 </body>
 
@@ -1159,43 +1195,41 @@
         }
 
         updateIndicators(battery) {
-            document.getElementById("chargeIndicator").className = `w-4 h-4 rounded-full mr-2 ${battery.settings.chargeSwitch ? 'bg-green-500' : 'bg-red-500'}`;
-            document.getElementById("dischargeIndicator").className = `w-4 h-4 rounded-full mr-2 ${battery.settings.dischargeSwitch ? 'bg-green-500' : 'bg-red-500'}`;
-            document.getElementById("balancingIndicator").className = `w-4 h-4 rounded-full mr-2 ${battery.settings.balancerSwitch ? 'bg-green-500' : 'bg-red-500'}`;
-            document.getElementById("heatingIndicator").className = `w-4 h-4 rounded-full mr-2 ${battery.settings.heatingEnabled ? 'bg-green-500' : 'bg-gray-500'}`;
-            document.getElementById("tempIndicator").className = `w-4 h-4 rounded-full mr-2 ${!battery.settings.disableTemperatureSensors ? 'bg-green-500' : 'bg-gray-500'}`;
+            const s = battery.settings;
+            const set = (id, on, offClass = 'off') => {
+                const el = document.getElementById(id);
+                if (el) el.className = 'dot ' + (on ? 'on' : offClass);
+            };
+            set('chargeIndicator', s.chargeSwitch);
+            set('dischargeIndicator', s.dischargeSwitch);
+            set('balancingIndicator', s.balancerSwitch);
+            set('heatingIndicator', s.heatingEnabled, 'idle');
+            set('tempIndicator', !s.disableTemperatureSensors, 'idle');
         }
 
 
 
         renderGaugeStatus(target, title, perc, color, text1, inlineText, belowText, uniqueId) {
+            const R = 62;
+            const C = 2 * Math.PI * R;
+            const p = Math.max(0, Math.min(100, perc || 0));
+            const offset = C * (1 - p / 100);
             const html = `
-                                <!-- Overall Status -->
-                    <!-- Overall Status -->
-                    <div class="bg-gray-800 p-6 rounded-lg">
-
-                
-        <div class="flex flex-col gap-4">
-        <div class="bg-gray-800 p-6 rounded-lg flex flex-col items-center text-center">
-            <h3 class="text-lg font-semibold mb-4">${title}</h3>
-            <div class="gauge mb-2" id="${uniqueId}"
-                style="--gauge-color: ${color}; --gauge-value: ${(perc/2)}%;"></div>
-            
-            <!-- wrapper for your two-line text block -->
-            <div class="flex flex-col items-center">
-            <!-- first line: big % + small inline text -->
-            <div class="flex items-baseline justify-center space-x-2">
-                <p class="text-2xl font-bold" id="socText">${text1}</p>
-                <p class="text-gray-400 text-sm" id="inlineText">${inlineText}</p>
-            </div>
-            <!-- second line: small gray text -->
-            <p class="text-gray-400 text-sm mt-1" id="belowText">${belowText}</p>
-            </div>
-            
-        </div>
-        </div>
-        </div>
-        `;
+                <div class="card p-6 flex flex-col items-center text-center">
+                    <div class="card-title mb-4">${title}</div>
+                    <div class="ring" id="${uniqueId}" style="--rc:${color}">
+                        <svg width="148" height="148" viewBox="0 0 148 148">
+                            <circle class="track" cx="74" cy="74" r="${R}" fill="none" stroke-width="11"/>
+                            <circle class="prog" cx="74" cy="74" r="${R}" fill="none" stroke-width="11"
+                                stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"/>
+                        </svg>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                            <div class="text-2xl font-bold metric">${text1}</div>
+                            <div class="text-xs" style="color:var(--muted)">${inlineText || ''}</div>
+                        </div>
+                    </div>
+                    <div class="text-sm mt-4 leading-snug" style="color:var(--muted)">${belowText || ''}</div>
+                </div>`;
             target.insertAdjacentHTML('beforeend', html);
         }
 
@@ -1261,124 +1295,83 @@
         }
 
         renderCellInfo(battery) {
-            const targetElement = document.getElementById('cellvoltagesContainer');
-
+            const target = document.getElementById('cellvoltagesContainer');
             const TH = battery.settings.balanceTriggerVoltage;
             const cells = battery.data.cellVoltages
-                .map((v, i) => ({
-                    v,
-                    r: battery.data.cellResistances[i],
-                    i
-                }))
+                .map((v, i) => ({ v, r: battery.data.cellResistances[i], i }))
                 .filter(c => c.v > 0);
 
+            if (!cells.length) { target.innerHTML = ''; return; }
+
             const vs = cells.map(c => c.v);
-            const delta = Math.max(...vs) - Math.min(...vs);
-            const colorClass = delta <= TH ? 'text-green-500' : 'text-red-500';
+            const min = Math.min(...vs), max = Math.max(...vs);
+            const delta = max - min;
+            const balanced = delta <= TH;
+            const span = Math.max(0.001, max - min);
 
-            targetElement.innerHTML = cells.map(({
-                v,
-                r,
-                i
-            }) => `
-                    <div class="bg-gray-800 p-4 rounded-lg">
-                    <h2 class="text-xl font-semibold mb-0">Cell ${i+1}</h2>
-                    <div class="grid grid-cols-2 border-b border-gray-700 py-2">
-                        <span class="${colorClass}">${v.toFixed(3)} V</span>
-                        <span>${r.toFixed(3)} mΩ</span>
+            const header = `
+                <div class="col-span-2 md:col-span-3 lg:col-span-6 flex items-center justify-between flex-wrap gap-2">
+                    <h2 class="text-base font-semibold">Cells <span class="text-sm font-normal" style="color:var(--muted)">· ${cells.length}</span></h2>
+                    <div class="flex items-center gap-3 text-sm">
+                        <span class="pill"><span class="dot ${balanced ? 'on' : 'warnc'}"></span>Δ ${(delta * 1000).toFixed(0)} mV</span>
+                        <span style="color:var(--muted)" class="metric">min ${min.toFixed(3)} · max ${max.toFixed(3)} V</span>
                     </div>
-                    </div>
-                `).join('');
+                </div>`;
 
+            const tiles = cells.map(({ v, r, i }) => {
+                const isMin = v === min, isMax = v === max;
+                const fill = Math.round(((v - min) / span) * 100);
+                const tag = isMax ? '<span class="tag hi">MAX</span>' : isMin ? '<span class="tag lo">MIN</span>' : '';
+                return `
+                    <div class="cell">
+                        <div class="flex items-center justify-between" style="min-height:1rem">
+                            <span class="text-xs" style="color:var(--muted)">Cell ${i + 1}</span>${tag}
+                        </div>
+                        <div class="flex items-baseline justify-between mt-1">
+                            <span class="text-lg font-semibold metric">${v.toFixed(3)}<span class="text-xs font-normal" style="color:var(--muted)"> V</span></span>
+                        </div>
+                        <div class="text-xs metric" style="color:var(--muted)">${r.toFixed(3)} mΩ</div>
+                        <div class="bar"><i style="width:${fill}%"></i></div>
+                    </div>`;
+            }).join('');
+
+            target.innerHTML = header + tiles;
         }
 
         renderAdditionalMetrics(battery) {
+            const target = document.getElementById('additionalMetrics');
+            const d = battery.data, s = battery.settings;
 
-            const targetElement = document.getElementById('additionalMetrics');
+            const tcol = v => v > 60 ? 'var(--bad)' : v > 50 ? 'var(--warn)' : 'var(--ok)';
+            const tempRow = (label, v, extra) => (v == null) ? '' :
+                `<div class="kv"><span class="k">${label}</span><span class="v" style="color:${tcol(v)}">${v}°C${extra ? ` <span style="color:var(--muted);font-size:.7rem">${extra}</span>` : ''}</span></div>`;
 
-            const tempColor = t => t > 60 ? 'text-red-500' : t > 50 ? 'text-yellow-500' : 'text-green-500';
-            const mosfetColor = tempColor(battery.data.mosfetTemp);
-            const probe1Color = tempColor(battery.data.tempProbe1);
-            const probe2Color = tempColor(battery.data.tempProbe2);
-            // Probes 3-5 only exist on some packs; skip absent sensors (report 0 / very low).
-            const extraProbeRows = [3, 4, 5].map(n => {
-                const v = battery.data['tempProbe' + n];
-                if (v == null || v === 0 || v <= -50) return '';
-                return `<tr class="border-b border-gray-700">
-                                <td class="py-2">Probe ${n}</td>
-                                <td class="py-2 ${tempColor(v)}">${v}°C</td>
-                                <td class="py-2 text-xs"></td>
-                            </tr>`;
-            }).join('');
+            const probes = [
+                ['MOSFET', d.mosfetTemp, `max ${s.mosOtp}°`],
+                ['Probe 1', d.tempProbe1, `${s.chargeUtp}…${s.chargeOtp}°`],
+                ['Probe 2', d.tempProbe2, `${s.chargeUtp}…${s.chargeOtp}°`]
+            ];
+            [3, 4, 5].forEach(n => {
+                const v = d['tempProbe' + n];
+                if (v != null && v !== 0 && v > -50) probes.push([`Probe ${n}`, v, '']);
+            });
+            const temps = `<div class="card p-5"><div class="card-title mb-3">🌡 Temperatures</div>${probes.map(p => tempRow(p[0], p[1], p[2])).join('')}</div>`;
 
-            const temperature = `
-                <div class="bg-gray-800 p-6 rounded-lg">
-                <h2 class="text-xl font-semibold mb-4">🌡️ Temperatures</h2>
-                <div id="temperatureInfo" class="text-gray-400">
-                    <table class="w-full border-collapse">
-                        <tbody>
-                            <tr class="border-b border-gray-700">
-                                <td class="py-2">mosfet</td>
-                                <td class="py-2 ${mosfetColor}">${battery.data.mosfetTemp}°C</td>
-                                <td class="py-2 text-xs">(${battery.settings.mosOtp}°C)</td>
-                            </tr>
-                            <tr class="border-b border-gray-700">
-                                <td class="py-2">Probe 1</td>
-                                <td class="py-2 ${probe1Color}">${battery.data.tempProbe1}°C</td>
-                                <td class="py-2 text-xs">(${battery.settings.chargeUtp}°C / ${battery.settings.chargeOtp}°C)</td>
-                            </tr>
-                            <tr class="border-b border-gray-700">
-                                <td class="py-2">Probe 2</td>
-                                <td class="py-2 ${probe2Color}">${battery.data.tempProbe2}°C</td>
-                                <td class="py-2 text-xs">(${battery.settings.chargeUtp}°C / ${battery.settings.chargeOtp}°C)</td>
-                            </tr>
-                            ${extraProbeRows}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            `;
+            const hasErr = d.errors && d.errors.length > 0;
+            const statusCard = `<div class="card p-5"><div class="card-title mb-2">Status</div>
+                <div class="text-2xl font-bold" style="color:${hasErr ? 'var(--bad)' : 'var(--ok)'}">${hasErr ? '⚠ Alarm' : '✓ Operational'}</div>
+                ${hasErr
+                    ? `<ul class="mt-2 text-sm leading-relaxed" style="color:var(--bad)">${d.errors.map(e => `<li>• ${escapeHtml(e)}</li>`).join('')}</ul>`
+                    : `<div class="text-sm mt-1" style="color:var(--muted)">No active alarms</div>`}</div>`;
 
+            const stat = (title, val, sub) => `<div class="card p-5"><div class="card-title mb-2">${title}</div>
+                <div class="text-3xl font-bold metric">${val}</div>
+                ${sub ? `<div class="text-sm mt-1" style="color:var(--muted)">${sub}</div>` : ''}</div>`;
 
-            let errors = "no errors";
-            var statusColor = "text-green-500";
-            var statusText = "Operational";
-            if (battery.data.errors && battery.data.errors.length > 0) {
-                errors = "";
-                statusColor = "text-red-500";
-                statusText = "Error";
-                const errorMessages = battery.data.errors.map(error => `<li class="text-red-500">${error}</li>`).join('');
-                const errorSection = `
-                    
-                        <ul class="list-disc pl-5 text-gray-400">
-                            ${errorMessages}
-                        </ul>
-                    
-                `;
-                errors += errorSection;
-            }
-
-            const protections = `
-             <div class="bg-gray-800 p-6 rounded-lg" style="transition-delay: 0.2s;">
-                <h3 class="text-lg font-semibold mb-2">Cycle Count</h3>
-                <p class="text-2xl font-bold">${battery.data.cycleCount}</p>
-            </div>
-            <div class="bg-gray-800 p-6 rounded-lg" style="transition-delay: 0.4s;">
-                <h3 class="text-lg font-semibold mb-2">State of Health</h3>
-                <p class="text-2xl font-bold">${battery.data.soh}%</p>
-                <p class="text-gray-400">Uptime: ${Utils.formatUptime(battery.deviceInfo.uptime)}</p>
-            </div>
-            <div class="bg-gray-800 p-6 rounded-lg" style="transition-delay: 0.6s;">
-                <h3 class="text-lg font-semibold mb-2">Status</h3>
-                <p class="text-2xl font-bold ${statusColor}">${statusText}</p>
-                <p class="text-gray-400">${errors}</p>
-            </div>
-            `;
-
-            var html = temperature + protections;
-
-
-            targetElement.innerHTML = html;
+            target.innerHTML = temps
+                + stat('Cycle Count', d.cycleCount ?? '—')
+                + stat('State of Health', (d.soh ?? '—') + '%', 'Uptime ' + Utils.formatUptime(battery.deviceInfo.uptime))
+                + statusCard;
         }
 
         renderBatterySelection(batteries) {
@@ -1386,8 +1379,8 @@
             el.innerHTML = '';
             if (batteries.length === 0) {
                 const connectBtn = document.createElement('button');
-                connectBtn.className = 'w-full bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition battery-btn';
-                connectBtn.textContent = 'Click to connect';
+                connectBtn.className = 'btn btn-primary';
+                connectBtn.innerHTML = '<span class="dot live on"></span> Connect';
                 connectBtn.addEventListener('click', () => {
                     this.connectViaDialog();
                 });
@@ -1396,8 +1389,8 @@
             } else {
 
                 const connectBtn = document.createElement('button');
-                connectBtn.className = 'w-full whitespace-nowrap bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition battery-btn';
-                connectBtn.textContent = 'pair new device';
+                connectBtn.className = 'btn btn-ghost';
+                connectBtn.textContent = '+ pair new';
                 connectBtn.addEventListener('click', () => {
                     this.connectViaDialog();
                 });
@@ -1413,8 +1406,8 @@
                     if (this.batteryManager.activeBattery) {
                         isActive = battery.device.id == this.batteryManager.activeBattery.device.id;
                     }
-                    btn.className = `flex-1 text-white px-4 py-2 rounded-lg battery-btn  ${hasConnectionError ? 'bg-red-500' : isActive ? 'bg-green-500' : 'bg-blue-500'}`;
-                    btn.textContent = device.name || `Battery ${device.id}`;
+                    btn.className = 'btn ' + (hasConnectionError ? 'btn-ghost' : isActive ? 'btn-primary' : 'btn-ghost');
+                    btn.innerHTML = `<span class="dot ${hasConnectionError ? 'off' : isActive ? 'on live' : 'idle'}"></span>${device.name || `Battery ${device.id}`}`;
 
                     el.appendChild(btn);
                     btn.addEventListener('click', async() => {
@@ -1568,20 +1561,14 @@
                     .map((r, i) => [`Wire Res ${i+1}`, () => `${r.toFixed(3)} mΩ`])
                 ];
 
-                // 2) Helper to render a titled table
+                // 2) Helper to render a titled card with key/value rows
                 const renderSection = (title, rows) => `
-                <div class="bg-gray-800 p-6 rounded-lg mb-6">
-                <h2 class="text-xl font-semibold mb-4">${title}</h2>
-                <table class="w-full text-gray-400">
-                    ${rows.map(([label, fn]) => `
-                    <tr>
-                        <th class="text-left py-1">${label}</th>
-                        <td class="py-1">${escapeHtml(fn())}</td>
-                    </tr>
-                    `).join('')}
-                </table>
-                </div>
-            `;
+                <div class="card p-5">
+                    <div class="card-title mb-3">${title}</div>
+                    <div>${rows.map(([label, fn]) =>
+                        `<div class="kv"><span class="k">${label}</span><span class="v">${escapeHtml(fn())}</span></div>`
+                    ).join('')}</div>
+                </div>`;
 
             // 3) Assemble & inject
             $container.innerHTML = [
@@ -2135,11 +2122,11 @@
 
             out.innerHTML += `
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <div class="bg-gray-900 p-4 rounded">
+                    <div class="card p-4">
                         <h3 class="font-semibold mb-2">Decoded (${Object.keys(decoded).length} fields)</h3>
                         <pre class="text-xs text-gray-300 overflow-auto" style="max-height:360px">${escapeHtml(JSON.stringify(decoded, null, 2))}</pre>
                     </div>
-                    <div class="bg-gray-900 p-4 rounded">
+                    <div class="card p-4">
                         <h3 class="font-semibold mb-2">Coverage: ${coveredCount}/${bytes.length} bytes decoded
                             · <span class="${undecodedNonZero.length ? 'text-yellow-400' : 'text-green-400'}">${undecodedNonZero.length} undecoded non-zero run(s)</span>
                         </h3>
