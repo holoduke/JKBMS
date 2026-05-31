@@ -196,6 +196,13 @@
         return new TextDecoder('utf-8').decode(bytes.slice(0, end));
     }
 
+    // Escape untrusted values (device-reported strings, pasted frames) before innerHTML.
+    function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, c => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[c]);
+    }
+
     class Utils {
         static formatUptime(seconds) {
             const d = Math.floor(seconds / 86400);
@@ -988,7 +995,8 @@
         }
 
         static decodeDeviceInfo(buffer, frametype) {
-            const dv = new DataView(buffer.buffer);
+            // Honor byteOffset so a Uint8Array subarray decodes correctly.
+            const dv = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
             const settings = {};
             for (const key in JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].frameParsers[frametype]) {
                 var def = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].frameParsers[frametype][key];
@@ -1013,7 +1021,7 @@
                         raw = dv.getInt32(def.offset, true);
                         break;
                     case 'cstring':
-                        raw = readString(buffer.buffer, def.offset, def.length)
+                        raw = readString(buffer.buffer, buffer.byteOffset + def.offset, def.length)
                         break;
                     case 'iterate':
                         raw = Array.from({
@@ -1103,17 +1111,6 @@
         constructor(batteryManager) {
             this.batteryManager = batteryManager;
         }
-        async bindConnectButton() {
-            document.getElementById('connectBtn').addEventListener('click', async() => {
-                appendLog('🔍 Requesting JK BMS Bluetooth device...');
-                device = await navigator.bluetooth.requestDevice({
-                    filters: [{
-                        services: [JKBms.SERVICE_UUID]
-                    }]
-                });
-                connect(device);
-            });
-        }
         async refresh() {
             this.renderBatterySelection(this.batteryManager.batteries);
 
@@ -1200,9 +1197,8 @@
         }
 
         renderStatus(battery) {
-            const status = battery.data;;
+            const status = battery.data;
             const warnings = status.errors || [];
-            const criticalWarnings = warnings.filter(w => JKBms.CRITICAL_ERRORS.includes(w));
 
             const elements = {
                 gaugesTopContainer: document.getElementById('gaugesTopContainer'),
@@ -1422,8 +1418,8 @@
 
                         await this.batteryManager.disconnectAll();
 
-                        //timeout 5 seconds
-                        await setTimeout(() => {}, 5000);
+                        // give the adapter time to release the previous GATT connection
+                        await new Promise(r => setTimeout(r, 1000));
 
 
                         console.debug('Battery button clicked', device);
@@ -1581,7 +1577,7 @@
                     ${rows.map(([label, fn]) => `
                     <tr>
                         <th class="text-left py-1">${label}</th>
-                        <td class="py-1">${fn()}</td>
+                        <td class="py-1">${escapeHtml(fn())}</td>
                     </tr>
                     `).join('')}
                 </table>
@@ -1925,7 +1921,7 @@
             if (battery) {
                 await battery.disconnect();
                 this.selectedBattery = null;
-                this.batteries = this.batteries.filter(b => b.device.id !== battery.id);
+                this.batteries = this.batteries.filter(b => b.device.id !== battery.device.id);
                 appendLog(`✅ Disconnected from battery: ${battery.device.name}`);
             } else {
                 appendLog(`❌ No battery found with ID: ${battery.device.name}`);
@@ -2130,7 +2126,7 @@
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <div class="bg-gray-900 p-4 rounded">
                         <h3 class="font-semibold mb-2">Decoded (${Object.keys(decoded).length} fields)</h3>
-                        <pre class="text-xs text-gray-300 overflow-auto" style="max-height:360px">${JSON.stringify(decoded, null, 2)}</pre>
+                        <pre class="text-xs text-gray-300 overflow-auto" style="max-height:360px">${escapeHtml(JSON.stringify(decoded, null, 2))}</pre>
                     </div>
                     <div class="bg-gray-900 p-4 rounded">
                         <h3 class="font-semibold mb-2">Coverage: ${coveredCount}/${bytes.length} bytes decoded
