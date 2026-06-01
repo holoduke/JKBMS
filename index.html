@@ -2259,9 +2259,11 @@
             return this.batteries.find(b => b.device.id === deviceId);
         }
 
+        // Disconnect only the connected ones; the list of known batteries is kept
+        // so every paired pack stays visible in the picker.
         async disconnectAll() {
             for (const battery of this.batteries) {
-                await this.disconnectBattery(battery);
+                if (battery.gatt && battery.gatt.connected) await this.disconnectBattery(battery);
             }
         }
 
@@ -2272,11 +2274,12 @@
         async disconnectBattery(battery) {
             if (battery) {
                 await battery.disconnect(true); // user-initiated → no auto-reconnect
+                if (this.activeBattery === battery) this.activeBattery = null;
                 this.selectedBattery = null;
-                this.batteries = this.batteries.filter(b => b.device.id !== battery.device.id);
-                appendLog(`✅ Disconnected from battery: ${battery.device.name}`);
+                // NOTE: do NOT remove from this.batteries — keep it in the picker.
+                appendLog(`✅ Disconnected from battery: ${battery.device.name || battery.device.id}`);
             } else {
-                appendLog(`❌ No battery found with ID: ${battery.device.name}`);
+                appendLog('❌ No battery to disconnect.');
             }
         }
 
