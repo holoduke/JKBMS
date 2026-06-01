@@ -1860,6 +1860,8 @@
         userDisconnected = false;   // true only after an explicit user disconnect
         reconnectAttempts = 0;
         reconnectTimer = null;
+        connecting = false;         // guard: a connect() flow is in progress
+        _listening = false;         // guard: notifications already being set up / active
 
         history = [];               // rolling time-series of realtime samples
         _histSaveCounter = 0;
@@ -1916,6 +1918,7 @@
         // (the cause of the repeated "🔌 ... disconnected" log lines).
         handleDisconnect = () => {
             this.gatt = null;
+            this._listening = false;
             appendLog(`🔌 Device ${this.device.name || this.device.id} disconnected.`);
             if (this.manager.batteryDataReceivedListener) this.manager.batteryDataReceivedListener(this, 'disconnected');
             if (!this.userDisconnected) this.scheduleReconnect();
@@ -2048,11 +2051,13 @@
         }
 
         async connect(cb) {
+            if (this.connecting) { appendLog('ℹ️ Connect already in progress.'); return; }
             if (this.device.gatt.connected) {
                 appendLog('ℹ️ Already connected to battery.');
                 if (cb) cb(false);
                 return null;
             }
+            this.connecting = true;
             appendLog(`🔗 Connecting to battery:`);
 
             // Fresh user-initiated connect: clear any prior "stop reconnecting" state.
@@ -2060,30 +2065,36 @@
             this.reconnectAttempts = 0;
             if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
 
-            let abortController;
-            const timer = setTimeout(() => {
-                if (abortController) abortController.abort();
-                if (cb) cb(false);
-            }, 10000); // 10 seconds timeout
+            // Single-settle guard: exactly one outcome, and always tear down the
+            // advertisement listener + timer so a late ad can't spawn a stray flow.
+            let settled = false, advHandler = null, timer = null;
+            const abortController = new AbortController();
+            const done = (ok) => {
+                if (settled) return;
+                settled = true;
+                if (timer) clearTimeout(timer);
+                try { abortController.abort(); } catch (_) {}
+                if (advHandler) { this.device.removeEventListener('advertisementreceived', advHandler); advHandler = null; }
+                this.connecting = false;
+                if (cb) cb(ok);
+            };
+            timer = setTimeout(() => { appendLog('⏱️ Connect timed out.'); done(false); }, 10000);
 
             // Preferred path: wait for an advertisement (device known in range), then connect.
             try {
-                abortController = new AbortController();
                 await this.device.watchAdvertisements({ signal: abortController.signal });
             } catch (e) {
                 // watchAdvertisements is experimental and may be unavailable on stock Chrome.
                 appendLog(`ℹ️ Advertisement scan unavailable; connecting directly...`);
-                clearTimeout(timer);
-                try { await this._finishConnect(cb); } catch (err) { appendLog(`❌ Connect failed: ${err.message}`); if (cb) cb(false); }
+                try { await this._finishConnect(done); } catch (err) { appendLog(`❌ Connect failed: ${err.message}`); done(false); }
                 return;
             }
 
-            this.device.addEventListener('advertisementreceived', async () => {
+            advHandler = async () => {
                 appendLog(`🔗 Advertisement received from: ${this.device.name || this.device.id} waiting for gatt....`);
-                abortController.abort();
-                clearTimeout(timer);
-                try { await this._finishConnect(cb); } catch (err) { appendLog(`❌ Connect failed: ${err.message}`); if (cb) cb(false); }
-            }, { once: true });
+                try { await this._finishConnect(done); } catch (err) { appendLog(`❌ Connect failed: ${err.message}`); done(false); }
+            };
+            this.device.addEventListener('advertisementreceived', advHandler, { once: true });
         }
 
         async write(command){
@@ -2094,6 +2105,7 @@
         // an unexpected drop or the no-data watchdog leaves it false so we retry.
         async disconnect(userInitiated = false) {
             if (userInitiated) this.userDisconnected = true;
+            this._listening = false;
             if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
             if (this.gatt && this.gatt.connected) {
                 appendLog('🔌 Disconnecting from BMS...');
@@ -2109,8 +2121,10 @@
         }
 
         async listen(cb) {
+            if (this._listening) { appendLog('ℹ️ Already listening to this battery.'); return; }
+            this._listening = true;
             console.debug('Battery => Listening for advertisements...',this);
-            try {       
+            try {
                 const timeoutTimer = setTimeout(()=>{
                     appendLog('❌ No data received within 8 seconds. Disconnecting...');
                     this.hasConnectionError = true;
@@ -2207,6 +2221,7 @@
             } catch (err) {
                 appendLog(`❌ Error: ${err.message}`);
                 console.error(err);
+                this._listening = false;
                 cb(true);
             }
         }
