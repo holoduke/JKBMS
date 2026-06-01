@@ -1602,9 +1602,11 @@
                 ['Probe 1', d.tempProbe1, `${s.chargeUtp}…${s.chargeOtp}°`],
                 ['Probe 2', d.tempProbe2, `${s.chargeUtp}…${s.chargeOtp}°`]
             ];
+            // Aux probes 3-5: many packs have no physical sensor there and instead
+            // mirror the MOSFET/internal temperature — skip those (and 0 / absent).
             [3, 4, 5].forEach(n => {
                 const v = d['tempProbe' + n];
-                if (v != null && v !== 0 && v > -50) probes.push([`Probe ${n}`, v, '']);
+                if (v != null && v !== 0 && v > -50 && v !== d.mosfetTemp) probes.push([`Probe ${n}`, v, '']);
             });
             const temps = `<div class="card p-5"><div class="card-title mb-3">🌡 Temperatures</div>${probes.map(p => tempRow(p[0], p[1], p[2])).join('')}</div>`;
 
@@ -1710,9 +1712,9 @@
                     ['Temp Probe 2', () => status.tempProbe2 != null ? `${status.tempProbe2} °C` : 'N/A'],
                     ['Cycle Count', () => status.cycleCount != null ? status.cycleCount : 'N/A'],
                     ['State of Health', () => status.soh != null ? `${status.soh} %` : 'N/A'],
-                    ['Temp Probe 3', () => (status.tempProbe3 != null && status.tempProbe3 !== 0 && status.tempProbe3 > -50) ? `${status.tempProbe3} °C` : '–'],
-                    ['Temp Probe 4', () => (status.tempProbe4 != null && status.tempProbe4 !== 0 && status.tempProbe4 > -50) ? `${status.tempProbe4} °C` : '–'],
-                    ['Temp Probe 5', () => (status.tempProbe5 != null && status.tempProbe5 !== 0 && status.tempProbe5 > -50) ? `${status.tempProbe5} °C` : '–'],
+                    ['Temp Probe 3', () => (status.tempProbe3 != null && status.tempProbe3 !== 0 && status.tempProbe3 > -50 && status.tempProbe3 !== status.mosfetTemp) ? `${status.tempProbe3} °C` : '–'],
+                    ['Temp Probe 4', () => (status.tempProbe4 != null && status.tempProbe4 !== 0 && status.tempProbe4 > -50 && status.tempProbe4 !== status.mosfetTemp) ? `${status.tempProbe4} °C` : '–'],
+                    ['Temp Probe 5', () => (status.tempProbe5 != null && status.tempProbe5 !== 0 && status.tempProbe5 > -50 && status.tempProbe5 !== status.mosfetTemp) ? `${status.tempProbe5} °C` : '–'],
                     ['Charge MOSFET (actual)', () => status.chargingMosEnabled != null ? (status.chargingMosEnabled ? 'ON' : 'OFF') : 'N/A'],
                     ['Discharge MOSFET (actual)', () => status.dischargingMosEnabled != null ? (status.dischargingMosEnabled ? 'ON' : 'OFF') : 'N/A'],
                     ['Balancer Working', () => status.balancerWorking != null ? (status.balancerWorking ? 'YES' : 'no') : 'N/A'],
