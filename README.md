@@ -14,8 +14,9 @@ Everything runs in your browser — no app, no cloud, no account. Nothing leaves
 - **Trends**: rolling sparkline charts (pack V, current, power, SOC, MOSFET temp), session energy stats (Wh in/out, peaks), and a per-cell balance deviation chart.
 - **Control**: nearly every protection setting and switch is writable (MOSFETs, balancer, OVP/UVP, OCP/OTP/UTP, heating, capacity, …) — booleans are inline toggle switches and numbers are click-to-edit; every write goes through an explicit confirmation dialog with bounds checking.
 - Decodes the full **settings** frame (UVP/OVP, OCP, OTP/UTP, balancing, switches, controls bitfield, …), **device info**, and the full 32-bit **alarm/error** bitmask.
-- **Auto-reconnect** with exponential backoff, stale-data banner, connection-state indicator.
-- **Demo mode** (`?demo=1`, optional `&cells=4…32`): realistic simulated pack — try the whole UI, including setting editors, in any browser.
+- **Multi-pack**: connect several BMSes at once — every pack keeps streaming, the picker switches the view instantly and shows live V/SOC per pack.
+- **Auto-reconnect** for every known pack with exponential backoff, stale-data banner, connection-state indicator.
+- **Demo mode** (`?demo=1`, optional `&cells=4…32`, `&packs=2`): realistic simulated pack — try the whole UI, including setting editors, in any browser.
 - **Dev tool** (collapsible panel): paste a captured frame hex dump to decode it offline, verify the CRC, and run a byte-coverage gap analysis that highlights bytes no field decodes yet.
 
 ## Quick start

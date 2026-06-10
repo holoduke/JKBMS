@@ -258,6 +258,10 @@
         .kv-edit:hover .pen { color: var(--accent); }
         .kv-edit:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 1px; }
 
+        /* live per-pack mini status inside picker buttons */
+        .batt-mini { font-size: .68rem; color: var(--muted); margin-left: .45rem; font-weight: 500; }
+        .btn-primary .batt-mini { color: rgba(3, 19, 11, .65); }
+
         /* compact switch for settings rows */
         .switch.sm { width: 38px; height: 22px; }
         .switch.sm > span { width: 16px; height: 16px; }
@@ -1542,6 +1546,8 @@
                     }
                     this.batteryManager.connectBattery(battery, (connected) => {
                         if (connected) {
+                            // A freshly paired pack becomes the displayed one.
+                            this.batteryManager.activeBattery = battery;
                             battery.listen((error) => {
                                 if (error) {
                                     appendLog(`❌ Failed to listen to ${battery.device.name || battery.device.id}`);
@@ -2035,76 +2041,75 @@
             var el = document.getElementById('batterySelection');
 
             // Rebuilding destroys buttons mid-click (mousedown and mouseup must hit the
-            // same node), so skip the rebuild entirely unless the picker state changed.
+            // same node), so rebuild only on structural change; the live V/SOC mini-status
+            // on each button updates in place below.
             const activeId = this.batteryManager.activeBattery ? this.batteryManager.activeBattery.device.id : null;
-            const sig = JSON.stringify([activeId, batteries.map(b => [b.device.id, !!b.hasConnectionError])]);
-            if (el.dataset.sig === sig) return;
-            el.dataset.sig = sig;
+            const connState = b => (b.gatt && b.gatt.connected) ? 'on' : b.hasConnectionError ? 'err' : 'off';
+            const sig = JSON.stringify([activeId, batteries.map(b => [b.device.id, connState(b)])]);
+            if (el.dataset.sig !== sig) {
+                el.dataset.sig = sig;
+                el.innerHTML = '';
 
-            el.innerHTML = '';
-            if (batteries.length === 0) {
-                const connectBtn = document.createElement('button');
-                connectBtn.className = 'btn btn-primary';
-                connectBtn.innerHTML = '<span class="dot live on"></span> Connect';
-                connectBtn.addEventListener('click', () => {
-                    this.connectViaDialog();
-                });
-
-                el.appendChild(connectBtn);
-            } else {
-
-                const connectBtn = document.createElement('button');
-                connectBtn.className = 'btn btn-ghost';
-                connectBtn.textContent = '+ pair new';
-                connectBtn.addEventListener('click', () => {
-                    this.connectViaDialog();
-                });
-                el.appendChild(connectBtn);
-
+                const pairBtn = document.createElement('button');
+                if (batteries.length === 0) {
+                    pairBtn.className = 'btn btn-primary';
+                    pairBtn.innerHTML = '<span class="dot live on"></span> Connect';
+                } else {
+                    pairBtn.className = 'btn btn-ghost';
+                    pairBtn.textContent = '+ pair new';
+                }
+                pairBtn.addEventListener('click', () => this.connectViaDialog());
+                el.appendChild(pairBtn);
 
                 batteries.forEach(battery => {
                     const device = battery.device;
+                    const isActive = device.id === activeId;
+                    const st = connState(battery);
                     const btn = document.createElement('button');
-                    let isActive = false;
-                    let hasConnectionError = battery.hasConnectionError || false;
-
-                    if (this.batteryManager.activeBattery) {
-                        isActive = battery.device.id == this.batteryManager.activeBattery.device.id;
-                    }
-                    btn.className = 'btn ' + (hasConnectionError ? 'btn-ghost' : isActive ? 'btn-primary' : 'btn-ghost');
+                    btn.className = 'btn ' + (isActive ? 'btn-primary' : 'btn-ghost');
+                    btn.title = isActive ? 'Currently shown' : st === 'on' ? 'Show this pack (stays connected)' : 'Connect this pack';
                     // device.name is device-controlled — escape it before innerHTML.
-                    btn.innerHTML = `<span class="dot ${hasConnectionError ? 'off' : isActive ? 'on live' : 'idle'}"></span>${escapeHtml(device.name || `Battery ${device.id}`)}`;
-
+                    btn.innerHTML = `<span class="dot ${st === 'on' ? 'on live' : st === 'err' ? 'off' : 'idle'}"></span>${escapeHtml(device.name || `Battery ${device.id}`)}<span class="batt-mini metric" data-batt="${escapeHtml(device.id)}"></span>`;
+                    btn.addEventListener('click', () => this.selectBattery(battery));
                     el.appendChild(btn);
-                    btn.addEventListener('click', async() => {
-
-                        await this.batteryManager.disconnectAll();
-
-                        // give the adapter time to release the previous GATT connection
-                        await new Promise(r => setTimeout(r, 1000));
-
-
-                        console.debug('Battery button clicked', device);
-                        // addBattery is register-or-return, so this never creates a duplicate.
-                        const batterySelection = this.batteryManager.addBattery(device);
-                        appendLog(`🔗 Connecting to battery: ${batterySelection.device.name || batterySelection.device.id}`);
-                        this.batteryManager.connectBattery(batterySelection, (connected) => {
-                            if (connected) {
-                                batterySelection.listen((error) => {
-                                    if (error) {
-                                        appendLog(`❌ Failed to listen to ${batterySelection.device.name || batterySelection.device.id}`);
-                                        this.refresh();
-                                    }
-                                });
-                                this.refresh();
-                            } else {
-                                appendLog(`❌ Failed to listen to ${batterySelection.device.name || batterySelection.device.id}`);
-                            }
-                        });
-                    });
-
                 });
             }
+
+            // Live per-pack mini status — every connected pack keeps streaming, so all
+            // buttons show fresh voltage/SOC regardless of which pack is displayed.
+            batteries.forEach(b => {
+                const span = el.querySelector(`[data-batt="${CSS.escape(b.device.id)}"]`);
+                if (!span) return;
+                const d = b.data;
+                const text = (b.gatt && b.gatt.connected && d && d.totalVoltage != null)
+                    ? `${(+d.totalVoltage).toFixed(1)}V·${d.soc ?? '–'}%` : '';
+                if (span.textContent !== text) span.textContent = text;
+            });
+        }
+
+        // Multi-pack: an already-connected battery just becomes the displayed pack;
+        // a disconnected one connects IN PARALLEL with whatever else is streaming —
+        // Web Bluetooth supports several concurrent GATT connections.
+        selectBattery(battery) {
+            const mgr = this.batteryManager;
+            if (battery.gatt && battery.gatt.connected) {
+                mgr.activeBattery = battery;
+                appendLog(`👁 Showing ${battery.device.name || battery.device.id}`);
+                this.refresh();
+                return;
+            }
+            appendLog(`🔗 Connecting to battery: ${battery.device.name || battery.device.id}`);
+            mgr.connectBattery(battery, (connected) => {
+                if (!connected) {
+                    appendLog(`❌ Failed to connect to ${battery.device.name || battery.device.id}`);
+                    return;
+                }
+                mgr.activeBattery = battery;
+                battery.listen((error) => {
+                    if (error) appendLog(`❌ Failed to listen to ${battery.device.name || battery.device.id}`);
+                    this.refresh();
+                });
+            });
         }
 
         renderAllSettings(battery) {
@@ -2398,7 +2403,8 @@
                 if (this.userDisconnected || this.connecting) return;
                 try {
                     this.gatt = await this.device.gatt.connect();
-                    this.manager.activeBattery = this;
+                    // Don't steal the view from another pack the user is watching.
+                    if (!this.manager.activeBattery) this.manager.activeBattery = this;
                     await this.listen((err) => { if (err) this.scheduleReconnect(); });
                     appendLog('✅ Reconnected.');
                 } catch (e) {
@@ -2553,7 +2559,9 @@
                 if (cb) cb(false);
                 return;
             }
-            this.manager.activeBattery = this;
+            // Multi-pack: only claim the view if nothing is displayed yet; explicit
+            // user selection (selectBattery / pair dialog) sets it directly.
+            if (!this.manager.activeBattery) this.manager.activeBattery = this;
             if (cb) cb(true);
         }
 
@@ -2636,7 +2644,8 @@
             if (this.gatt && this.gatt.connected) {
                 appendLog('🔌 Disconnecting from BMS...');
                 console.debug('🔌 Disconnecting from GATT server', this);
-                this.manager.activeBattery = null;
+                // Multi-pack: only clear the view if THIS pack was the one displayed.
+                if (this.manager.activeBattery === this) this.manager.activeBattery = null;
                 await this.gatt.disconnect();
                 this.gatt = null;
                 appendLog('✅ Device disconnected.');
@@ -2871,19 +2880,36 @@
             return this.batteries;
         }
 
+        // Try to reconnect EVERY known pack in parallel (multi-pack: they all stay
+        // connected and stream concurrently). cb fires once — with the first pack
+        // that comes up, or with nothing after all attempts settled.
         async autoReconnect(cb) {
             if (this.batteries.length === 0) {
                 cb();
                 return;
             }
-            const battery = this.batteries[0];
-            battery.connect(async (connected) => {
-                if (connected) {
-                    this.selectedBattery = battery;
-                    cb(battery);
-                } else {
-                    cb();
-                }
+            let settled = 0, succeeded = 0, reported = false;
+            const total = this.batteries.length;
+            this.batteries.forEach(battery => {
+                battery.connect((connected) => {
+                    settled++;
+                    if (connected) {
+                        succeeded++;
+                        if (!this.activeBattery) this.activeBattery = battery;
+                        battery.listen((error) => {
+                            if (error) appendLog(`❌ Failed to listen to ${battery.device.name || battery.device.id}`);
+                        });
+                        if (!reported) {
+                            reported = true;
+                            this.selectedBattery = battery;
+                            cb(battery);
+                        }
+                    }
+                    if (settled === total && succeeded === 0 && !reported) {
+                        reported = true;
+                        cb();
+                    }
+                });
             });
         }
     }
@@ -2924,22 +2950,26 @@
     function startDemo(manager, UI) {
         document.getElementById('demoChip').style.display = '';
 
-        // ?demo=1&cells=16 previews any pack size (default 4S, max 32S)
-        const cellCount = Math.min(32, Math.max(3, parseInt(new URLSearchParams(location.search).get('cells'), 10) || 4));
-        appendLog(`🧪 Demo mode — simulated ${cellCount}S LiFePO₄ pack (280 Ah). No Bluetooth used.`);
+        // ?demo=1&cells=16 previews any pack size (default 4S, max 32S);
+        // &packs=2 simulates multiple packs connected at the same time.
+        const q = new URLSearchParams(location.search);
+        const cellCount = Math.min(32, Math.max(3, parseInt(q.get('cells'), 10) || 4));
+        const packCount = Math.min(4, Math.max(1, parseInt(q.get('packs'), 10) || 1));
+        appendLog(`🧪 Demo mode — ${packCount} simulated ${cellCount}S LiFePO₄ pack(s), 280 Ah. No Bluetooth used.`);
 
+        const makePack = (idx) => {
         const baseCells = Array.from({ length: cellCount }, (_, i) => +(3.305 + (((i * 37) % 11) - 5) * 0.001).toFixed(3));
         const wireRes = Array.from({ length: cellCount }, (_, i) => +(0.110 + ((i * 13) % 7) * 0.004).toFixed(3));
         const cellRes = Array.from({ length: cellCount }, (_, i) => +(0.40 + ((i * 17) % 9) * 0.008).toFixed(3));
         const battery = {
-            device: { id: 'demo-1', name: 'JK-B2A8S20P · demo' },
+            device: { id: 'demo-' + (idx + 1), name: 'JK-B2A8S20P · demo' + (packCount > 1 ? ' ' + (idx + 1) : '') },
             manager,
             gatt: { connected: true },
             hasConnectionError: false, userDisconnected: false, reconnectTimer: null,
             history: [], lastFrameTs: Date.now(),
             deviceInfo: {
                 vendor: 'JK-BMS', hardware: 'V15.3', software: 'V15.38', deviceName: 'JK-B2A8S20P',
-                serialNumber: 'DEMO-280-0001', manufacturingDate: '240312', uptime: 86400 * 12 + 4521,
+                serialNumber: 'DEMO-280-000' + (idx + 1), manufacturingDate: '240312', uptime: 86400 * 12 + 4521,
                 powerUpTimes: 18, devicePasscode: '–', passCode: '–', setupPasscode: '–',
                 userData: 'JK BMS Controller demo', hardwareOption: '–', uart1ProtocolNum: 1, canProtocolNum: 1,
                 uart1ProtocolsEnabledBitmask: 1, canProtocolsEnabledBitmask: 1
@@ -2984,7 +3014,8 @@
         };
 
         // One simulated realtime frame: a day-in-the-life load/charge curve.
-        let tick = 0;
+        // Each pack gets a phase offset so they visibly differ.
+        let tick = idx * 211;
         const sample = () => {
             tick++;
             const phase = tick / 70;
@@ -2992,7 +3023,7 @@
             const wobble = i => +(0.004 * Math.sin(phase * 1.3 + i * 1.7)).toFixed(4);
             const cellVoltages = baseCells.map((v, i) => +(v + wobble(i) + current * 0.0008).toFixed(3));
             const totalVoltage = +cellVoltages.reduce((a, b) => a + b, 0).toFixed(2);
-            const soc = Math.round(72 + 6 * Math.sin(phase / 4));
+            const soc = Math.round(72 - idx * 11 + 6 * Math.sin(phase / 4));
             battery.data = {
                 totalVoltage, current, power: +(totalVoltage * current).toFixed(1),
                 soc, remainingCapacity: +(280 * soc / 100).toFixed(1), nominalCapacity: 280,
@@ -3023,12 +3054,16 @@
         const t0 = Date.now();
         battery.history.forEach((s, k) => { s.t = t0 - (battery.history.length - k) * 1000; });
 
-        manager.batteries.push(battery);
-        manager.activeBattery = battery;
+        return { battery, sample };
+        }; // makePack
+
+        const packs = Array.from({ length: packCount }, (_, i) => makePack(i));
+        packs.forEach(p => manager.batteries.push(p.battery));
+        manager.activeBattery = packs[0].battery;
         UI.refresh();
         setInterval(() => {
-            sample();
-            if (manager.batteryDataReceivedListener) manager.batteryDataReceivedListener(battery, {});
+            packs.forEach(p => p.sample());
+            if (manager.batteryDataReceivedListener) manager.batteryDataReceivedListener(packs[0].battery, {});
         }, 1000);
     }
 
@@ -3071,14 +3106,7 @@
         await batteryManager.autoReconnect(async (battery)=>{
             if (battery) {
                 appendLog('🔗 Successfully reconnected to battery.');
-                UI.refresh();
-                battery.listen((error)=>{
-                    if (error){
-                        appendLog(`❌ Failed to listen to ${battery.device.name}`);
-                        UI.refresh();
-                    }
-                });
-                //await battery.connect();
+                UI.refresh(); // autoReconnect already started listening on every pack
             } else {
                 appendLog('ℹ️ Could not auto reconnect, use button to select device.');
             }
