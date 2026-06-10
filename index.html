@@ -303,11 +303,28 @@
 
             <!-- Dev tool: replay & gap-analyse a captured frame (no Bluetooth needed) -->
             <section class="mb-4">
-                <details class="card p-5">
+                <details class="card p-5" id="devPanel">
                     <summary class="cursor-pointer font-semibold select-none flex items-center gap-2">
                         <span class="chev" aria-hidden="true">▸</span>
-                        <span class="font-display">Developer · replay &amp; gap-analyse a captured frame</span>
+                        <span class="font-display">Developer · capture, replay &amp; gap-analyse frames</span>
                     </summary>
+
+                    <!-- Live frame capture: records every RX frame / TX command while connected -->
+                    <div class="mt-3 p-3 rounded-xl" style="background:rgba(0,0,0,.25);border:1px solid var(--border)">
+                        <div class="text-sm mb-2" style="color:var(--muted)">
+                            <strong style="color:var(--text)">Live capture</strong> — records every frame received from the BMS
+                            (and every command sent) with timestamps while connected. Download the log or feed the
+                            latest frame straight into the analyser below.
+                        </div>
+                        <div class="flex gap-3 items-center flex-wrap">
+                            <button id="capToggle" class="btn btn-ghost">⏺ Start capture</button>
+                            <span id="capCount" class="text-sm metric" style="color:var(--muted)">0 entries</span>
+                            <button id="capDownload" class="btn btn-ghost">⬇ Download log</button>
+                            <button id="capAnalyse" class="btn btn-ghost">Analyse last RX frame</button>
+                            <button id="capClear" class="btn btn-ghost">Clear</button>
+                        </div>
+                    </div>
+
                     <p class="text-sm mt-3" style="color:var(--muted)">
                         Paste a raw frame hex dump — any of <code>55 AA EB 90 03 …</code>, <code>0x55,0xAA,…</code>, newlines are fine.
                         Frame type is auto-detected from byte&nbsp;4 (<code>01</code>=settings, <code>02</code>=realtime, <code>03</code>=device info).
@@ -2545,6 +2562,7 @@
                 if (!this.gatt || !this.gatt.connected || !this.characteristic) {
                     throw new Error('Not connected to BMS');
                 }
+                FrameCapture.add('TX', command, `reg=0x${command[4].toString(16).padStart(2, '0')}`);
                 const w = this.characteristic.writeNoAck || this.characteristic.write;
                 return w(command);
             };
@@ -2635,6 +2653,7 @@
                     // Ignore the 20-byte echo of our own command (header AA 55 90 EB).
                     if (chunk.length === 20 && chunk[0] === 0xAA && chunk[1] === 0x55 &&
                         chunk[2] === 0x90 && chunk[3] === 0xEB) {
+                        FrameCapture.add('RX', chunk, 'echo-of-own-write');
                         return;
                     }
 
@@ -2657,6 +2676,7 @@
 
                         const crc = frame.subarray(0, -1).reduce((sum, b) => (sum + b) & 0xFF, 0);
                         if (crc !== frame[FRAME_SIZE - 1]) {
+                            FrameCapture.add('RX', frame, 'crc=BAD');
                             appendLog(`❌ Bad CRC: ${crc} != ${frame[FRAME_SIZE - 1]}`);
                             // Misaligned stream — realign to the next header inside the bad
                             // window instead of blindly dropping whole 300-byte slices.
@@ -2694,9 +2714,12 @@
                 };
                 this.characteristic.notify.addEventListener('characteristicvaluechanged', this.advertisementreceivedListener);
                 appendLog('📤 Requesting device info and realtime data');
-                await this.characteristic.write(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getDeviceInfo);
+                const cmds = JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands;
+                FrameCapture.add('TX', cmds.getDeviceInfo, 'getDeviceInfo');
+                await this.characteristic.write(cmds.getDeviceInfo);
                 await new Promise(r => setTimeout(r, 200));
-                await this.characteristic.write(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getRealtimeData);
+                FrameCapture.add('TX', cmds.getRealtimeData, 'getRealtimeData');
+                await this.characteristic.write(cmds.getRealtimeData);
                 await new Promise(r => setTimeout(r, 200));
                 if (cb) cb(false); // success — notifications are flowing
             } catch (err) {
@@ -3121,9 +3144,81 @@
         }
     };
 
+    // ------------------------------------------------------------------
+    // Live frame capture: records every RX frame / TX command while
+    // connected, for offline protocol validation. Exports a hex log whose
+    // frame lines paste directly into the replay analyser (lines starting
+    // with # are metadata and are ignored by the hex parser... strip them).
+    // ------------------------------------------------------------------
+    const FrameCapture = {
+        enabled: false,
+        entries: [],
+        MAX: 5000,
+
+        add(dir, bytes, info = '') {
+            if (!this.enabled) return;
+            this.entries.push({ t: new Date().toISOString(), dir, info, hex: dumpHex(bytes) });
+            if (this.entries.length >= this.MAX) {
+                this.enabled = false;
+                appendLog(`⏹ Capture buffer full (${this.MAX} entries) — capture stopped.`);
+            }
+            this.updateUi();
+        },
+
+        toggle() {
+            this.enabled = !this.enabled;
+            appendLog(this.enabled
+                ? '⏺ Frame capture started — connect to a battery and let it stream.'
+                : `⏹ Frame capture stopped — ${this.entries.length} entries recorded.`);
+            this.updateUi();
+        },
+
+        clear() {
+            this.entries = [];
+            this.updateUi();
+            appendLog('🧹 Capture buffer cleared.');
+        },
+
+        updateUi() {
+            const t = document.getElementById('capToggle');
+            const c = document.getElementById('capCount');
+            if (t) t.textContent = this.enabled ? '⏹ Stop capture' : '⏺ Start capture';
+            if (c) c.textContent = `${this.entries.length} entries${this.enabled ? ' · recording…' : ''}`;
+        },
+
+        download() {
+            if (!this.entries.length) { appendLog('ℹ️ Nothing captured yet — start the capture and connect.'); return; }
+            const lines = this.entries.map(e => `# ${e.t} ${e.dir}${e.info ? ' ' + e.info : ''}\n${e.hex}`);
+            const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `jkbms-capture-${new Date().toISOString().replace(/[:.]/g, '-')}.log`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            appendLog(`⬇ Capture log downloaded (${this.entries.length} entries).`);
+        },
+
+        analyseLastRx() {
+            const last = [...this.entries].reverse().find(e => e.dir === 'RX' && e.info.includes('crc=ok'));
+            if (!last) { appendLog('ℹ️ No valid RX frame captured yet.'); return; }
+            const input = document.getElementById('replayInput');
+            if (input) input.value = last.hex;
+            const panel = document.getElementById('devPanel');
+            if (panel) panel.setAttribute('open', '');
+            ReplayTool.run();
+        }
+    };
+
     document.addEventListener('DOMContentLoaded', () => {
-        const btn = document.getElementById('replayBtn');
-        if (btn) btn.addEventListener('click', () => ReplayTool.run());
+        const wire = (id, fn) => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', fn);
+        };
+        wire('replayBtn', () => ReplayTool.run());
+        wire('capToggle', () => FrameCapture.toggle());
+        wire('capDownload', () => FrameCapture.download());
+        wire('capAnalyse', () => FrameCapture.analyseLastRx());
+        wire('capClear', () => FrameCapture.clear());
     });
 
     main();
