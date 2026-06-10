@@ -1,21 +1,21 @@
-# ⚡ VoltView — JK-BMS live dashboard
+# ⚡ JK BMS Controller — live dashboard
 
-![VoltView dashboard](screenshot-dashboard.png)
+![JK BMS Controller dashboard](screenshot-dashboard.png)
 
 A single-file (no build step) **Web Bluetooth** dashboard for **JK-BMS** battery management systems, targeting the **JK-B2A8S20P** (hardware v11+, which uses the `JK02_32S` protocol).
 
 Everything runs in your browser — no app, no cloud, no account. Nothing leaves your device.
 
-**Try it without hardware:** open the page with `?demo=1` for a fully interactive simulated 4S LiFePO₄ pack.
+**Try it without hardware:** open the page with `?demo=1` for a fully interactive simulated LiFePO₄ pack — add `&cells=8` (or 16/24/32) to preview any pack size.
 
 ## Features
 
 - **Live dashboard**: SOC / voltage / power-load ring gauges, per-cell voltages & internal resistances with min/max highlighting, temperatures, cycle count, SOH.
 - **Trends**: rolling sparkline charts (pack V, current, power, SOC, MOSFET temp), session energy stats (Wh in/out, peaks), and a per-cell balance deviation chart.
-- **Control**: toggle charge / discharge / balancer MOSFETs, LCD always-on, and set max charge/discharge current & capacity — every write goes through an explicit confirmation dialog with bounds checking.
+- **Control**: nearly every protection setting and switch is writable (MOSFETs, balancer, OVP/UVP, OCP/OTP/UTP, heating, capacity, …) — booleans are inline toggle switches and numbers are click-to-edit; every write goes through an explicit confirmation dialog with bounds checking.
 - Decodes the full **settings** frame (UVP/OVP, OCP, OTP/UTP, balancing, switches, controls bitfield, …), **device info**, and the full 32-bit **alarm/error** bitmask.
 - **Auto-reconnect** with exponential backoff, stale-data banner, connection-state indicator.
-- **Demo mode** (`?demo=1`): realistic simulated pack — try the whole UI, including setting editors, in any browser.
+- **Demo mode** (`?demo=1`, optional `&cells=4…32`): realistic simulated pack — try the whole UI, including setting editors, in any browser.
 - **Dev tool** (collapsible panel): paste a captured frame hex dump to decode it offline, verify the CRC, and run a byte-coverage gap analysis that highlights bytes no field decodes yet.
 
 ## Quick start
