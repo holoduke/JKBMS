@@ -1,31 +1,39 @@
-# JK BMS Bluetooth Dashboard
+# ⚡ VoltView — JK-BMS live dashboard
 
 A single-file (no build step) **Web Bluetooth** dashboard for **JK-BMS** battery management systems, targeting the **JK-B2A8S20P** (hardware v11+, which uses the `JK02_32S` protocol).
 
-Open `index.html` in **Chrome or Edge** (Web Bluetooth is not supported in Firefox/Safari), click **Connect**, and pair with the BMS over BLE.
+Everything runs in your browser — no app, no cloud, no account. Nothing leaves your device.
+
+**Try it without hardware:** open the page with `?demo=1` for a fully interactive simulated 4S LiFePO₄ pack.
 
 ## Features
 
-- Live dashboard: SOC, pack voltage, current/power, per-cell voltages & resistances, temperatures, cycle count, SOH.
-- Decodes the full **settings** frame (UVP/OVP, OCP, OTP/UTP, balancing, switches, controls bitfield, etc.).
-- Decodes **device info** (vendor, hardware/software version, serial, passcodes, protocol numbers).
-- Full 32-bit **alarm/error** bitmask decode (incl. charge/discharge MOSFET-abnormal flags).
-- Toggle charge / discharge / balancer MOSFETs and set max charge/discharge current & capacity.
-- **Dev tool** (panel at bottom): paste a captured frame hex dump to decode it offline, verify the CRC, and run a **byte-coverage gap analysis** that highlights bytes no field decodes yet.
+- **Live dashboard**: SOC / voltage / power-load ring gauges, per-cell voltages & internal resistances with min/max highlighting, temperatures, cycle count, SOH.
+- **Trends**: rolling sparkline charts (pack V, current, power, SOC, MOSFET temp), session energy stats (Wh in/out, peaks), and a per-cell balance deviation chart.
+- **Control**: toggle charge / discharge / balancer MOSFETs, LCD always-on, and set max charge/discharge current & capacity — every write goes through an explicit confirmation dialog with bounds checking.
+- Decodes the full **settings** frame (UVP/OVP, OCP, OTP/UTP, balancing, switches, controls bitfield, …), **device info**, and the full 32-bit **alarm/error** bitmask.
+- **Auto-reconnect** with exponential backoff, stale-data banner, connection-state indicator.
+- **Demo mode** (`?demo=1`): realistic simulated pack — try the whole UI, including setting editors, in any browser.
+- **Dev tool** (collapsible panel): paste a captured frame hex dump to decode it offline, verify the CRC, and run a byte-coverage gap analysis that highlights bytes no field decodes yet.
 
-## Protocol
-
-Implements the JK02_32S BLE frame format (header `55 AA EB 90`, type byte at offset 4: `01`=settings, `02`=realtime, `03`=device info). Offsets validated against the reference reverse-engineered implementation [`syssi/esphome-jk-bms`](https://github.com/syssi/esphome-jk-bms).
-
-## Running locally
+## Quick start
 
 ```sh
 python3 -m http.server 8765 --bind 127.0.0.1
-# then open http://127.0.0.1:8765/ in Chrome
+# then open http://127.0.0.1:8765/ in Chrome or Edge
 ```
 
-`http://127.0.0.1` is treated as a secure context by Chrome, so Web Bluetooth works without HTTPS.
+`http://127.0.0.1` is a secure context, so Web Bluetooth works without HTTPS. Click **Connect a battery** and pair with the BMS over BLE. (Web Bluetooth is not supported in Firefox/Safari.)
+
+## Protocol
+
+Implements the JK02_32S BLE frame format (header `55 AA EB 90`, type byte at offset 4: `01`=settings, `02`=realtime, `03`=device info). Write frames are `AA 55 90 EB | register | len | value LE | CRC`. Registers and offsets validated against the reference reverse-engineered implementation [`syssi/esphome-jk-bms`](https://github.com/syssi/esphome-jk-bms).
+
+## Tech notes
+
+- Single `index.html`, zero runtime dependencies. Tailwind is compiled statically into the page (rebuild with `npx tailwindcss@3.4 --content index.html` if you add new utility classes).
+- All BLE writes are serialized through a queue and bounds-checked; the UI updates values in place instead of rebuilding the DOM per frame.
 
 ## License
 
-© 2025 Gillis Haasnoot
+© 2025–2026 Gillis Haasnoot

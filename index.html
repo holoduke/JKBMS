@@ -4,26 +4,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JK-BMS Dashboard · JK-B2A8S20P</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>VoltView · JK-BMS live dashboard</title>
+    <!-- Tailwind compiled statically (npx tailwindcss@3.4.17, content=index.html).
+         Replaces the Play CDN, whose MutationObserver re-scanned the DOM on every frame.
+         To add new utility classes: rebuild with the Tailwind CLI or re-add the CDN during dev. -->
+    <style>*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.17 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.container{width:100%}@media (min-width:640px){.container{max-width:640px}}@media (min-width:768px){.container{max-width:768px}}@media (min-width:1024px){.container{max-width:1024px}}@media (min-width:1280px){.container{max-width:1280px}}@media (min-width:1536px){.container{max-width:1536px}}.visible{visibility:visible}.static{position:static}.fixed{position:fixed}.absolute{position:absolute}.relative{position:relative}.sticky{position:sticky}.inset-0{inset:0}.bottom-0{bottom:0}.left-0{left:0}.z-20{z-index:20}.col-span-2{grid-column:span 2/span 2}.col-span-full{grid-column:1/-1}.mx-auto{margin-left:auto;margin-right:auto}.mb-1{margin-bottom:.25rem}.mb-2{margin-bottom:.5rem}.mb-3{margin-bottom:.75rem}.mb-4{margin-bottom:1rem}.mb-5{margin-bottom:1.25rem}.mb-6{margin-bottom:1.5rem}.mr-auto{margin-right:auto}.mt-1{margin-top:.25rem}.mt-2{margin-top:.5rem}.mt-3{margin-top:.75rem}.mt-4{margin-top:1rem}.block{display:block}.inline{display:inline}.flex{display:flex}.table{display:table}.grid{display:grid}.hidden{display:none}.h-32{height:8rem}.min-h-screen{min-height:100vh}.w-full{width:100%}.max-w-7xl{max-width:80rem}.flex-grow{flex-grow:1}.transform{transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-pointer{cursor:pointer}.select-none{-webkit-user-select:none;-moz-user-select:none;user-select:none}.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.flex-col{flex-direction:column}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.items-baseline{align-items:baseline}.justify-end{justify-content:flex-end}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-2{gap:.5rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}.gap-x-8{-moz-column-gap:2rem;column-gap:2rem}.overflow-auto{overflow:auto}.overflow-hidden{overflow:hidden}.overflow-y-auto{overflow-y:auto}.whitespace-pre-wrap{white-space:pre-wrap}.rounded-lg{border-radius:.5rem}.rounded-xl{border-radius:.75rem}.border{border-width:1px}.p-3{padding:.75rem}.p-4{padding:1rem}.p-5{padding:1.25rem}.p-6{padding:1.5rem}.px-4{padding-left:1rem;padding-right:1rem}.py-0{padding-top:0;padding-bottom:0}.py-0\.5{padding-top:.125rem;padding-bottom:.125rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.py-3{padding-top:.75rem;padding-bottom:.75rem}.py-5{padding-top:1.25rem;padding-bottom:1.25rem}.py-6{padding-top:1.5rem;padding-bottom:1.5rem}.pb-3{padding-bottom:.75rem}.pb-44{padding-bottom:11rem}.pr-4{padding-right:1rem}.text-left{text-align:left}.text-center{text-align:center}.font-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,Liberation Mono,Courier New,monospace}.text-2xl{font-size:1.5rem;line-height:2rem}.text-3xl{font-size:1.875rem;line-height:2.25rem}.text-base{font-size:1rem;line-height:1.5rem}.text-lg{font-size:1.125rem;line-height:1.75rem}.text-sm{font-size:.875rem;line-height:1.25rem}.text-xl{font-size:1.25rem;line-height:1.75rem}.text-xs{font-size:.75rem;line-height:1rem}.font-bold{font-weight:700}.font-normal{font-weight:400}.font-semibold{font-weight:600}.uppercase{text-transform:uppercase}.leading-relaxed{line-height:1.625}.leading-snug{line-height:1.375}.leading-tight{line-height:1.25}.tracking-tight{letter-spacing:-.025em}.text-gray-300{--tw-text-opacity:1;color:rgb(209 213 219/var(--tw-text-opacity,1))}.text-gray-400{--tw-text-opacity:1;color:rgb(156 163 175/var(--tw-text-opacity,1))}.text-gray-500{--tw-text-opacity:1;color:rgb(107 114 128/var(--tw-text-opacity,1))}.text-green-400{--tw-text-opacity:1;color:rgb(74 222 128/var(--tw-text-opacity,1))}.text-red-500{--tw-text-opacity:1;color:rgb(239 68 68/var(--tw-text-opacity,1))}.text-yellow-400{--tw-text-opacity:1;color:rgb(250 204 21/var(--tw-text-opacity,1))}.underline{text-decoration-line:underline}.antialiased{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}.outline{outline-style:solid}.ring{--tw-ring-offset-shadow:var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);--tw-ring-shadow:var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color);box-shadow:var(--tw-ring-offset-shadow),var(--tw-ring-shadow),var(--tw-shadow,0 0 #0000)}.blur{--tw-blur:blur(8px)}.blur,.drop-shadow{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.drop-shadow{--tw-drop-shadow:drop-shadow(0 1px 2px rgba(0,0,0,.1)) drop-shadow(0 1px 1px rgba(0,0,0,.06))}.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.backdrop-filter{-webkit-backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia);backdrop-filter:var(--tw-backdrop-blur) var(--tw-backdrop-brightness) var(--tw-backdrop-contrast) var(--tw-backdrop-grayscale) var(--tw-backdrop-hue-rotate) var(--tw-backdrop-invert) var(--tw-backdrop-opacity) var(--tw-backdrop-saturate) var(--tw-backdrop-sepia)}.transition{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,-webkit-backdrop-filter;transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter;transition-property:color,background-color,border-color,text-decoration-color,fill,stroke,opacity,box-shadow,transform,filter,backdrop-filter,-webkit-backdrop-filter;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.ease-in-out{transition-timing-function:cubic-bezier(.4,0,.2,1)}@media (min-width:640px){.sm\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}}@media (min-width:768px){.md\:col-span-3{grid-column:span 3/span 3}.md\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.md\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}}@media (min-width:1024px){.lg\:col-span-2{grid-column:span 2/span 2}.lg\:col-span-6{grid-column:span 6/span 6}.lg\:grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.lg\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.lg\:grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.lg\:grid-cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}}</style>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        /* ── VoltView design system ───────────────────────────────────────── */
         :root {
-            --bg: #070b16;
-            --surface: rgba(255, 255, 255, .04);
-            --surface-2: rgba(255, 255, 255, .06);
-            --border: rgba(255, 255, 255, .08);
+            --bg: #04060c;
+            --bg-2: #070b14;
+            --surface: rgba(255, 255, 255, .035);
+            --surface-2: rgba(255, 255, 255, .07);
+            --border: rgba(255, 255, 255, .07);
             --border-strong: rgba(255, 255, 255, .16);
-            --text: #e7eef8;
-            --muted: #8b98ad;
-            --accent: #38bdf8;
-            --accent-2: #6366f1;
+            --text: #eaf2fb;
+            --muted: #7e8ba0;
+            --muted-2: #5b6779;
+            --accent: #3df0a8;       /* volt green */
+            --accent-2: #22d3ee;     /* cyan       */
+            --accent-3: #818cf8;     /* indigo     */
             --ok: #34d399;
             --warn: #fbbf24;
-            --bad: #f87171;
-            --radius: 18px;
+            --bad: #fb7185;
+            --radius: 20px;
+            --font-display: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
         }
 
         html { scroll-behavior: smooth; }
@@ -32,112 +41,220 @@
             font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
             background: var(--bg);
             color: var(--text);
-            background-image:
-                radial-gradient(55rem 55rem at 110% -10%, rgba(99, 102, 241, .20), transparent 60%),
-                radial-gradient(50rem 50rem at -10% 5%, rgba(56, 189, 248, .15), transparent 55%);
-            background-attachment: fixed;
+            -webkit-font-smoothing: antialiased;
         }
 
-        .metric { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+        /* Aurora backdrop on a fixed layer (cheaper than background-attachment:fixed) */
+        body::before {
+            content: ''; position: fixed; inset: 0; z-index: -2; pointer-events: none;
+            background:
+                radial-gradient(60rem 42rem at 85% -18%, rgba(34, 211, 238, .13), transparent 60%),
+                radial-gradient(52rem 40rem at -12% -8%, rgba(61, 240, 168, .10), transparent 55%),
+                radial-gradient(70rem 55rem at 50% 120%, rgba(129, 140, 248, .09), transparent 60%),
+                linear-gradient(180deg, var(--bg-2), var(--bg) 40%);
+        }
+        /* faint engineering grid */
+        body::after {
+            content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .5;
+            background-image:
+                linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px);
+            background-size: 44px 44px;
+            mask-image: radial-gradient(80rem 50rem at 50% 0%, #000 30%, transparent 75%);
+            -webkit-mask-image: radial-gradient(80rem 50rem at 50% 0%, #000 30%, transparent 75%);
+        }
 
+        h1, h2, h3, .font-display { font-family: var(--font-display); }
+        .metric { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; letter-spacing: -.01em; }
+
+        /* ── cards ── */
         .card {
-            background: var(--surface);
+            position: relative;
+            background: linear-gradient(180deg, var(--surface-2), var(--surface) 38%);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            backdrop-filter: blur(12px) saturate(140%);
-            -webkit-backdrop-filter: blur(12px) saturate(140%);
-            box-shadow: 0 1px 0 rgba(255, 255, 255, .04) inset, 0 12px 32px -16px rgba(0, 0, 0, .6);
-            transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+            box-shadow: 0 18px 40px -22px rgba(0, 0, 0, .75);
+            transition: border-color .3s ease, box-shadow .3s ease, transform .3s ease;
+        }
+        /* top sheen line */
+        .card::before {
+            content: ''; position: absolute; inset: 0 12% auto 12%; height: 1px; border-radius: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
+            pointer-events: none;
         }
         .card:hover {
             border-color: var(--border-strong);
-            transform: translateY(-2px);
-            box-shadow: 0 1px 0 rgba(255, 255, 255, .07) inset, 0 20px 44px -18px rgba(0, 0, 0, .7);
+            box-shadow: 0 24px 52px -24px rgba(0, 0, 0, .85);
         }
-        .card-title { font-size: .72rem; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+        .card-title { font-size: .68rem; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 
+        /* ── topbar ── */
         .topbar {
             position: sticky; top: 0; z-index: 30;
-            background: linear-gradient(180deg, rgba(7, 11, 22, .9), rgba(7, 11, 22, .55));
-            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            background: color-mix(in srgb, var(--bg) 78%, transparent);
+            backdrop-filter: blur(18px) saturate(150%); -webkit-backdrop-filter: blur(18px) saturate(150%);
             border-bottom: 1px solid var(--border);
         }
+        .brand-badge {
+            width: 38px; height: 38px; border-radius: 11px; flex: none;
+            display: inline-flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2) 85%);
+            box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--accent) 70%, transparent),
+                        inset 0 1px 0 rgba(255,255,255,.45);
+            color: #04150c;
+        }
+        .brand-name { font-family: var(--font-display); font-weight: 700; letter-spacing: -.02em; font-size: 1.05rem; line-height: 1.15; }
+        .brand-name .grad {
+            background: linear-gradient(90deg, var(--accent), var(--accent-2));
+            -webkit-background-clip: text; background-clip: text; color: transparent;
+        }
 
+        /* ── pills / dots ── */
         .pill {
             display: inline-flex; align-items: center; gap: .45rem;
-            padding: .32rem .7rem; border-radius: 999px;
+            padding: .3rem .68rem; border-radius: 999px;
             background: var(--surface); border: 1px solid var(--border);
-            font-size: .8rem; color: var(--text);
+            font-size: .76rem; font-weight: 500; color: var(--muted);
+            transition: border-color .2s, color .2s;
         }
-        .dot { width: .55rem; height: .55rem; border-radius: 999px; background: #475569; transition: .3s; }
-        .dot.on { background: var(--ok); box-shadow: 0 0 12px -1px var(--ok); }
-        .dot.off { background: var(--bad); box-shadow: 0 0 12px -1px var(--bad); }
-        .dot.idle { background: #475569; }
-        .dot.warnc { background: var(--warn); box-shadow: 0 0 12px -1px var(--warn); }
-        @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .4 } }
-        .dot.live { animation: pulse 1.6s ease-in-out infinite; }
+        .pill:has(.dot.on) { color: var(--text); border-color: color-mix(in srgb, var(--ok) 35%, var(--border)); }
+        .dot { width: .5rem; height: .5rem; border-radius: 999px; background: #3c4759; transition: .3s; flex: none; }
+        .dot.on { background: var(--ok); box-shadow: 0 0 10px -1px var(--ok); }
+        .dot.off { background: var(--bad); box-shadow: 0 0 10px -1px var(--bad); }
+        .dot.idle { background: #3c4759; }
+        .dot.warnc { background: var(--warn); box-shadow: 0 0 10px -1px var(--warn); }
+        @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
+        .dot.live { animation: pulse 1.7s ease-in-out infinite; }
 
-        /* SVG ring gauge */
-        .ring { width: 148px; height: 148px; position: relative; }
-        .ring svg { transform: rotate(-90deg); }
-        .ring .track { stroke: rgba(255, 255, 255, .07); }
-        .ring .prog {
-            stroke: var(--rc, var(--accent)); stroke-linecap: round;
-            transition: stroke-dashoffset .9s cubic-bezier(.22, 1, .36, 1), stroke .4s;
-            filter: drop-shadow(0 0 6px color-mix(in srgb, var(--rc, var(--accent)) 55%, transparent));
+        /* ── SVG ring gauge ── */
+        .gauge-ring { width: 152px; height: 152px; position: relative; }
+        .gauge-ring svg { transform: rotate(-90deg); }
+        .gauge-ring .track { stroke: rgba(255, 255, 255, .06); }
+        .gauge-ring .prog {
+            stroke-linecap: round;
+            transition: stroke-dashoffset 1s cubic-bezier(.22, 1, .36, 1);
+            filter: drop-shadow(0 0 8px color-mix(in srgb, var(--rc, var(--accent)) 50%, transparent));
         }
+        .gauge-num { font-family: var(--font-mono); font-weight: 700; font-size: 1.65rem; letter-spacing: -.03em; }
 
-        /* cell tile */
-        .cell { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: .7rem .85rem; transition: transform .2s, border-color .2s; }
-        .cell:hover { transform: translateY(-1px); border-color: var(--border-strong); }
-        .cell .bar { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, .08); overflow: hidden; margin-top: .55rem; }
-        .cell .bar > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .6s cubic-bezier(.22,1,.36,1); }
-        .tag { font-size: .58rem; padding: .08rem .38rem; border-radius: 6px; font-weight: 700; letter-spacing: .04em; }
-        .tag.hi { background: color-mix(in srgb, var(--ok) 22%, transparent); color: var(--ok); }
-        .tag.lo { background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn); }
+        /* ── cell tile ── */
+        .cell {
+            background: linear-gradient(180deg, var(--surface-2), var(--surface));
+            border: 1px solid var(--border); border-radius: 15px; padding: .72rem .85rem;
+            transition: transform .2s, border-color .2s;
+        }
+        .cell:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+        .cell .bar { height: 4px; border-radius: 999px; background: rgba(255, 255, 255, .07); overflow: hidden; margin-top: .55rem; }
+        .cell .bar > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .7s cubic-bezier(.22,1,.36,1); }
+        .tag { font-family: var(--font-mono); font-size: .56rem; padding: .1rem .4rem; border-radius: 6px; font-weight: 700; letter-spacing: .06em; }
+        .tag.hi { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent); }
+        .tag.lo { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); }
 
-        /* key/value rows */
-        .kv { display: flex; justify-content: space-between; gap: 1rem; padding: .4rem 0; border-bottom: 1px solid var(--border); font-size: .9rem; }
+        /* ── key/value rows ── */
+        .kv {
+            display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+            padding: .42rem .5rem; margin: 0 -.5rem; border-radius: 8px;
+            border-bottom: 1px solid rgba(255,255,255,.045); font-size: .875rem;
+        }
         .kv:last-child { border-bottom: 0; }
+        .kv:hover { background: rgba(255,255,255,.03); }
         .kv .k { color: var(--muted); }
-        .kv .v { font-variant-numeric: tabular-nums; text-align: right; }
+        .kv .v { font-family: var(--font-mono); font-size: .82rem; text-align: right; display: inline-flex; align-items: center; }
 
-        /* buttons */
-        .btn { display: inline-flex; align-items: center; gap: .5rem; padding: .55rem 1.05rem; border-radius: 12px; font-weight: 600; border: 1px solid transparent; cursor: pointer; transition: .2s; font-size: .9rem; white-space: nowrap; }
-        .btn-primary { background: linear-gradient(180deg, var(--accent), #0ea5e9); color: #04121e; box-shadow: 0 8px 22px -10px var(--accent); }
-        .btn-primary:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        /* ── buttons ── */
+        .btn {
+            display: inline-flex; align-items: center; gap: .5rem; padding: .55rem 1.05rem;
+            border-radius: 12px; font-weight: 600; border: 1px solid transparent; cursor: pointer;
+            transition: .2s; font-size: .88rem; white-space: nowrap; font-family: var(--font-display);
+        }
+        .btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent-2) 110%);
+            color: #03130b;
+            box-shadow: 0 10px 26px -10px color-mix(in srgb, var(--accent) 75%, transparent), inset 0 1px 0 rgba(255,255,255,.4);
+        }
+        .btn-primary:hover { filter: brightness(1.07); transform: translateY(-1px); }
         .btn-ghost { background: var(--surface); border-color: var(--border); color: var(--text); }
-        .btn-ghost:hover { border-color: var(--border-strong); }
-        .btn-danger { background: linear-gradient(180deg, var(--bad), #ef4444); color: #1a0606; box-shadow: 0 8px 22px -10px var(--bad); }
-        .btn-danger:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        .btn-ghost:hover { border-color: var(--border-strong); background: var(--surface-2); }
+        .btn-danger { background: linear-gradient(135deg, #fb7185, #f43f5e); color: #1a0509; box-shadow: 0 10px 26px -10px rgba(244, 63, 94, .6); }
+        .btn-danger:hover { filter: brightness(1.07); transform: translateY(-1px); }
 
-        /* toggle switch */
+        /* ── toggle switch ── */
         .switch { position: relative; width: 46px; height: 26px; border-radius: 999px; background: rgba(255, 255, 255, .12); border: 1px solid var(--border); cursor: pointer; transition: .25s; flex: none; }
         .switch.on { background: linear-gradient(180deg, var(--ok), #10b981); border-color: transparent; }
         .switch > span { position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 999px; background: #fff; transition: .25s; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
         .switch.on > span { transform: translateX(20px); }
 
-        /* numeric field */
-        .field { background: rgba(0, 0, 0, .35); border: 1px solid var(--border); border-radius: 10px; color: var(--text); padding: .5rem .7rem; width: 100%; transition: border-color .2s; }
-        .field:focus { outline: none; border-color: var(--accent); }
+        /* ── numeric field ── */
+        .field { background: rgba(0, 0, 0, .4); border: 1px solid var(--border); border-radius: 10px; color: var(--text); padding: .5rem .7rem; width: 100%; transition: border-color .2s, box-shadow .2s; }
+        .field:focus { outline: none; border-color: var(--accent-2); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-2) 22%, transparent); }
 
-        /* inline edit icon in settings rows */
-        .edit-btn { margin-left: .5rem; padding: 0 .4rem; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-size: .72rem; line-height: 1.5; transition: .2s; }
-        .edit-btn:hover { color: var(--accent); border-color: var(--accent); }
+        /* ── inline edit icon ── */
+        .edit-btn {
+            margin-left: .5rem; min-width: 26px; min-height: 24px;
+            display: inline-flex; align-items: center; justify-content: center;
+            border-radius: 7px; border: 1px solid var(--border); background: var(--surface);
+            color: var(--muted-2); cursor: pointer; font-size: .78rem; line-height: 1; transition: .2s;
+        }
+        .edit-btn:hover { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+        .edit-btn:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 1px; }
 
-        /* confirm modal */
-        .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .6); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 50; padding: 1rem; }
-        .modal-backdrop.show { display: flex; animation: fadeIn .15s ease; }
+        #staleBanner {
+            background: color-mix(in srgb, var(--warn) 10%, transparent);
+            border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent);
+            color: var(--warn); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+        }
+
+        .demo-chip {
+            display: inline-flex; align-items: center; gap: .4rem;
+            font-family: var(--font-mono); font-size: .66rem; font-weight: 700; letter-spacing: .14em;
+            padding: .28rem .6rem; border-radius: 8px;
+            color: var(--accent-2);
+            background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+            border: 1px solid color-mix(in srgb, var(--accent-2) 40%, transparent);
+        }
+        .demo-chip a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+
+        /* ── hero / empty state ── */
+        .hero { padding: 3.2rem 1.5rem; }
+        .hero-icon {
+            width: 64px; height: 64px; border-radius: 18px; margin: 0 auto 1.1rem;
+            display: flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, var(--accent), var(--accent-2));
+            box-shadow: 0 16px 40px -12px color-mix(in srgb, var(--accent) 65%, transparent), inset 0 1px 0 rgba(255,255,255,.5);
+            color: #04150c;
+        }
+        .hero h2 { font-family: var(--font-display); font-size: 1.6rem; font-weight: 700; letter-spacing: -.02em; }
+        .hero .sub { color: var(--muted); max-width: 34rem; margin: .5rem auto 1.4rem; line-height: 1.55; }
+
+        /* ── confirm modal ── */
+        .modal-backdrop { position: fixed; inset: 0; background: rgba(2, 4, 9, .72); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; z-index: 50; padding: 1rem; }
+        .modal-backdrop.show { display: flex; animation: fadeIn .16s ease; }
         @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
-        .modal { width: min(440px, 92vw); }
+        .modal { width: min(440px, 92vw); animation: popIn .2s cubic-bezier(.22,1,.36,1); }
+        @keyframes popIn { from { opacity: 0; transform: translateY(10px) scale(.97) } to { opacity: 1; transform: none } }
 
-        /* scrollbars */
+        /* ── log dock ── */
+        .logdock-bar { border-bottom: 1px solid var(--border); background: rgba(255,255,255,.025); }
+        #log { font-family: var(--font-mono); }
+        #log::selection { background: color-mix(in srgb, var(--accent-2) 35%, transparent); }
+
+        /* ── scrollbars ── */
         *::-webkit-scrollbar { width: 10px; height: 10px; }
         *::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .12); border-radius: 999px; border: 2px solid transparent; background-clip: content-box; }
         *::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .22); background-clip: content-box; }
 
-        .fade-in { opacity: 0; transform: translateY(16px); transition: opacity .6s ease, transform .6s ease; }
+        .fade-in { opacity: 0; transform: translateY(10px); transition: opacity .4s ease, transform .4s ease; }
         .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+        details > summary::-webkit-details-marker { display: none; }
+        details > summary { list-style: none; }
+        details > summary .chev { transition: transform .25s ease; display: inline-block; }
+        details[open] > summary .chev { transform: rotate(90deg); }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+        }
     </style>
 </head>
 
@@ -147,11 +264,16 @@
     <header class="topbar">
         <div class="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4 flex-wrap">
             <div class="flex items-center gap-3 mr-auto">
-                <span class="text-2xl">🔋</span>
+                <span class="brand-badge" aria-hidden="true">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                        <path d="M13 2 4.5 13.5h5.6L11 22l8.5-11.5h-5.6L13 2Z" fill="currentColor"/>
+                    </svg>
+                </span>
                 <div>
-                    <div class="font-bold leading-tight tracking-tight">JK-BMS Dashboard</div>
-                    <div class="text-xs" style="color:var(--muted)">JK-B2A8S20P · JK02_32S</div>
+                    <div class="brand-name">Volt<span class="grad">View</span></div>
+                    <div class="text-xs" style="color:var(--muted-2)">JK-BMS live dashboard · JK02_32S</div>
                 </div>
+                <span class="demo-chip" id="demoChip" style="display:none">DEMO <a href="?" title="Exit demo mode">exit</a></span>
             </div>
             <div class="flex items-center gap-2 flex-wrap" id="statusPills">
                 <span class="pill"><span class="dot" id="chargeIndicator"></span>Charge</span>
@@ -167,6 +289,9 @@
     <main class="flex-grow pb-44">
         <div class="max-w-7xl mx-auto py-6 px-4">
 
+            <div id="staleBanner" style="display:none" class="mb-4 px-4 py-2 rounded-lg text-sm font-semibold"
+                 role="status">⚠️ No recent data from the battery — values below may be stale.</div>
+
             <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 fade-in" id="gaugesTopContainer"> </section>
             <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 fade-in" id="additionalMetrics"> </section>
 
@@ -179,7 +304,10 @@
             <!-- Dev tool: replay & gap-analyse a captured frame (no Bluetooth needed) -->
             <section class="mb-4">
                 <details class="card p-5">
-                    <summary class="cursor-pointer font-semibold select-none">🛠️ Dev · replay &amp; gap-analyse a captured frame</summary>
+                    <summary class="cursor-pointer font-semibold select-none flex items-center gap-2">
+                        <span class="chev" aria-hidden="true">▸</span>
+                        <span class="font-display">Developer · replay &amp; gap-analyse a captured frame</span>
+                    </summary>
                     <p class="text-sm mt-3" style="color:var(--muted)">
                         Paste a raw frame hex dump — any of <code>55 AA EB 90 03 …</code>, <code>0x55,0xAA,…</code>, newlines are fine.
                         Frame type is auto-detected from byte&nbsp;4 (<code>01</code>=settings, <code>02</code>=realtime, <code>03</code>=device info).
@@ -203,21 +331,21 @@
     <section class="fixed bottom-0 left-0 w-full z-20" style="background:linear-gradient(180deg,transparent,var(--bg) 38%)">
         <div class="max-w-7xl mx-auto px-4 pb-3">
             <div class="card overflow-hidden">
-                <div class="flex items-center gap-2 px-4 py-2" style="border-bottom:1px solid var(--border)">
-                    <span class="dot live on"></span>
-                    <span class="text-xs font-semibold" style="color:var(--muted)">EVENT LOG</span>
+                <div class="flex items-center gap-2 px-4 py-2 logdock-bar">
+                    <span class="dot off" id="logDot" title="Connection state"></span>
+                    <span class="text-xs font-semibold metric" style="color:var(--muted);letter-spacing:.14em">EVENT LOG</span>
                 </div>
-                <pre id="log" style="max-height: 92px; background:transparent; color:var(--text)" class="px-4 py-2 text-xs overflow-y-auto whitespace-pre-wrap font-mono"></pre>
+                <pre id="log" style="max-height: 92px; background:transparent; color:var(--muted)" class="px-4 py-2 text-xs overflow-y-auto whitespace-pre-wrap"></pre>
             </div>
         </div>
     </section>
 
-    <footer class="py-5 text-center text-sm" style="color:var(--muted)">
-        © 2025 Gillis Haasnoot · JK-BMS Dashboard
+    <footer class="py-5 text-center text-sm" style="color:var(--muted-2)">
+        VoltView · © 2025–2026 Gillis Haasnoot · runs entirely in your browser, no data leaves your device
     </footer>
 
     <!-- Confirmation modal for any write to the BMS -->
-    <div class="modal-backdrop" id="confirmModal">
+    <div class="modal-backdrop" id="confirmModal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
         <div class="card modal p-6">
             <div class="flex items-center gap-2 mb-2">
                 <span class="text-xl">⚠️</span>
@@ -259,9 +387,16 @@
     };
 
     // Utility Functions
+    const LOG_MAX_LINES = 300;
     function appendLog(msg) {
-        elements.log.textContent += msg + '\n';
-        elements.log.scrollTop = elements.log.scrollHeight;
+        const el = elements.log;
+        // Only stick to the bottom if the user isn't scrolled up reading history.
+        const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        const lines = (el.textContent + msg + '\n').split('\n');
+        el.textContent = lines.length > LOG_MAX_LINES + 1
+            ? lines.slice(-(LOG_MAX_LINES + 1)).join('\n')
+            : lines.join('\n');
+        if (nearBottom) el.scrollTop = el.scrollHeight;
     }
 
     function dumpHex(buf) {
@@ -336,8 +471,10 @@
                 Math.abs(current) :
                 maxDischargeCurrent;
             const remainingAh = parseFloat(status.remainingCapacity);
+            // Usable capacity is ~90% of rated; multiply (shorter, conservative estimate),
+            // unlike charging where losses make the charge take longer (divide).
             const efficiency = 0.9;
-            const hours = remainingAh / (effectiveCurrent * efficiency);
+            const hours = (remainingAh * efficiency) / effectiveCurrent;
             if (hours <= 0 || !isFinite(hours)) {
                 return 'N/A';
             }
@@ -488,7 +625,8 @@
                         scale: v => Math.round(v * 1000)
                     },
                     setBalanceStart: {
-                        cmdCode: 0x26,
+                        // 0x22 on JK02_32S (0x26 is the JK02_24S register — see esphome-jk-bms)
+                        cmdCode: 0x22,
                         recordType: 0x04,
                         payloadBytes: 4,
                         scale: v => Math.round(v * 1000)
@@ -499,22 +637,31 @@
                         payloadBytes: 4,
                         scale: v => Math.round(v * 1000)
                     },
+                    // All JK02 switch writes use length byte 0x04 with a 4-byte LE value
+                    // (esphome-jk-bms jk_switch.cpp; only JK04 uses 1-byte writes).
                     toggleChargeMOS: {
                         cmdCode: 0x1D,
-                        recordType: 0x01,
-                        payloadBytes: 1,
+                        recordType: 0x04,
+                        payloadBytes: 4,
                         scale: v => v ? 1 : 0
                     },
                     toggleDischargeMOS: {
                         cmdCode: 0x1E,
-                        recordType: 0x01,
-                        payloadBytes: 1,
+                        recordType: 0x04,
+                        payloadBytes: 4,
                         scale: v => v ? 1 : 0
                     },
                     toggleBalanceMOS: {
                         cmdCode: 0x1F,
-                        recordType: 0x01,
-                        payloadBytes: 1,
+                        recordType: 0x04,
+                        payloadBytes: 4,
+                        scale: v => v ? 1 : 0
+                    },
+                    // Register 0x2B, written as a 4-byte value (matches esphome-jk-bms JK02_32S)
+                    toggleDisplayAlwaysOn: {
+                        cmdCode: 0x2B,
+                        recordType: 0x04,
+                        payloadBytes: 4,
                         scale: v => v ? 1 : 0
                     },
                 },
@@ -1150,7 +1297,13 @@
         }
 
         static createWriteCommand(def, value) {
+            if (typeof value !== 'boolean' && !Number.isFinite(value)) {
+                throw new Error(`Refusing to write non-finite value (${value}) to BMS`);
+            }
             const raw = def.scale(value);
+            if (!Number.isFinite(raw)) {
+                throw new Error(`Refusing to write non-finite scaled value (${raw}) to BMS`);
+            }
             const frame = new Uint8Array(20).fill(0);
             frame.set([0xAA, 0x55, 0x90, 0xEB, def.cmdCode, def.recordType], 0);
             for (let i = 0; i < def.payloadBytes; i++) {
@@ -1193,16 +1346,87 @@
         constructor(batteryManager) {
             this.batteryManager = batteryManager;
         }
-        async refresh() {
-            this.renderBatterySelection(this.batteryManager.batteries);
+        // Coalesce bursts (realtime + settings frames arrive ~200 ms apart) into one
+        // render per animation frame.
+        refresh() {
+            if (this._refreshQueued) return;
+            this._refreshQueued = true;
+            requestAnimationFrame(() => {
+                this._refreshQueued = false;
+                try { this._render(); } catch (e) { console.error(e); appendLog(`❌ Render error: ${e.message}`); }
+            });
+        }
 
-            if (this.batteryManager.activeBattery && this.batteryManager.activeBattery.deviceInfo && this.batteryManager.activeBattery.data && this.batteryManager.activeBattery.settings) {
-                this.renderStatus(this.batteryManager.activeBattery);
-                this.renderAdditionalMetrics(this.batteryManager.activeBattery);
-                this.renderCellInfo(this.batteryManager.activeBattery);
-                this.renderTrends(this.batteryManager.activeBattery);
-                this.updateIndicators(this.batteryManager.activeBattery);
-                this.renderAllSettings(this.batteryManager.activeBattery);
+        _render() {
+            this.renderBatterySelection(this.batteryManager.batteries);
+            this.updateConnectionState();
+
+            const b = this.batteryManager.activeBattery;
+            if (b && b.deviceInfo && b.data && b.settings) {
+                this.renderStatus(b);
+                this.renderAdditionalMetrics(b);
+                this.renderCellInfo(b);
+                this.renderTrends(b);
+                this.updateIndicators(b);
+                this.renderAllSettings(b);
+            } else {
+                this.renderEmptyState();
+            }
+
+            // The page-load IntersectionObserver never fires for sections that were
+            // empty (zero-height) at observe time — reveal them once they have content.
+            document.querySelectorAll('.fade-in:not(.visible)').forEach(el => {
+                if (el.childElementCount > 0) el.classList.add('visible');
+            });
+        }
+
+        // Hero card while no battery is connected (was just a big blank page).
+        renderEmptyState() {
+            const target = document.getElementById('gaugesTopContainer');
+            if (target.dataset.empty === '1') return;
+            target.dataset.empty = '1';
+            target.innerHTML = `
+                <div class="card hero col-span-full text-center">
+                    <div class="hero-icon" aria-hidden="true">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+                            <path d="M13 2 4.5 13.5h5.6L11 22l8.5-11.5h-5.6L13 2Z" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <h2>Your battery, live in the browser</h2>
+                    <p class="sub">VoltView talks to JK-BMS packs over Web Bluetooth — realtime cells, trends,
+                       protection settings and MOSFET control. No app, no cloud, nothing leaves your device.</p>
+                    <div class="flex items-center justify-center gap-3 flex-wrap">
+                        <button class="btn btn-primary" data-action="connect">⚡ Connect a battery</button>
+                        <a class="btn btn-ghost" href="?demo=1">View live demo</a>
+                    </div>
+                </div>`;
+            if (target.dataset.heroWired !== '1') {
+                target.dataset.heroWired = '1';
+                target.addEventListener('click', (e) => {
+                    if (e.target.closest('[data-action="connect"]')) this.connectViaDialog();
+                });
+            }
+        }
+
+        // Drive the log-dock dot + a stale-data banner from actual connection state,
+        // instead of the dot being hardcoded green.
+        updateConnectionState() {
+            const b = this.batteryManager.activeBattery;
+            const connected = !!(b && b.gatt && b.gatt.connected);
+            const fresh = connected && b.lastFrameTs && (Date.now() - b.lastFrameTs) < 6000;
+            const dot = document.getElementById('logDot');
+            if (dot) {
+                dot.className = 'dot ' + (fresh ? 'live on' : connected ? 'idle' : 'off');
+                dot.title = fresh ? 'Receiving data' : connected ? 'Connected, no recent data' : 'Disconnected';
+            }
+            const banner = document.getElementById('staleBanner');
+            if (banner) {
+                const showStale = b && b.data && !fresh;
+                banner.style.display = showStale ? '' : 'none';
+            }
+            if (b && b.data) {
+                const target = document.getElementById('gaugesTopContainer');
+                if (target.dataset.empty === '1') delete target.dataset.empty;
             }
         }
         connectViaDialog() {
@@ -1240,15 +1464,20 @@
 
         updateIndicators(battery) {
             const s = battery.settings;
-            const set = (id, on, offClass = 'off') => {
+            const set = (id, label, on, offClass = 'off') => {
                 const el = document.getElementById(id);
-                if (el) el.className = 'dot ' + (on ? 'on' : offClass);
+                if (!el) return;
+                el.className = 'dot ' + (on ? 'on' : offClass);
+                // State is otherwise color-only — expose it as text too.
+                const pill = el.parentElement || el;
+                pill.title = `${label}: ${on ? 'on' : 'off'}`;
+                pill.setAttribute('aria-label', pill.title);
             };
-            set('chargeIndicator', s.chargeSwitch);
-            set('dischargeIndicator', s.dischargeSwitch);
-            set('balancingIndicator', s.balancerSwitch);
-            set('heatingIndicator', s.heatingEnabled, 'idle');
-            set('tempIndicator', !s.disableTemperatureSensors, 'idle');
+            set('chargeIndicator', 'Charge MOSFET', s.chargeSwitch);
+            set('dischargeIndicator', 'Discharge MOSFET', s.dischargeSwitch);
+            set('balancingIndicator', 'Balancer', s.balancerSwitch);
+            set('heatingIndicator', 'Heating', s.heatingEnabled, 'idle');
+            set('tempIndicator', 'Temperature sensors', !s.disableTemperatureSensors, 'idle');
         }
 
         // In-page confirmation gate for any BMS write. Shows exactly what will be sent.
@@ -1274,12 +1503,24 @@
 
             modal.classList.add('show');
             if (input) field.focus();
-            const cleanup = () => { modal.classList.remove('show'); ok.onclick = null; cancel.onclick = null; };
-            ok.onclick = () => {
+            const cleanup = () => {
+                modal.classList.remove('show');
+                ok.onclick = null; cancel.onclick = null;
+                modal.onclick = null;
+                document.removeEventListener('keydown', onKey);
+            };
+            const onKey = (e) => { if (e.key === 'Escape') cleanup(); };
+            document.addEventListener('keydown', onKey);
+            // Click on the dimmed backdrop (not the dialog box) cancels.
+            modal.onclick = (e) => { if (e.target === modal) cleanup(); };
+            ok.onclick = async () => {
                 const val = input ? parseFloat(field.value) : undefined;
-                if (input && (!isFinite(val) || val < 0)) { appendLog('❌ Invalid value'); return; }
+                if (input && (!isFinite(val) || val < input.min || val > input.max)) {
+                    appendLog(`❌ Invalid value — must be between ${input.min} and ${input.max} ${input.unit || ''}`);
+                    return;
+                }
                 cleanup();
-                try { onConfirm(val); } catch (e) { appendLog(`❌ Write failed: ${e.message}`); }
+                try { await onConfirm(val); } catch (e) { appendLog(`❌ Write failed: ${e.message}`); }
             };
             cancel.onclick = cleanup;
         }
@@ -1289,6 +1530,7 @@
             'Charge Switch':         { kind: 'toggle', label: 'Charge MOSFET',  method: 'toggleCharge',  stateKey: 'chargeSwitch' },
             'Discharge Switch':      { kind: 'toggle', label: 'Discharge MOSFET', method: 'toggleDischarge', stateKey: 'dischargeSwitch' },
             'Balancer Switch':       { kind: 'toggle', label: 'Balancer',       method: 'toggleBalance', stateKey: 'balancerSwitch' },
+            'Display Always On':     { kind: 'toggle', label: 'Display Always On (LCD)', method: 'toggleDisplayAlwaysOn', stateKey: 'displayAlwaysOn' },
             'Max Charge Current':    { kind: 'number', label: 'Max charge current',    method: 'setMaxChargeCurrent',    unit: 'A',  key: 'maxChargeCurrent',       min: 0, max: 200,  step: 0.5 },
             'Max Discharge Current': { kind: 'number', label: 'Max discharge current', method: 'setMaxDischargeCurrent', unit: 'A',  key: 'maxDischargeCurrent',    min: 0, max: 200,  step: 0.5 },
             'Nominal Capacity':      { kind: 'number', label: 'Nominal capacity',      method: 'setMaxCapacity',         unit: 'Ah', key: 'nominalBatteryCapacity', min: 0, max: 2000, step: 1 }
@@ -1325,18 +1567,26 @@
             const C = 2 * Math.PI * R;
             const p = Math.max(0, Math.min(100, perc || 0));
             const offset = C * (1 - p / 100);
+            // Gradient partner color per state color (green/amber/red), for a livelier stroke.
+            const partner = { '#10B981': '#22d3ee', '#F59E0B': '#fb923c', '#EF4444': '#f472b6' }[color] || '#22d3ee';
+            const gid = 'rg_' + uniqueId;
             const html = `
                 <div class="card p-6 flex flex-col items-center text-center">
                     <div class="card-title mb-4">${title}</div>
-                    <div class="ring" id="${uniqueId}" style="--rc:${color}">
-                        <svg width="148" height="148" viewBox="0 0 148 148">
-                            <circle class="track" cx="74" cy="74" r="${R}" fill="none" stroke-width="11"/>
-                            <circle class="prog" cx="74" cy="74" r="${R}" fill="none" stroke-width="11"
+                    <div class="gauge-ring" id="${uniqueId}" style="--rc:${color}">
+                        <svg width="152" height="152" viewBox="0 0 148 148">
+                            <defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1">
+                                <stop offset="0%" stop-color="${color}"/>
+                                <stop offset="100%" stop-color="${partner}"/>
+                            </linearGradient></defs>
+                            <circle class="track" cx="74" cy="74" r="${R}" fill="none" stroke-width="10"/>
+                            <circle class="prog" cx="74" cy="74" r="${R}" fill="none" stroke-width="10"
+                                style="stroke:url(#${gid})"
                                 stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"/>
                         </svg>
                         <div class="absolute inset-0 flex flex-col items-center justify-center">
-                            <div class="text-2xl font-bold metric">${text1}</div>
-                            <div class="text-xs" style="color:var(--muted)">${inlineText || ''}</div>
+                            <div class="gauge-num">${text1}</div>
+                            <div class="text-xs metric" style="color:var(--muted)">${inlineText || ''}</div>
                         </div>
                     </div>
                     <div class="text-sm mt-4 leading-snug" style="color:var(--muted)">${belowText || ''}</div>
@@ -1449,7 +1699,7 @@
                         <div class="flex items-baseline justify-between mt-1">
                             <span class="text-lg font-semibold metric">${v.toFixed(3)}<span class="text-xs font-normal" style="color:var(--muted)"> V</span></span>
                         </div>
-                        <div class="text-xs metric" style="color:var(--muted)">${r.toFixed(3)} mΩ</div>
+                        <div class="text-xs metric" style="color:var(--muted)">${r != null ? r.toFixed(3) + ' mΩ' : '–'}</div>
                         <div class="bar"><i style="width:${fill}%"></i></div>
                     </div>`;
             }).join('');
@@ -1629,6 +1879,14 @@
 
         renderBatterySelection(batteries) {
             var el = document.getElementById('batterySelection');
+
+            // Rebuilding destroys buttons mid-click (mousedown and mouseup must hit the
+            // same node), so skip the rebuild entirely unless the picker state changed.
+            const activeId = this.batteryManager.activeBattery ? this.batteryManager.activeBattery.device.id : null;
+            const sig = JSON.stringify([activeId, batteries.map(b => [b.device.id, !!b.hasConnectionError])]);
+            if (el.dataset.sig === sig) return;
+            el.dataset.sig = sig;
+
             el.innerHTML = '';
             if (batteries.length === 0) {
                 const connectBtn = document.createElement('button');
@@ -1660,7 +1918,8 @@
                         isActive = battery.device.id == this.batteryManager.activeBattery.device.id;
                     }
                     btn.className = 'btn ' + (hasConnectionError ? 'btn-ghost' : isActive ? 'btn-primary' : 'btn-ghost');
-                    btn.innerHTML = `<span class="dot ${hasConnectionError ? 'off' : isActive ? 'on live' : 'idle'}"></span>${device.name || `Battery ${device.id}`}`;
+                    // device.name is device-controlled — escape it before innerHTML.
+                    btn.innerHTML = `<span class="dot ${hasConnectionError ? 'off' : isActive ? 'on live' : 'idle'}"></span>${escapeHtml(device.name || `Battery ${device.id}`)}`;
 
                     el.appendChild(btn);
                     btn.addEventListener('click', async() => {
@@ -1817,6 +2076,8 @@
 
                 // 2) Helper to render a titled card with key/value rows.
                 //    `editable` (a Set of labels) gets a ✎ icon that opens the write modal.
+                //    Values live in their own .vv span so per-frame updates can touch
+                //    only the text and leave the row structure (and ✎ buttons) alone.
                 const renderSection = (title, rows, editable) => `
                 <div class="card p-5">
                     <div class="card-title mb-3">${title}</div>
@@ -1824,18 +2085,35 @@
                         const pencil = editable && editable.has(label)
                             ? `<button class="edit-btn" data-edit="${escapeHtml(label)}" title="Edit ${escapeHtml(label)}">✎</button>`
                             : '';
-                        return `<div class="kv"><span class="k">${label}</span><span class="v">${escapeHtml(fn())}${pencil}</span></div>`;
+                        return `<div class="kv"><span class="k">${escapeHtml(label)}</span><span class="v"><span class="vv" data-row="${escapeHtml(title + ':' + label)}">${escapeHtml(fn())}</span>${pencil}</span></div>`;
                     }).join('')}</div>
                 </div>`;
 
-            // 3) Assemble & inject (only the settings section gets editable ✎ rows)
-            $container.innerHTML = [
-                renderSection('Raw realtime',  rawRows),
-                renderSection('Device info',   infoRows),
-                renderSection('All Settings',  settingsRows, new Set(Object.keys(this.SETTING_EDITORS))),
-            ].join('');
+            const sections = [
+                ['Raw realtime',  rawRows,      null],
+                ['Device info',   infoRows,     null],
+                ['All Settings',  settingsRows, new Set(Object.keys(this.SETTING_EDITORS))],
+            ];
 
-            // Delegated handler survives the per-frame innerHTML rebuilds (bound once on the stable parent).
+            // 3) Rebuild the DOM only when the row structure changed (cell count, probes,
+            //    wire-res rows appearing). Otherwise update value text in place — a full
+            //    innerHTML swap every frame destroyed text selection and ate ✎ clicks.
+            const structureSig = sections.map(([t, rows]) => t + '|' + rows.map(r => r[0]).join(',')).join('§');
+            if ($container.dataset.sig !== structureSig) {
+                $container.dataset.sig = structureSig;
+                $container.innerHTML = sections.map(([t, rows, editable]) => renderSection(t, rows, editable)).join('');
+            } else {
+                for (const [title, rows] of sections) {
+                    for (const [label, fn] of rows) {
+                        const span = $container.querySelector(`[data-row="${CSS.escape(title + ':' + label)}"]`);
+                        if (!span) continue;
+                        const text = String(fn());
+                        if (span.textContent !== text) span.textContent = text;
+                    }
+                }
+            }
+
+            // Delegated handler survives the innerHTML rebuilds (bound once on the stable parent).
             if ($container.dataset.editWired !== '1') {
                 $container.dataset.editWired = '1';
                 $container.addEventListener('click', (e) => {
@@ -1881,7 +2159,10 @@
             try {
                 const raw = localStorage.getItem(this.historyKey());
                 const arr = raw ? JSON.parse(raw) : null;
-                if (Array.isArray(arr)) this.history = arr.slice(-Battery.HISTORY_CAP);
+                // Drop corrupt samples — a single non-numeric field would poison the charts.
+                const valid = s => s && ['t', 'v', 'i', 'p', 'soc', 'mt', 'delta']
+                    .every(k => typeof s[k] === 'number' && isFinite(s[k]));
+                if (Array.isArray(arr)) this.history = arr.slice(-Battery.HISTORY_CAP).filter(valid);
             } catch (e) { /* corrupt/unavailable storage → start fresh */ }
         }
 
@@ -1920,7 +2201,9 @@
         // (the cause of the repeated "🔌 ... disconnected" log lines).
         handleDisconnect = () => {
             this.gatt = null;
+            this.characteristic = null;
             this._listening = false;
+            this._clearWatchdog();
             appendLog(`🔌 Device ${this.device.name || this.device.id} disconnected.`);
             if (this.manager.batteryDataReceivedListener) this.manager.batteryDataReceivedListener(this, 'disconnected');
             if (!this.userDisconnected) this.scheduleReconnect();
@@ -1939,7 +2222,8 @@
             appendLog(`🔄 Reconnecting (attempt ${this.reconnectAttempts}) in ${Math.round(delay / 1000)}s...`);
             this.reconnectTimer = setTimeout(async () => {
                 this.reconnectTimer = null;
-                if (this.userDisconnected) return;
+                // A user-initiated connect flow owns the device now — don't race it.
+                if (this.userDisconnected || this.connecting) return;
                 try {
                     this.gatt = await this.device.gatt.connect();
                     this.manager.activeBattery = this;
@@ -1994,6 +2278,20 @@
             this.refresh();
         }
 
+        async toggleDisplayAlwaysOn(){
+            if (!this.settings) {
+                appendLog('ℹ️ Settings not loaded yet.');
+                return;
+            }
+            const command = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].write_commands.toggleDisplayAlwaysOn;
+            const value = this.settings.displayAlwaysOn ? 0 : 1;
+            const writeCommand = JKBms.createWriteCommand(command, value);
+            await this.write(writeCommand);
+            this.settings.displayAlwaysOn = !this.settings.displayAlwaysOn;
+            appendLog(`🔄 Display Always On toggled to ${this.settings.displayAlwaysOn ? 'ON' : 'OFF'}`);
+            this.refresh();
+        }
+
         async setMaxChargeCurrent(current) {
             if (!this.settings) {
                 appendLog('ℹ️ Settings not loaded yet.');
@@ -2036,7 +2334,14 @@
         // Open the GATT connection and verify services. Shared by both the
         // advertisement-driven path and the direct-connect fallback.
         async _finishConnect(cb) {
-            this.gatt = await this.device.gatt.connect();
+            const gatt = await this.device.gatt.connect();
+            // The connect timeout may have settled the flow while we awaited — don't
+            // leave a zombie GATT connection with no notification listener behind.
+            if (cb && cb.isSettled && cb.isSettled()) {
+                try { gatt.disconnect(); } catch (_) {}
+                return;
+            }
+            this.gatt = gatt;
             appendLog('✅ Connected to GATT server. Fetching services...');
             const services = await this.gatt.getPrimaryServices();
 
@@ -2053,7 +2358,11 @@
         }
 
         async connect(cb) {
-            if (this.connecting) { appendLog('ℹ️ Connect already in progress.'); return; }
+            if (this.connecting) {
+                appendLog('ℹ️ Connect already in progress.');
+                if (cb) cb(false); // never leave the caller hanging
+                return;
+            }
             if (this.device.gatt.connected) {
                 appendLog('ℹ️ Already connected to battery.');
                 if (cb) cb(false);
@@ -2080,6 +2389,7 @@
                 this.connecting = false;
                 if (cb) cb(ok);
             };
+            done.isSettled = () => settled;
             timer = setTimeout(() => { appendLog('⏱️ Connect timed out.'); done(false); }, 10000);
 
             // Preferred path: wait for an advertisement (device known in range), then connect.
@@ -2099,8 +2409,19 @@
             this.device.addEventListener('advertisementreceived', advHandler, { once: true });
         }
 
-        async write(command){
-            await this.characteristic.writeNoAck(command);
+        // All GATT operations on a device must be serialized — the browser rejects a
+        // write issued while another is in flight ("GATT operation already in progress").
+        write(command) {
+            const run = () => {
+                if (!this.gatt || !this.gatt.connected || !this.characteristic) {
+                    throw new Error('Not connected to BMS');
+                }
+                const w = this.characteristic.writeNoAck || this.characteristic.write;
+                return w(command);
+            };
+            const p = (this._writeQ ?? Promise.resolve()).catch(() => {}).then(run);
+            this._writeQ = p;
+            return p;
         }
 
         // userInitiated=true stops auto-reconnect (explicit user action);
@@ -2108,6 +2429,8 @@
         async disconnect(userInitiated = false) {
             if (userInitiated) this.userDisconnected = true;
             this._listening = false;
+            this._clearWatchdog();
+            this.characteristic = null;
             if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
             if (this.gatt && this.gatt.connected) {
                 appendLog('🔌 Disconnecting from BMS...');
@@ -2126,16 +2449,21 @@
             if (this._listening) { appendLog('ℹ️ Already listening to this battery.'); return; }
             this._listening = true;
             console.debug('Battery => Listening for advertisements...',this);
+            // Instance-level watchdog so disconnect()/handleDisconnect/the catch block
+            // can clear it — a leaked timer here used to tear down healthy reconnects.
+            this._clearWatchdog();
+            this._watchdog = setTimeout(()=>{
+                this._watchdog = null;
+                appendLog('❌ No data received within 8 seconds. Disconnecting...');
+                this.hasConnectionError = true;
+                this.disconnect();
+                cb(true)
+            },8000);
             try {
-                const timeoutTimer = setTimeout(()=>{
-                    appendLog('❌ No data received within 8 seconds. Disconnecting...');
-                    this.hasConnectionError = true;
-                    this.disconnect();
-                    cb(true)
-                },8000);
-
                 const device = this.device;
-                let recvBuffer;
+                // Start empty: the first chunk after (re)subscribing is often the tail of
+                // a frame already in flight, and concat on undefined crashed the handler.
+                let recvBuffer = new Uint8Array(0);
                 appendLog(`🔗 Listen to: ${device.name || device.id}`);
                 const server = this.gatt;
                 appendLog('📡 Connected to GATT server');
@@ -2147,20 +2475,32 @@
 
                 if (!writeChar || !notifyChar) throw new Error('Couldn’t find read+write endpoints');
                 await notifyChar.startNotifications();
+
+                // Detach the previous connection's listener from the characteristic it was
+                // actually registered on (a fresh GATT connect returns new char instances).
+                if (this._notifyChar && this.advertisementreceivedListener) {
+                    try { this._notifyChar.removeEventListener('characteristicvaluechanged', this.advertisementreceivedListener); } catch (_) {}
+                }
+                this._notifyChar = notifyChar;
+
                 this.characteristic = {
                     write: val => writeChar.writeValue(val),
                     writeNoAck: writeChar.writeValueWithoutResponse ? val => writeChar.writeValueWithoutResponse(val) : null,
-                    notify: notifyChar 
+                    notify: notifyChar
                 };
-
-                if (this.advertisementreceivedListener) {
-                    this.characteristic.notify.removeEventListener('characteristicvaluechanged', this.advertisementreceivedListener);
-                }
                 const FRAME_SIZE = JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].MIN_FRAME_SIZE;
+                // Index of the next response header (55 AA EB 90) at or after `from`, or -1.
+                const findHeader = (buf, from) => {
+                    for (let i = from; i <= buf.length - 4; i++) {
+                        if (buf[i] === 0x55 && buf[i + 1] === 0xAA && buf[i + 2] === 0xEB && buf[i + 3] === 0x90) return i;
+                    }
+                    return -1;
+                };
                 this.advertisementreceivedListener = async event => {
 
                     this.hasConnectionError = false;
                     this.reconnectAttempts = 0; // healthy data flow resets the backoff
+                    this.lastFrameTs = Date.now();
 
                     const chunk = new Uint8Array(event.target.value.buffer);
                     // Ignore the 20-byte echo of our own command (header AA 55 90 EB).
@@ -2181,7 +2521,7 @@
 
                     // Process every complete 300-byte frame; keep any remainder for the next chunk.
                     while (recvBuffer.length >= FRAME_SIZE) {
-                        if (timeoutTimer) clearTimeout(timeoutTimer);
+                        this._clearWatchdog();
 
                         const frame = recvBuffer.slice(0, FRAME_SIZE);
                         recvBuffer = recvBuffer.slice(FRAME_SIZE);
@@ -2189,6 +2529,15 @@
                         const crc = frame.subarray(0, -1).reduce((sum, b) => (sum + b) & 0xFF, 0);
                         if (crc !== frame[FRAME_SIZE - 1]) {
                             appendLog(`❌ Bad CRC: ${crc} != ${frame[FRAME_SIZE - 1]}`);
+                            // Misaligned stream — realign to the next header inside the bad
+                            // window instead of blindly dropping whole 300-byte slices.
+                            const idx = findHeader(frame, 1);
+                            if (idx !== -1) {
+                                const requeue = new Uint8Array(frame.length - idx + recvBuffer.length);
+                                requeue.set(frame.subarray(idx), 0);
+                                requeue.set(recvBuffer, frame.length - idx);
+                                recvBuffer = requeue;
+                            }
                             continue;
                         }
 
@@ -2216,16 +2565,22 @@
                 };
                 this.characteristic.notify.addEventListener('characteristicvaluechanged', this.advertisementreceivedListener);
                 appendLog('📤 Requesting device info and realtime data');
-                await this.characteristic.write(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getDeviceInfo);         
+                await this.characteristic.write(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getDeviceInfo);
                 await new Promise(r => setTimeout(r, 200));
                 await this.characteristic.write(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getRealtimeData);
                 await new Promise(r => setTimeout(r, 200));
+                if (cb) cb(false); // success — notifications are flowing
             } catch (err) {
+                this._clearWatchdog();
                 appendLog(`❌ Error: ${err.message}`);
                 console.error(err);
                 this._listening = false;
                 cb(true);
             }
+        }
+
+        _clearWatchdog() {
+            if (this._watchdog) { clearTimeout(this._watchdog); this._watchdog = null; }
         }
 
         refresh() {
@@ -2234,11 +2589,8 @@
                 return;
             }
             appendLog('📤 Request new update from device');
-            if (this.characteristic.writeNoAck) {
-                this.characteristic.writeNoAck(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getRealtimeData);
-            } else {
-                this.characteristic.write(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getRealtimeData);
-            }
+            this.write(JKBms.PROTOCOL_DEFINITIONS['JK02_32S'].read_commands.getRealtimeData)
+                .catch(e => appendLog(`❌ Refresh failed: ${e.message}`));
         }
     }
 
@@ -2276,11 +2628,18 @@
             return this.batteries.find(b => b.device.id === deviceId);
         }
 
-        // Disconnect only the connected ones; the list of known batteries is kept
-        // so every paired pack stays visible in the picker.
+        // Disconnect every battery, including ones that are mid-reconnect (gatt is null
+        // but a reconnect timer is pending — left alone, that timer would fire later and
+        // steal activeBattery from whatever pack the user switched to). The list of known
+        // batteries is kept so every paired pack stays visible in the picker.
         async disconnectAll() {
             for (const battery of this.batteries) {
-                if (battery.gatt && battery.gatt.connected) await this.disconnectBattery(battery);
+                if (battery.gatt && battery.gatt.connected) {
+                    await this.disconnectBattery(battery);
+                } else {
+                    battery.userDisconnected = true;
+                    if (battery.reconnectTimer) { clearTimeout(battery.reconnectTimer); battery.reconnectTimer = null; }
+                }
             }
         }
 
@@ -2352,21 +2711,140 @@
         return true;
     }
 
+    // ------------------------------------------------------------------
+    // Demo mode (?demo=1): the full dashboard driven by simulated data.
+    // No hardware needed — useful for trying the tool and for screenshots.
+    // ------------------------------------------------------------------
+    function startDemo(manager, UI) {
+        document.getElementById('demoChip').style.display = '';
+        appendLog('🧪 Demo mode — simulated 4S LiFePO₄ pack (280 Ah). No Bluetooth used.');
+
+        const baseCells = [3.312, 3.308, 3.315, 3.309];
+        const battery = {
+            device: { id: 'demo-1', name: 'JK-B2A8S20P · demo' },
+            manager,
+            gatt: { connected: true },
+            hasConnectionError: false, userDisconnected: false, reconnectTimer: null,
+            history: [], lastFrameTs: Date.now(),
+            deviceInfo: {
+                vendor: 'JK-BMS', hardware: 'V15.3', software: 'V15.38', deviceName: 'JK-B2A8S20P',
+                serialNumber: 'DEMO-280-0001', manufacturingDate: '240312', uptime: 86400 * 12 + 4521,
+                powerUpTimes: 18, devicePasscode: '–', passCode: '–', setupPasscode: '–',
+                userData: 'VoltView demo pack', hardwareOption: '–', uart1ProtocolNum: 1, canProtocolNum: 1,
+                uart1ProtocolsEnabledBitmask: 1, canProtocolsEnabledBitmask: 1
+            },
+            settings: {
+                cellCount: 4, nominalBatteryCapacity: 280, balanceTriggerVoltage: 0.005,
+                startBalanceVoltage: 3.3, maxBalanceCurrent: 1, cellOvp: 3.55, cellOvpr: 3.45,
+                cellUvp: 2.5, cellUvpr: 2.8, soc100Voltage: 3.45, soc0Voltage: 2.9,
+                powerOffVoltage: 2.7, cellRequestChargeVoltage: 3.5, cellRequestFloatVoltage: 3.4,
+                smartSleepVoltage: 3.0, smartSleepHours: 4,
+                maxChargeCurrent: 100, chargeOcpDelay: 5, chargeOcpRecovery: 60,
+                maxDischargeCurrent: 120, dischargeOcpDelay: 5, dischargeOcpRecovery: 60,
+                chargeOtp: 65, chargeOtpRecovery: 55, dischargeOtp: 70, dischargeOtpRecovery: 60,
+                chargeUtp: -5, chargeUtpRecovery: 0, dischargeUtp: -20, dischargeUtpRecovery: -10,
+                heatingStartTemp: 0, heatingStopTemp: 10, mosOtp: 90, mosOtpRecovery: 80,
+                shortCircuitProtectionDelay: 250, shortCircuitProtectionRecovery: 30,
+                deviceAddressByte: 1, prechargeTimeSec: 2, dataFieldEnableControl: 1,
+                chargeSwitch: true, dischargeSwitch: true, balancerSwitch: true,
+                controlsBitmask: 0x0010, heatingEnabled: false, disableTemperatureSensors: false,
+                gpsHeartbeat: false, portSwitch: 'CAN', displayAlwaysOn: true, specialCharger: false,
+                smartSleepEnabled: false, disablePclModule: false, timedStoredData: false,
+                chargingFloatMode: true, emergencyButtonTrigger: false,
+                dryContactAlarmIntermittent: false, dischargeOcp2: false,
+                cellResistances: [0.118, 0.121, 0.116, 0.123]
+            },
+            data: {},
+            // UI-facing methods the real Battery exposes — demo writes just mutate state.
+            async disconnect() {},
+            async connect(cb) { manager.activeBattery = this; if (cb) cb(true); },
+            async listen(cb) { if (cb) cb(false); },
+            refresh() {},
+            clearHistory() { this.history = []; },
+            async toggleCharge() { this.settings.chargeSwitch = !this.settings.chargeSwitch; appendLog('🧪 demo: charge MOSFET → ' + (this.settings.chargeSwitch ? 'ON' : 'OFF')); },
+            async toggleDischarge() { this.settings.dischargeSwitch = !this.settings.dischargeSwitch; appendLog('🧪 demo: discharge MOSFET → ' + (this.settings.dischargeSwitch ? 'ON' : 'OFF')); },
+            async toggleBalance() { this.settings.balancerSwitch = !this.settings.balancerSwitch; appendLog('🧪 demo: balancer → ' + (this.settings.balancerSwitch ? 'ON' : 'OFF')); },
+            async toggleDisplayAlwaysOn() { this.settings.displayAlwaysOn = !this.settings.displayAlwaysOn; appendLog('🧪 demo: display always on → ' + (this.settings.displayAlwaysOn ? 'ON' : 'OFF')); },
+            async setMaxChargeCurrent(v) { this.settings.maxChargeCurrent = v; appendLog(`🧪 demo: max charge current → ${v} A`); },
+            async setMaxDischargeCurrent(v) { this.settings.maxDischargeCurrent = v; appendLog(`🧪 demo: max discharge current → ${v} A`); },
+            async setMaxCapacity(v) { this.settings.nominalBatteryCapacity = v; appendLog(`🧪 demo: nominal capacity → ${v} Ah`); },
+        };
+
+        // One simulated realtime frame: a day-in-the-life load/charge curve.
+        let tick = 0;
+        const sample = () => {
+            tick++;
+            const phase = tick / 70;
+            const current = +(14 * Math.sin(phase) + 3 * Math.sin(phase * 2.7) + (Math.random() - 0.5)).toFixed(2);
+            const wobble = i => +(0.004 * Math.sin(phase * 1.3 + i * 1.7)).toFixed(4);
+            const cellVoltages = baseCells.map((v, i) => +(v + wobble(i) + current * 0.0008).toFixed(3));
+            const totalVoltage = +cellVoltages.reduce((a, b) => a + b, 0).toFixed(2);
+            const soc = Math.round(72 + 6 * Math.sin(phase / 4));
+            battery.data = {
+                totalVoltage, current, power: +(totalVoltage * current).toFixed(1),
+                soc, remainingCapacity: +(280 * soc / 100).toFixed(1), nominalCapacity: 280,
+                cellVoltages, cellResistances: [0.42, 0.45, 0.41, 0.44],
+                mosfetTemp: +(29 + 5 * Math.sin(phase / 3) + Math.abs(current) * 0.15).toFixed(1),
+                tempProbe1: +(23 + 2 * Math.sin(phase / 5)).toFixed(1),
+                tempProbe2: +(22.5 + 2 * Math.sin(phase / 5 + 1)).toFixed(1),
+                tempProbe3: 0, tempProbe4: 0, tempProbe5: 0,
+                cycleCount: 42, soh: 100,
+                chargingMosEnabled: battery.settings.chargeSwitch,
+                dischargingMosEnabled: battery.settings.dischargeSwitch,
+                balancerWorking: Math.abs(current) < 2 && battery.settings.balancerSwitch,
+                balanceCurrent: Math.abs(current) < 2 ? 0.18 : 0,
+                batteryTypeId: 0, chargeStatusId: current > 1 ? 0 : 2,
+                errors: []
+            };
+            battery.lastFrameTs = Date.now();
+            const vs = battery.data.cellVoltages;
+            battery.history.push({
+                t: Date.now(), v: totalVoltage, i: current, p: battery.data.power,
+                soc, mt: +battery.data.mosfetTemp, delta: +(Math.max(...vs) - Math.min(...vs)).toFixed(4)
+            });
+            if (battery.history.length > 600) battery.history.splice(0, battery.history.length - 600);
+        };
+
+        // Seed ~5 minutes of history so trends/stats are alive immediately.
+        for (let k = 0; k < 300; k++) sample();
+        const t0 = Date.now();
+        battery.history.forEach((s, k) => { s.t = t0 - (battery.history.length - k) * 1000; });
+
+        manager.batteries.push(battery);
+        manager.activeBattery = battery;
+        UI.refresh();
+        setInterval(() => {
+            sample();
+            if (manager.batteryDataReceivedListener) manager.batteryDataReceivedListener(battery, {});
+        }, 1000);
+    }
+
     async function main(){
+        const batteryManager = new BatteryManager();
+        window.bm = batteryManager;
+        const UI = new UIManager(batteryManager);
+        batteryManager.setBatteryDataReceivedListener((battery, data) => {
+            UI.refresh();
+        });
+
+        // Frames drive renders; this ticker keeps the connection dot and the
+        // stale-data banner honest when frames STOP arriving.
+        setInterval(() => UI.updateConnectionState(), 2000);
+
+        // ?demo=1 → simulated pack, no Bluetooth required.
+        if (new URLSearchParams(location.search).has('demo')) {
+            startDemo(batteryManager, UI);
+            return;
+        }
 
         try {
             await ensureWebBluetoothEnabled();
         } catch (error) {
             appendLog(`❌ ${error.message}`);
+            UI.refresh(); // still show the hero — the demo works in any browser
             return;
         }
 
-        const batteryManager = new BatteryManager();
-        window.bm = batteryManager;
-        batteryManager.setBatteryDataReceivedListener((battery, data) => {
-            UI.refresh();
-        });
-        const UI = new UIManager(batteryManager);
         await batteryManager.resolvePairedBatteries();
 
         if (batteryManager.batteries.length === 0) {
