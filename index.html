@@ -664,6 +664,50 @@
                         payloadBytes: 4,
                         scale: v => v ? 1 : 0
                     },
+
+                    // ── JK02_32S number registers (esphome-jk-bms number/__init__.py NUMBERS
+                    //    table). The payload is always the full 4-byte LE value; recordType
+                    //    (frame[5]) is the register's declared size — 0x01 for 1-byte regs.
+                    //    Voltages ×1000 (mV), temperatures ×10 (0.1 °C), times ×1.
+                    setCellUVP:                 { cmdCode: 0x02, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 1000) },
+                    setCellUVPR:                { cmdCode: 0x03, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 1000) },
+                    setCellOVPR:                { cmdCode: 0x05, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 1000) },
+                    setSoc100Voltage:           { cmdCode: 0x07, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 1000) },
+                    setSoc0Voltage:             { cmdCode: 0x08, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 1000) },
+                    setCellRequestChargeVoltage:{ cmdCode: 0x09, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 1000) },
+                    setCellRequestFloatVoltage: { cmdCode: 0x0A, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 1000) },
+                    setPowerOffVoltage:         { cmdCode: 0x0B, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 1000) },
+                    setChargeOcpDelay:          { cmdCode: 0x0D, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v) },
+                    setChargeOcpRecovery:       { cmdCode: 0x0E, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v) },
+                    setDischargeOcpDelay:       { cmdCode: 0x10, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v) },
+                    setDischargeOcpRecovery:    { cmdCode: 0x11, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v) },
+                    setScpRecovery:             { cmdCode: 0x12, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v) },
+                    setMaxBalanceCurrent:       { cmdCode: 0x13, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 1000) },
+                    setChargeOtp:               { cmdCode: 0x14, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 10) },
+                    setChargeOtpRecovery:       { cmdCode: 0x15, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 10) },
+                    setDischargeOtp:            { cmdCode: 0x16, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 10) },
+                    setDischargeOtpRecovery:    { cmdCode: 0x17, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 10) },
+                    setChargeUtp:               { cmdCode: 0x18, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 10) },
+                    setChargeUtpRecovery:       { cmdCode: 0x19, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 10) },
+                    setMosOtp:                  { cmdCode: 0x1A, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 10) },
+                    setMosOtpRecovery:          { cmdCode: 0x1B, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v * 10) },
+                    setPrechargeTime:           { cmdCode: 0x25, recordType: 0x04, payloadBytes: 4, scale: v => Math.round(v) },
+                    setHeatingStartTemp:        { cmdCode: 0x37, recordType: 0x01, payloadBytes: 4, scale: v => Math.round(v) },
+                    setHeatingStopTemp:         { cmdCode: 0x38, recordType: 0x01, payloadBytes: 4, scale: v => Math.round(v) },
+                    setSmartSleepHours:         { cmdCode: 0x39, recordType: 0x01, payloadBytes: 4, scale: v => Math.round(v) },
+                    setDischargeUtp:            { cmdCode: 0x3A, recordType: 0x01, payloadBytes: 4, scale: v => Math.round(v) },
+                    setDischargeUtpRecovery:    { cmdCode: 0x3B, recordType: 0x01, payloadBytes: 4, scale: v => Math.round(v) },
+
+                    // ── JK02_32S switch registers (esphome-jk-bms switch/__init__.py SWITCHES)
+                    toggleHeating:              { cmdCode: 0x27, recordType: 0x04, payloadBytes: 4, scale: v => v ? 1 : 0 },
+                    toggleDisableTempSensors:   { cmdCode: 0x28, recordType: 0x04, payloadBytes: 4, scale: v => v ? 1 : 0 },
+                    toggleSmartSleep:           { cmdCode: 0x2D, recordType: 0x04, payloadBytes: 4, scale: v => v ? 1 : 0 },
+                    toggleDisablePclModule:     { cmdCode: 0x2E, recordType: 0x04, payloadBytes: 4, scale: v => v ? 1 : 0 },
+                    toggleTimedStoredData:      { cmdCode: 0x2F, recordType: 0x04, payloadBytes: 4, scale: v => v ? 1 : 0 },
+                    toggleChargingFloatMode:    { cmdCode: 0x30, recordType: 0x04, payloadBytes: 4, scale: v => v ? 1 : 0 },
+                    toggleEmergencyButtonTrigger:{ cmdCode: 0x31, recordType: 0x04, payloadBytes: 4, scale: v => v ? 1 : 0 },
+                    toggleDryContactAlarm:      { cmdCode: 0x32, recordType: 0x04, payloadBytes: 4, scale: v => v ? 1 : 0 },
+                    toggleDischargeOcp2:        { cmdCode: 0x33, recordType: 0x04, payloadBytes: 4, scale: v => v ? 1 : 0 },
                 },
                 frameParsers: {
                     0x01: {
@@ -1526,14 +1570,71 @@
         }
 
         // Writable settings, keyed by their row label in the "All Settings" table.
+        // `method` entries call a dedicated Battery method; `cmd` entries go through
+        // the generic Battery.writeSetting/toggleSetting using that write_commands key.
+        // Registers verified against esphome-jk-bms (JK02_32S).
         SETTING_EDITORS = {
+            // switches
             'Charge Switch':         { kind: 'toggle', label: 'Charge MOSFET',  method: 'toggleCharge',  stateKey: 'chargeSwitch' },
             'Discharge Switch':      { kind: 'toggle', label: 'Discharge MOSFET', method: 'toggleDischarge', stateKey: 'dischargeSwitch' },
             'Balancer Switch':       { kind: 'toggle', label: 'Balancer',       method: 'toggleBalance', stateKey: 'balancerSwitch' },
             'Display Always On':     { kind: 'toggle', label: 'Display Always On (LCD)', method: 'toggleDisplayAlwaysOn', stateKey: 'displayAlwaysOn' },
+            'Heating Enabled':       { kind: 'toggle', label: 'Heating',                 cmd: 'toggleHeating',               stateKey: 'heatingEnabled' },
+            'Disable Temp Sensors':  { kind: 'toggle', label: 'Disable Temp Sensors',    cmd: 'toggleDisableTempSensors',    stateKey: 'disableTemperatureSensors' },
+            'Smart Sleep Enabled':   { kind: 'toggle', label: 'Smart Sleep',             cmd: 'toggleSmartSleep',            stateKey: 'smartSleepEnabled' },
+            'Disable PCL Module':    { kind: 'toggle', label: 'Disable PCL Module',      cmd: 'toggleDisablePclModule',      stateKey: 'disablePclModule' },
+            'Timed Stored Data':     { kind: 'toggle', label: 'Timed Stored Data',       cmd: 'toggleTimedStoredData',       stateKey: 'timedStoredData' },
+            'Charging Float Mode':   { kind: 'toggle', label: 'Charging Float Mode',     cmd: 'toggleChargingFloatMode',     stateKey: 'chargingFloatMode' },
+            'Emergency Button Trigger': { kind: 'toggle', label: 'Emergency Button Trigger', cmd: 'toggleEmergencyButtonTrigger', stateKey: 'emergencyButtonTrigger' },
+            'Dry-Contact Alarm Intermittent': { kind: 'toggle', label: 'Dry-Contact Alarm Intermittent', cmd: 'toggleDryContactAlarm', stateKey: 'dryContactAlarmIntermittent' },
+            'Discharge OCP2':        { kind: 'toggle', label: 'Discharge OCP2',          cmd: 'toggleDischargeOcp2',         stateKey: 'dischargeOcp2' },
+
+            // currents & capacity
             'Max Charge Current':    { kind: 'number', label: 'Max charge current',    method: 'setMaxChargeCurrent',    unit: 'A',  key: 'maxChargeCurrent',       min: 0, max: 200,  step: 0.5 },
             'Max Discharge Current': { kind: 'number', label: 'Max discharge current', method: 'setMaxDischargeCurrent', unit: 'A',  key: 'maxDischargeCurrent',    min: 0, max: 200,  step: 0.5 },
-            'Nominal Capacity':      { kind: 'number', label: 'Nominal capacity',      method: 'setMaxCapacity',         unit: 'Ah', key: 'nominalBatteryCapacity', min: 0, max: 2000, step: 1 }
+            'Nominal Capacity':      { kind: 'number', label: 'Nominal capacity',      method: 'setMaxCapacity',         unit: 'Ah', key: 'nominalBatteryCapacity', min: 0, max: 2000, step: 1 },
+            'Max Balance Current':   { kind: 'number', label: 'Max balance current',   cmd: 'setMaxBalanceCurrent',      unit: 'A',  key: 'maxBalanceCurrent',      min: 0.1, max: 5, step: 0.1 },
+
+            // cell voltage thresholds
+            'Cell OVP':                { kind: 'number', label: 'Cell OVP',                cmd: 'setCellOVP',                  unit: 'V', key: 'cellOvp',                  min: 1, max: 4.65, step: 0.001 },
+            'Cell OVPR':               { kind: 'number', label: 'Cell OVP recovery',       cmd: 'setCellOVPR',                 unit: 'V', key: 'cellOvpr',                 min: 1, max: 4.65, step: 0.001 },
+            'Cell UVP':                { kind: 'number', label: 'Cell UVP',                cmd: 'setCellUVP',                  unit: 'V', key: 'cellUvp',                  min: 1, max: 4.5,  step: 0.001 },
+            'Cell UVPR':               { kind: 'number', label: 'Cell UVP recovery',       cmd: 'setCellUVPR',                 unit: 'V', key: 'cellUvpr',                 min: 1, max: 4.5,  step: 0.001 },
+            'SOC-100% Voltage':        { kind: 'number', label: 'SOC-100% voltage',        cmd: 'setSoc100Voltage',            unit: 'V', key: 'soc100Voltage',            min: 1, max: 4.65, step: 0.001 },
+            'SOC-0% Voltage':          { kind: 'number', label: 'SOC-0% voltage',          cmd: 'setSoc0Voltage',              unit: 'V', key: 'soc0Voltage',              min: 1, max: 4.5,  step: 0.001 },
+            'Cell Charge Req. Voltage':{ kind: 'number', label: 'Requested charge voltage', cmd: 'setCellRequestChargeVoltage', unit: 'V', key: 'cellRequestChargeVoltage', min: 1, max: 4.65, step: 0.001 },
+            'Cell Float Req. Voltage': { kind: 'number', label: 'Requested float voltage',  cmd: 'setCellRequestFloatVoltage',  unit: 'V', key: 'cellRequestFloatVoltage',  min: 1, max: 4.65, step: 0.001 },
+            'Power-Off Voltage':       { kind: 'number', label: 'Power-off voltage',       cmd: 'setPowerOffVoltage',          unit: 'V', key: 'powerOffVoltage',          min: 1, max: 4.5,  step: 0.001 },
+            'Balance Trigger Voltage': { kind: 'number', label: 'Balance trigger voltage', cmd: 'setBalanceTriggerDiffVolt',   unit: 'V', key: 'balanceTriggerVoltage',    min: 0.001, max: 1, step: 0.001 },
+            'Start Balance Voltage':   { kind: 'number', label: 'Start balance voltage',   cmd: 'setBalanceStart',             unit: 'V', key: 'startBalanceVoltage',      min: 1, max: 4.5,  step: 0.001 },
+
+            // protection delays / recoveries
+            'Charge OCP Delay':        { kind: 'number', label: 'Charge OCP delay',        cmd: 'setChargeOcpDelay',        unit: 's', key: 'chargeOcpDelay',                 min: 1, max: 600,  step: 1 },
+            'Charge OCP Recovery':     { kind: 'number', label: 'Charge OCP recovery',     cmd: 'setChargeOcpRecovery',     unit: 's', key: 'chargeOcpRecovery',              min: 1, max: 3600, step: 1 },
+            'Discharge OCP Delay':     { kind: 'number', label: 'Discharge OCP delay',     cmd: 'setDischargeOcpDelay',     unit: 's', key: 'dischargeOcpDelay',              min: 1, max: 600,  step: 1 },
+            'Discharge OCP Recovery':  { kind: 'number', label: 'Discharge OCP recovery',  cmd: 'setDischargeOcpRecovery',  unit: 's', key: 'dischargeOcpRecovery',           min: 1, max: 3600, step: 1 },
+            'SCP Recovery':            { kind: 'number', label: 'Short-circuit recovery',  cmd: 'setScpRecovery',           unit: 's', key: 'shortCircuitProtectionRecovery', min: 1, max: 3600, step: 1 },
+            'Precharge Time':          { kind: 'number', label: 'Precharge time',          cmd: 'setPrechargeTime',         unit: 's', key: 'prechargeTimeSec',               min: 0, max: 60,   step: 1 },
+
+            // temperature protection
+            'Charge OTP':              { kind: 'number', label: 'Charge OTP',              cmd: 'setChargeOtp',             unit: '°C', key: 'chargeOtp',             min: 0,   max: 100, step: 0.5 },
+            'Charge OTP Recovery':     { kind: 'number', label: 'Charge OTP recovery',     cmd: 'setChargeOtpRecovery',     unit: '°C', key: 'chargeOtpRecovery',     min: 0,   max: 100, step: 0.5 },
+            'Discharge OTP':           { kind: 'number', label: 'Discharge OTP',           cmd: 'setDischargeOtp',          unit: '°C', key: 'dischargeOtp',          min: 0,   max: 100, step: 0.5 },
+            'Discharge OTP Recovery':  { kind: 'number', label: 'Discharge OTP recovery',  cmd: 'setDischargeOtpRecovery',  unit: '°C', key: 'dischargeOtpRecovery',  min: 0,   max: 100, step: 0.5 },
+            'Charge UTP':              { kind: 'number', label: 'Charge UTP',              cmd: 'setChargeUtp',             unit: '°C', key: 'chargeUtp',             min: -40, max: 10,  step: 0.5 },
+            'Charge UTP Recovery':     { kind: 'number', label: 'Charge UTP recovery',     cmd: 'setChargeUtpRecovery',     unit: '°C', key: 'chargeUtpRecovery',     min: -40, max: 20,  step: 0.5 },
+            'Discharge UTP':           { kind: 'number', label: 'Discharge UTP',           cmd: 'setDischargeUtp',          unit: '°C', key: 'dischargeUtp',          min: -40, max: 0,   step: 1 },
+            'Discharge UTP Recovery':  { kind: 'number', label: 'Discharge UTP recovery',  cmd: 'setDischargeUtpRecovery',  unit: '°C', key: 'dischargeUtpRecovery',  min: -40, max: 10,  step: 1 },
+            'MOSFET OTP':              { kind: 'number', label: 'MOSFET OTP',              cmd: 'setMosOtp',                unit: '°C', key: 'mosOtp',                min: 50,  max: 120, step: 0.5 },
+            'MOSFET OTP Recovery':     { kind: 'number', label: 'MOSFET OTP recovery',     cmd: 'setMosOtpRecovery',        unit: '°C', key: 'mosOtpRecovery',        min: 40,  max: 110, step: 0.5 },
+
+            // heating & sleep
+            'Heating Start Temp':      { kind: 'number', label: 'Heating start temp',      cmd: 'setHeatingStartTemp',      unit: '°C', key: 'heatingStartTemp',      min: -30, max: 20,  step: 1 },
+            'Heating Stop Temp':       { kind: 'number', label: 'Heating stop temp',       cmd: 'setHeatingStopTemp',       unit: '°C', key: 'heatingStopTemp',       min: -20, max: 30,  step: 1 },
+            'Smart-Sleep Hours':       { kind: 'number', label: 'Smart-sleep delay',       cmd: 'setSmartSleepHours',       unit: 'h',  key: 'smartSleepHours',       min: 0,   max: 240, step: 1 },
+
+            // pack structure
+            'Cell Count':              { kind: 'number', label: 'Cell count',              cmd: 'setCellCount',             unit: '',   key: 'cellCount',             min: 3,   max: 32,  step: 1 },
         };
 
         // Triggered by the ✎ icon on a writable settings row.
@@ -1548,13 +1649,13 @@
                 this.confirmAction(
                     `Turn ${next} — ${spec.label}?`,
                     `This sends a command to the BMS and changes the ${spec.label.toLowerCase()} state. Make sure the load/charger can handle this.`,
-                    () => battery[spec.method]()
+                    () => spec.method ? battery[spec.method]() : battery.toggleSetting(spec)
                 );
             } else {
                 this.confirmAction(
                     `Set ${spec.label}?`,
-                    `This writes a new protection setting to the BMS, replacing the current value.`,
-                    (val) => battery[spec.method](val),
+                    `This writes a new protection setting to the BMS, replacing the current value (allowed: ${spec.min}…${spec.max} ${spec.unit}).`,
+                    (val) => spec.method ? battery[spec.method](val) : battery.writeSetting(spec, val),
                     { value: battery.settings[spec.key], unit: spec.unit, min: spec.min, max: spec.max, step: spec.step }
                 );
             }
@@ -2331,6 +2432,34 @@
             this.refresh();
         }
 
+        // Generic write for any SETTING_EDITORS entry that names a write_commands key
+        // (spec: { cmd, key, label, unit }). The optimistic local update is corrected
+        // by the next settings frame from the BMS if the write didn't take.
+        async writeSetting(spec, value) {
+            if (!this.settings) {
+                appendLog('ℹ️ Settings not loaded yet.');
+                return;
+            }
+            const command = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].write_commands[spec.cmd];
+            await this.write(JKBms.createWriteCommand(command, value));
+            this.settings[spec.key] = value;
+            appendLog(`🔄 ${spec.label} set to ${value} ${spec.unit || ''}`);
+            this.refresh();
+        }
+
+        async toggleSetting(spec) {
+            if (!this.settings) {
+                appendLog('ℹ️ Settings not loaded yet.');
+                return;
+            }
+            const command = JKBms.PROTOCOL_DEFINITIONS[JKBms.PROTOCOL_VERSION].write_commands[spec.cmd];
+            const next = !this.settings[spec.stateKey];
+            await this.write(JKBms.createWriteCommand(command, next ? 1 : 0));
+            this.settings[spec.stateKey] = next;
+            appendLog(`🔄 ${spec.label} toggled to ${next ? 'ON' : 'OFF'}`);
+            this.refresh();
+        }
+
         // Open the GATT connection and verify services. Shared by both the
         // advertisement-driven path and the direct-connect fallback.
         async _finishConnect(cb) {
@@ -2768,6 +2897,8 @@
             async setMaxChargeCurrent(v) { this.settings.maxChargeCurrent = v; appendLog(`🧪 demo: max charge current → ${v} A`); },
             async setMaxDischargeCurrent(v) { this.settings.maxDischargeCurrent = v; appendLog(`🧪 demo: max discharge current → ${v} A`); },
             async setMaxCapacity(v) { this.settings.nominalBatteryCapacity = v; appendLog(`🧪 demo: nominal capacity → ${v} Ah`); },
+            async writeSetting(spec, v) { this.settings[spec.key] = v; appendLog(`🧪 demo: ${spec.label} → ${v} ${spec.unit || ''}`); },
+            async toggleSetting(spec) { this.settings[spec.stateKey] = !this.settings[spec.stateKey]; appendLog(`🧪 demo: ${spec.label} → ${this.settings[spec.stateKey] ? 'ON' : 'OFF'}`); },
         };
 
         // One simulated realtime frame: a day-in-the-life load/charge curve.
