@@ -1,5 +1,7 @@
 # ⚡ VoltView — JK-BMS live dashboard
 
+![VoltView dashboard](screenshot-dashboard.png)
+
 A single-file (no build step) **Web Bluetooth** dashboard for **JK-BMS** battery management systems, targeting the **JK-B2A8S20P** (hardware v11+, which uses the `JK02_32S` protocol).
 
 Everything runs in your browser — no app, no cloud, no account. Nothing leaves your device.
