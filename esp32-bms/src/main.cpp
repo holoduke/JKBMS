@@ -5,6 +5,7 @@
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <WiFi.h>
+#include <Preferences.h>
 #include <math.h>
 #include "AXS15231B_touch.h"
 
@@ -70,6 +71,9 @@ static int  kbMode = 0;                      // 0 lower, 1 UPPER, 2 symbols
 static char wifiMsg[48] = "tap Scan to find networks";
 static bool wifiScanning = false;
 static bool infoPopup = false;
+static Preferences prefs;
+static char connSsid[33] = "", connPass[33] = "";   // last/attempted credentials
+static bool wifiSaved = false;                       // creds persisted for this connection
 
 // ---- UI state ----
 enum View { V_BMS1 = 0, V_BMS2 = 1, V_SETTINGS = 2 };
@@ -149,13 +153,13 @@ static void drawBed(int16_t cx, int16_t cy, uint16_t col) {
 // WiFi symbol (dot + 3 upward arcs); cy = baseline/dot position.
 static void drawWifi(int16_t cx, int16_t cy, uint16_t color) {
     gfx->fillCircle(cx, cy, 2, color);
-    const float a0 = 55.0f * (PI / 180.0f), a1 = 125.0f * (PI / 180.0f);
+    const float a0 = 50.0f * (PI / 180.0f), a1 = 130.0f * (PI / 180.0f), yScale = 0.55f;  // flatter
     int16_t radii[3] = {7, 12, 17};
     for (int k = 0; k < 3; k++) {
         int16_t r = radii[k], px = -1, py = -1;
         for (int s = 0; s <= 10; s++) {
             float a = a0 + (a1 - a0) * s / 10.0f;
-            int16_t x = cx + (int16_t)(r * cosf(a)), y = cy - (int16_t)(r * sinf(a));
+            int16_t x = cx + (int16_t)(r * cosf(a)), y = cy - (int16_t)(r * sinf(a) * yScale);
             if (px >= 0) { gfx->drawLine(px, py, x, y, color); gfx->drawLine(px, py + 1, x, y + 1, color); }
             px = x; py = y;
         }
@@ -466,8 +470,11 @@ static void wifiStartScan() {                 // async — results harvested in 
 }
 static void wifiTryConnect() {
     if (wifiSel < 0) return;
-    WiFi.begin(netSsid[wifiSel], wifiPass);
-    snprintf(wifiMsg, sizeof(wifiMsg), "connecting to %s...", netSsid[wifiSel]);
+    strncpy(connSsid, netSsid[wifiSel], 32); connSsid[32] = 0;
+    strncpy(connPass, wifiPass, 32); connPass[32] = 0;
+    wifiSaved = false;
+    WiFi.begin(connSsid, connPass);
+    snprintf(wifiMsg, sizeof(wifiMsg), "connecting to %s...", connSsid);
 }
 // Non-blocking: harvest scan results + reflect connection status. Returns true if state changed.
 static bool wifiPoll() {
@@ -495,7 +502,14 @@ static bool wifiPoll() {
     wl_status_t st = WiFi.status();
     if (st != last) {
         last = st; changed = true;
-        if (st == WL_CONNECTED)               snprintf(wifiMsg, sizeof(wifiMsg), "Connected: %s", WiFi.SSID().c_str());
+        if (st == WL_CONNECTED) {
+            snprintf(wifiMsg, sizeof(wifiMsg), "Connected: %s", WiFi.SSID().c_str());
+            if (!wifiSaved && connSsid[0]) {        // remember creds for next power-on
+                prefs.begin("wifi", false);
+                prefs.putString("ssid", connSsid); prefs.putString("pass", connPass);
+                prefs.end(); wifiSaved = true;
+            }
+        }
         else if (st == WL_CONNECT_FAILED)     snprintf(wifiMsg, sizeof(wifiMsg), "connect failed (password?)");
         else if (st == WL_NO_SSID_AVAIL)      snprintf(wifiMsg, sizeof(wifiMsg), "network not found");
         else if (st == WL_CONNECTION_LOST)    snprintf(wifiMsg, sizeof(wifiMsg), "connection lost");
@@ -738,7 +752,19 @@ void setup() {
     touch.enOffsetCorrection(true);
     touch.setOffsets(12, 310, 319, 14, 461, 479);
 
-    WiFi.mode(WIFI_STA); WiFi.disconnect();   // ready for scan/connect
+    WiFi.mode(WIFI_STA);                      // ready for scan/connect
+    {   // auto-reconnect to the last remembered network
+        prefs.begin("wifi", true);
+        String ss = prefs.getString("ssid", ""), pw = prefs.getString("pass", "");
+        prefs.end();
+        if (ss.length()) {
+            strncpy(connSsid, ss.c_str(), 32); connSsid[32] = 0;
+            strncpy(connPass, pw.c_str(), 32); connPass[32] = 0;
+            wifiSaved = true;                 // already stored
+            WiFi.begin(connSsid, connPass);
+            snprintf(wifiMsg, sizeof(wifiMsg), "reconnecting to %s...", connSsid);
+        }
+    }
     lastActivity = millis();
 
     simInit();
@@ -752,7 +778,7 @@ void setup() {
 }
 
 void loop() {
-    static uint32_t lastEventMs = 0, lastData = 0;
+    static uint32_t lastEventMs = 0, lastData = 0, lastProgMs = 0;
     static bool fingerDown = false;
     static const uint32_t DATA_MS = 400;   // value/animation refresh rate
     uint32_t now = millis();
@@ -803,6 +829,7 @@ void loop() {
     bool autoActive = autoSwitch && (view == V_BMS1 || view == V_BMS2) && (now >= manualUntil);
     if (autoActive) {
         if (now - lastSwitch >= intervalMs) { view = (view == V_BMS1) ? V_BMS2 : V_BMS1; lastSwitch = now; dirty = true; }
+        if (now - lastProgMs >= 90) { lastProgMs = now; dirty = true; }   // smooth progress underline
     } else {
         lastSwitch = now;
     }
