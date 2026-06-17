@@ -57,7 +57,8 @@ struct Bms {
     float soc, v, i;
     float tMos, tp1, tp2;
     float cell[NCELLS];
-    float cap[NCAP];
+    float cap[NCAP];        // SOC % history
+    float pwr[NCAP];        // power (W) history, same time base
     int capCount;
     float capSpanDays;
 };
@@ -76,6 +77,7 @@ static uint16_t dim(uint8_t r, uint8_t g, uint8_t b, uint8_t br) {
     return gfx->color565((r * br) / 255, (g * br) / 255, (b * br) / 255);
 }
 static uint16_t socColor(float soc) { return soc >= 60 ? C_ACCENT : soc >= 30 ? C_WARN : C_BAD; }
+static void timeLabel(char* out, size_t n, float daysAgo, float span);   // fwd decl
 static uint16_t tempColor(float t)  { return t >= 55 ? C_BAD : t >= 45 ? C_WARN : C_ACCENT; }
 static void setBrightness(int pct)  { ledcWrite(TFT_BL, map(constrain(pct, 5, 100), 0, 100, 0, 255)); }
 
@@ -160,21 +162,58 @@ static void drawTempsTile(int16_t x, int16_t y, int16_t w, int16_t h, float mos,
         leftText("C", x + 36 + bw, ry + 5, 1, C_MUTED);
     }
 }
+// Compact CELLS panel: 4 horizontal bars stacked vertically (fits half width).
 static void drawCells(int16_t x, int16_t y, int16_t w, int16_t h, const Bms& b) {
     gfx->fillRoundRect(x, y, w, h, 8, C_CARD);
     gfx->drawRoundRect(x, y, w, h, 8, C_BORDER);
     float lo = 9, hi = 0; int loI = 0, hiI = 0;
     for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < lo) { lo = b.cell[i]; loI = i; } if (b.cell[i] > hi) { hi = b.cell[i]; hiI = i; } }
-    char hdr[24]; snprintf(hdr, sizeof(hdr), "CELLS   d %dmV", (int)((hi - lo) * 1000));
-    leftText(hdr, x + 8, y + 8, 1, C_MUTED);
-    const int16_t bx = x + 10, by = y + 24, bh = h - 44, bw = (w - 20) / NCELLS;
+    char hdr[20]; snprintf(hdr, sizeof(hdr), "CELLS  %dmV", (int)((hi - lo) * 1000));
+    leftText(hdr, x + 8, y + 7, 1, C_MUTED);
+    const int16_t top = y + 20, rh = (h - 26) / NCELLS;
     for (int i = 0; i < NCELLS; i++) {
+        int16_t ry = top + i * rh, midY = ry + (rh - 8) / 2;
+        char cl[4]; snprintf(cl, sizeof(cl), "C%d", i + 1);
+        leftText(cl, x + 8, midY, 1, C_MUTED);
+        int16_t bx = x + 28, bw = w - 28 - 42, by = ry + 2, bh = rh - 4;
+        gfx->fillRoundRect(bx, by, bw, bh, 2, C_BORDER);
         float frac = (b.cell[i] - 3.0f) / 0.6f; frac = frac < 0.05f ? 0.05f : frac > 1 ? 1 : frac;
-        int16_t barH = (int16_t)(bh * frac), cxp = bx + i * bw;
         uint16_t c = (i == loI) ? C_CYAN : (i == hiI) ? C_WARN : C_ACCENT;
-        gfx->fillRoundRect(cxp + 2, by + (bh - barH), bw - 8, barH, 3, c);
+        gfx->fillRoundRect(bx, by, (int16_t)(bw * frac), bh, 2, c);
         char cv[8]; snprintf(cv, sizeof(cv), "%.2f", b.cell[i]);
-        centerText(cv, cxp + (bw - 4) / 2, y + h - 10, 1, C_MUTED);
+        leftText(cv, x + w - 40, midY, 1, C_TEXT);
+    }
+}
+
+// Power (W) over time — autoscaled signed series with a zero baseline.
+static void drawPowerGraph(int16_t x, int16_t y, int16_t w, int16_t h, const Bms& b) {
+    gfx->fillRoundRect(x, y, w, h, 8, C_CARD);
+    gfx->drawRoundRect(x, y, w, h, 8, C_BORDER);
+    leftText("POWER  W", x + 8, y + 7, 1, C_MUTED);
+    const int16_t gx = x + 8, gy = y + 22, gw = w - 14, gh = h - 38, base = gy + gh;
+    int cnt = (b.capCount < 2) ? 2 : b.capCount;
+    float lo = 1e9f, hi = -1e9f;
+    for (int i = 0; i < cnt; i++) { float v = b.pwr[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (lo > 0) lo = 0; if (hi < 0) hi = 0; if (hi - lo < 1) hi = lo + 1;
+    uint16_t area = dim(0x22, 0xd3, 0xee, 45), grid = dim(0x2a, 0x33, 0x42, 170);
+    int16_t zeroY = base - (int16_t)((0 - lo) / (hi - lo) * gh);
+    for (int k = 0; k < 5; k++) gfx->drawFastVLine(gx + (int16_t)((float)k / 4 * gw), gy, gh, grid);
+    gfx->drawFastHLine(gx, zeroY, gw, grid);
+    int16_t px = -1, py = -1;
+    for (int i = 0; i < cnt; i++) {
+        int16_t sx = gx + (int16_t)((float)i / (cnt - 1) * gw);
+        int16_t sy = base - (int16_t)((b.pwr[i] - lo) / (hi - lo) * gh);
+        int16_t t = sy < zeroY ? sy : zeroY;
+        gfx->drawFastVLine(sx, t, abs(sy - zeroY), area);
+        if (px >= 0) gfx->drawLine(px, py, sx, sy, C_CYAN);
+        px = sx; py = sy;
+    }
+    for (int k = 0; k < 5; k++) {
+        int16_t fx = gx + (int16_t)((float)k / 4 * gw);
+        char lbl[8]; timeLabel(lbl, sizeof(lbl), b.capSpanDays * (1.0f - k / 4.0f), b.capSpanDays);
+        if (k == 0) leftText(lbl, fx, base + 8, 1, C_MUTED);
+        else if (k == 4) { int16_t x1, y1; uint16_t tw, th; gfx->setTextSize(1); gfx->getTextBounds(lbl, 0, 0, &x1, &y1, &tw, &th); leftText(lbl, fx - tw, base + 8, 1, C_MUTED); }
+        else centerText(lbl, fx, base + 11, 1, C_MUTED);
     }
 }
 static void timeLabel(char* out, size_t n, float daysAgo, float span) {
@@ -233,7 +272,9 @@ static void renderBms(int active, float prog, bool autoActive) {
     drawTile(rx + tw + gap,       ty, tw, th, "CURRENT", ibuf, "AMP",  (b.i >= 0) ? C_ACCENT : C_WARN, b.i >= 0 ? 1 : -1);
     drawTempsTile(rx + 2 * (tw + gap), ty, tw, th, b.tMos, b.tp1, b.tp2);
 
-    drawCells(rx, 120, rw, 86, b);
+    const int16_t halfW = (rw - 8) / 2;
+    drawCells(rx, 120, halfW, 86, b);
+    drawPowerGraph(rx + halfW + 8, 120, rw - halfW - 8, 86, b);
     drawCapacityGraph(rx, 216, rw, 96, b);
     drawTouchBlob();
     gfx->flush();
@@ -306,6 +347,7 @@ static void genCap(Bms& b, float spanDays, int count) {
         float dpos = (float)i / (count - 1) * spanDays;
         float v = 64.0f + 26.0f * sinf((dpos - 0.30f) * 2.0f * PI) + 6.0f * sinf(dpos * 0.9f) + 3.0f * sinf(i * 1.3f);
         b.cap[i] = v < 12 ? 12 : (v > 99 ? 99 : v);
+        b.pwr[i] = 220.0f * cosf((dpos - 0.30f) * 2.0f * PI) + 30.0f * sinf(i * 1.7f);  // +charge / -discharge
     }
 }
 static void simInit() { genCap(bms[0], 7.0f, 168); genCap(bms[1], 1.0f, 48); }
