@@ -55,6 +55,7 @@ enum SubTab { ST_BMS = 0, ST_WIFI = 1, ST_SYSTEM = 2 };
 static int subTab = ST_SYSTEM;
 static int autoSleepMin = 0;                 // 0 = never; else 2/5/30/120
 static uint32_t lastActivity = 0;
+static uint32_t suppressDismiss = 0;         // ignore close/dismiss until this time (anti-bounce)
 static bool bmsCharge = true, bmsDischarge = true, bmsBalancer = false;
 // wifi
 #define MAXNET 10
@@ -559,7 +560,7 @@ static void handleTap(int16_t x, int16_t y) {
 
     // ---- SETTINGS has its own UI ----
     if (view == V_SETTINGS) {
-        if (infoPopup) { infoPopup = false; return; }     // any tap closes the info popup
+        if (infoPopup) { if (millis() > suppressDismiss) infoPopup = false; return; }   // tap closes (after open-guard)
         if (kbActive) {                                   // on-screen keyboard
             if (x >= CLOSE_X - 4 && y <= 40) { kbActive = false; return; }
             int code = kbProcess(false, x, y);
@@ -569,7 +570,7 @@ static void handleTap(int16_t x, int16_t y) {
             else if (code == -4) { kbActive = false; wifiTryConnect(); }
             return;
         }
-        if (x >= CLOSE_X - 4 && y <= 40) { view = V_BMS1; manualUntil = millis() + PAUSE_MS; return; }
+        if (x >= CLOSE_X - 4 && y <= 40) { if (millis() > suppressDismiss) { view = V_BMS1; manualUntil = millis() + PAUSE_MS; } return; }
         if (y >= 44 && y < 74) {                          // sub-tabs
             for (int i = 0; i < 3; i++) { int16_t tx, tw; subTabGeom(i, &tx, &tw);
                 if (x >= tx && x < tx + tw) { subTab = i; if (i == ST_WIFI && netCount == 0) wifiStartScan(); return; } }
@@ -580,7 +581,7 @@ static void handleTap(int16_t x, int16_t y) {
             else if (y >= srowY(1) && y < srowY(1) + 40) intervalMs = intervalMs == 3000 ? 5000 : intervalMs == 5000 ? 10000 : 3000;
             else if (y >= srowY(2) && y < srowY(2) + 40) { brightness += (x < Wd / 2) ? -10 : 10; brightness = constrain(brightness, 10, 100); setBrightness(brightness); }
             else if (y >= srowY(3) && y < srowY(3) + 40) autoSleepMin = autoSleepMin == 0 ? 2 : autoSleepMin == 2 ? 5 : autoSleepMin == 5 ? 30 : autoSleepMin == 30 ? 120 : 0;
-            else if (y >= srowY(4) && y < srowY(4) + 40) infoPopup = true;
+            else if (y >= srowY(4) && y < srowY(4) + 40) { infoPopup = true; suppressDismiss = millis() + 450; }
         } else if (subTab == ST_BMS) {
             if (y >= srowY(0) && y < srowY(0) + 40) bmsCharge = !bmsCharge;
             else if (y >= srowY(1) && y < srowY(1) + 40) bmsDischarge = !bmsDischarge;
@@ -604,7 +605,7 @@ static void handleTap(int16_t x, int16_t y) {
         if (x >= TAB1_X && x < TAB1_X + TAB_W) { view = V_BMS1; return; }
         if (x >= TAB2_X && x < TAB2_X + TAB_W) { view = V_BMS2; return; }
         if (x >= BED_X && x < BED_X + BED_W)   { pendingSleep = true; return; }
-        if (x >= GEAR_X - 4)                   { view = V_SETTINGS; subTab = ST_SYSTEM; kbActive = false; return; }
+        if (x >= GEAR_X - 4)                   { view = V_SETTINGS; subTab = ST_SYSTEM; kbActive = false; suppressDismiss = millis() + 450; return; }
     }
 }
 
@@ -778,8 +779,7 @@ void setup() {
 }
 
 void loop() {
-    static uint32_t lastEventMs = 0, lastData = 0, lastProgMs = 0;
-    static bool fingerDown = false;
+    static uint32_t lastTapMs = 0, lastData = 0, lastProgMs = 0;
     static const uint32_t DATA_MS = 400;   // value/animation refresh rate
     uint32_t now = millis();
     bool dirty = false;
@@ -789,7 +789,7 @@ void loop() {
         bool t = touch.touched();                       // consume every touch event
         if (t && now - standbySince > 500) {            // ignore residual/held touch
             standby = false; view = V_BMS1;
-            manualUntil = now + PAUSE_MS; lastEventMs = now; fingerDown = true; lastSwitch = now; lastData = now; lastActivity = now;
+            manualUntil = now + PAUSE_MS; lastTapMs = now; lastSwitch = now; lastData = now; lastActivity = now;
             simStep(now);
             renderBms(V_BMS1, 0, false);
             setBrightness(brightness);     // reveal a clean frame
@@ -799,17 +799,17 @@ void loop() {
     }
 
     // Touch is polled every loop (fast) -> responsive even between redraws.
-    // Edge-detect: the controller streams events while a finger is held, so register
-    // a tap only on the PRESS edge (down-transition). Finger is "up" once events stop
-    // for ~70ms -> the next press then counts. Snappy for the keyboard, no bounce.
+    // The controller streams brief INT pulses while a finger is held, so a simple
+    // cooldown debounce is used (immune to "stuck" event streams -> keyboard stays
+    // responsive). The open/close bounce of same-spot controls is handled by a
+    // "just opened" guard (suppressDismiss) inside handleTap().
     if (touch.touched()) {
         uint16_t tx, ty; touch.readData(&tx, &ty);
-        lastActivity = now; lastEventMs = now;
+        lastActivity = now;
         if (DEBUG_TOUCH) { dbgX = (int16_t)tx; dbgY = (int16_t)ty; dbgUntil = now + 900;
                            if (Serial) Serial.printf("[touch] x=%u y=%u\n", tx, ty); }
-        if (!fingerDown) { fingerDown = true; handleTap((int16_t)tx, (int16_t)ty); dirty = true; }
+        if (now - lastTapMs > 150) { lastTapMs = now; handleTap((int16_t)tx, (int16_t)ty); dirty = true; }
     }
-    if (fingerDown && now - lastEventMs > 70) fingerDown = false;   // release detected
 
     // Auto-sleep after the configured idle time.
     if (autoSleepMin > 0 && now >= lastActivity && now - lastActivity > (uint32_t)autoSleepMin * 60000UL)
