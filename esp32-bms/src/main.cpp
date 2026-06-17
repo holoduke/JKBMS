@@ -4,6 +4,7 @@
 // AXS15231B (I2C). Data is simulated until the real BMS UART parser lands.
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
+#include <WiFi.h>
 #include <math.h>
 #include "AXS15231B_touch.h"
 
@@ -28,6 +29,11 @@
 #define BL_CH_FREQ 5000
 #define BL_CH_RES 8
 
+// top-bar tab geometry (BMS tabs left; bed + gear on the right)
+#define TAB_W 104
+#define TAB1_X 8
+#define TAB2_X 120
+
 static constexpr int BMS_TX_PIN = 17;
 static constexpr int BMS_RX_PIN = 18;
 HardwareSerial BmsSerial(1);
@@ -37,8 +43,30 @@ Arduino_GFX *panel = new Arduino_AXS15231B(bus, GFX_NOT_DEFINED, 0, false, TFT_W
 Arduino_Canvas *gfx = new Arduino_Canvas(TFT_W, TFT_H, panel, 0, 0);
 AXS15231B_Touch touch(TOUCH_SCL, TOUCH_SDA, TOUCH_INT, TOUCH_ADDR, TFT_ROT);
 
-static uint16_t C_BG, C_CARD, C_BORDER, C_TEXT, C_MUTED, C_ACCENT, C_CYAN, C_WARN, C_BAD;
+static uint16_t C_BG, C_CARD, C_BORDER, C_TEXT, C_MUTED, C_ACCENT, C_CYAN, C_WARN, C_BAD, C_INDIGO;
 static int16_t Wd, Ht;
+static bool standby = false, pendingSleep = false;
+static uint32_t standbySince = 0;
+
+// ---- settings sub-navigation + features ----
+enum SubTab { ST_BMS = 0, ST_WIFI = 1, ST_SYSTEM = 2 };
+static int subTab = ST_SYSTEM;
+static int autoSleepMin = 0;                 // 0 = never; else 2/5/30/120
+static uint32_t lastActivity = 0;
+static bool bmsCharge = true, bmsDischarge = true, bmsBalancer = false;
+// wifi
+#define MAXNET 10
+#define WIFI_MAXVIS 5
+static char netSsid[MAXNET][33];
+static int  netRssi[MAXNET];
+static bool netEnc[MAXNET];
+static int  netCount = 0;
+static int  wifiSel = -1;
+static bool kbActive = false;
+static char wifiPass[33] = "";
+static int  wifiPassLen = 0;
+static int  kbMode = 0;                      // 0 lower, 1 UPPER, 2 symbols
+static char wifiMsg[48] = "tap Scan to find networks";
 
 // ---- UI state ----
 enum View { V_BMS1 = 0, V_BMS2 = 1, V_SETTINGS = 2 };
@@ -104,21 +132,38 @@ static void drawGear(int16_t cx, int16_t cy, int16_t r, uint16_t col, uint16_t h
     gfx->fillCircle(cx, cy, r * 0.42f, hole);
 }
 
+// simple bed icon (side view) for the sleep button
+static void drawBed(int16_t cx, int16_t cy, uint16_t col) {
+    int16_t x = cx - 13, y = cy + 5;
+    gfx->fillRect(x + 1, y, 2, 4, col);              // left leg
+    gfx->fillRect(x + 22, y, 2, 4, col);             // right leg
+    gfx->fillRoundRect(x, y - 6, 26, 6, 2, col);     // mattress
+    gfx->fillRect(x, y - 13, 3, 9, col);             // headboard
+    gfx->fillRoundRect(x + 4, y - 9, 8, 4, 2, col);  // pillow
+    leftText("z", x + 20, y - 15, 1, col);           // little sleep z
+}
+
 // ---- tab bar (shared) ----
 #define GEAR_X (Wd - 38)
 #define GEAR_Y 6
 #define GEAR_W 30
+#define BED_W 40
+#define BED_X (GEAR_X - 8 - BED_W)   // sits just left of the gear
 static void drawTabs(bool autoActive, float prog) {
-    const int16_t y = 6, h = 28, gap = 8, w = 120;
+    const int16_t y = 6, h = 28;
+    const int16_t tabX[2] = {TAB1_X, TAB2_X};
     for (int t = 0; t < 2; t++) {
-        int16_t x = 8 + t * (w + gap);
-        bool on = (view == t);
-        gfx->fillRoundRect(x, y, w, h, 8, on ? C_ACCENT : C_CARD);
-        if (!on) gfx->drawRoundRect(x, y, w, h, 8, C_BORDER);
+        int16_t x = tabX[t]; bool on = (view == t);
+        gfx->fillRoundRect(x, y, TAB_W, h, 8, on ? C_ACCENT : C_CARD);
+        if (!on) gfx->drawRoundRect(x, y, TAB_W, h, 8, C_BORDER);
         char lbl[8]; snprintf(lbl, sizeof(lbl), "BMS %d", t + 1);
-        centerText(lbl, x + w / 2, y + h / 2, 2, on ? C_BG : C_MUTED);
-        if (on && autoActive) gfx->fillRect(x + 6, y + h - 3, (int16_t)((w - 12) * prog), 2, C_BG);
+        centerText(lbl, x + TAB_W / 2, y + h / 2, 2, on ? C_BG : C_MUTED);
+        if (on && autoActive) gfx->fillRect(x + 6, y + h - 3, (int16_t)((TAB_W - 12) * prog), 2, C_BG);
     }
+    // sleep button (bed icon) — just left of the gear
+    gfx->fillRoundRect(BED_X, y, BED_W, h, 8, C_CARD);
+    gfx->drawRoundRect(BED_X, y, BED_W, h, 8, C_BORDER);
+    drawBed(BED_X + BED_W / 2, y + h / 2, C_INDIGO);
     // gear tab
     bool gon = (view == V_SETTINGS);
     gfx->fillRoundRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, gon ? C_ACCENT : C_CARD);
@@ -253,7 +298,6 @@ static void drawCapacityGraph(int16_t x, int16_t y, int16_t w, int16_t h, const 
 static void renderBms(int active, float prog, bool autoActive) {
     const Bms& b = bms[active];
     gfx->fillScreen(C_BG);
-    gfx->fillRect(0, 0, Wd, 3, C_ACCENT);
     drawTabs(autoActive, prog);
 
     const int16_t cx = 100, cy = 178;
@@ -280,62 +324,197 @@ static void renderBms(int active, float prog, bool autoActive) {
     gfx->flush();
 }
 
-// ---- settings screen ----
-#define ROW0_Y 48
-#define ROW_H 52
-static int16_t rowY(int i) { return ROW0_Y + i * (ROW_H + 8); }
-
-static void settingRow(int i, const char* label, const char* val, uint16_t valCol, bool chip) {
-    int16_t y = rowY(i), x = 8, w = Wd - 16;
-    gfx->fillRoundRect(x, y, w, ROW_H, 8, C_CARD);
-    gfx->drawRoundRect(x, y, w, ROW_H, 8, C_BORDER);
-    leftText(label, x + 14, y + ROW_H / 2 - 7, 2, C_TEXT);
-    // value chip on the right
-    int16_t vx, vy; uint16_t vw, vh; gfx->setTextSize(2); gfx->getTextBounds(val, 0, 0, &vx, &vy, &vw, &vh);
-    int16_t chipW = vw + 28, chipX = x + w - chipW - 12, chipY = y + ROW_H / 2 - 15;
-    if (chip) { gfx->fillRoundRect(chipX, chipY, chipW, 30, 15, dim((valCol >> 11) << 3, ((valCol >> 5) & 0x3f) << 2, (valCol & 0x1f) << 3, 60)); }
-    centerText(val, chipX + chipW / 2, y + ROW_H / 2, 2, valCol);
+// ---- settings screen (close button + BMS/WiFi/System sub-tabs) ----
+#define CLOSE_X (Wd - 40)
+static const char* KB[3][4] = {
+    {"1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"},
+    {"1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"},
+    {"1234567890", "@#$%&*-+()", "!?:;'/_=.", ",~[]{}<>"},
+};
+static int16_t srowY(int i) { return 86 + i * 46; }
+static void srow(int i, const char* label, const char* val, uint16_t vc) {
+    int16_t y = srowY(i), x = 8, w = Wd - 16, h = 40;
+    gfx->fillRoundRect(x, y, w, h, 8, C_CARD);
+    gfx->drawRoundRect(x, y, w, h, 8, C_BORDER);
+    leftText(label, x + 14, y + h / 2 - 7, 2, C_TEXT);
+    int16_t bx, by; uint16_t bw, bh; gfx->setTextSize(2); gfx->getTextBounds(val, 0, 0, &bx, &by, &bw, &bh);
+    leftText(val, x + w - bw - 16, y + h / 2 - 7, 2, vc);
 }
-
+static void subTabGeom(int i, int16_t* x, int16_t* w) { int16_t gap = 6; *w = (Wd - 16 - 2 * gap) / 3; *x = 8 + i * (*w + gap); }
+static void drawCloseBtn() {
+    int16_t x = CLOSE_X, y = 8, w = 32, h = 26, cx = x + w / 2, cy = y + h / 2;
+    gfx->fillRoundRect(x, y, w, h, 6, C_CARD);
+    gfx->drawRoundRect(x, y, w, h, 6, C_BORDER);
+    for (int o = -1; o <= 1; o++) {
+        gfx->drawLine(cx - 6, cy - 6 + o, cx + 6, cy + 6 + o, C_BAD);
+        gfx->drawLine(cx - 6, cy + 6 + o, cx + 6, cy - 6 + o, C_BAD);
+    }
+}
+static void drawSubTabs() {
+    const char* nm[3] = {"BMS", "WiFi", "System"};
+    for (int i = 0; i < 3; i++) {
+        int16_t x, w; subTabGeom(i, &x, &w); bool on = (subTab == i);
+        gfx->fillRoundRect(x, 44, w, 30, 8, on ? C_ACCENT : C_CARD);
+        if (!on) gfx->drawRoundRect(x, 44, w, 30, 8, C_BORDER);
+        centerText(nm[i], x + w / 2, 44 + 15, 2, on ? C_BG : C_MUTED);
+    }
+}
+static void renderSysTab() {
+    char ib[10], bb[8], sl[10];
+    snprintf(ib, sizeof(ib), "%lus", (unsigned long)(intervalMs / 1000));
+    snprintf(bb, sizeof(bb), "%d%%", brightness);
+    if (autoSleepMin == 0) snprintf(sl, sizeof(sl), "Never"); else snprintf(sl, sizeof(sl), "%d min", autoSleepMin);
+    srow(0, "Auto-switch",        autoSwitch ? "ON" : "OFF", autoSwitch ? C_ACCENT : C_MUTED);
+    srow(1, "Switch interval",    ib, C_CYAN);
+    srow(2, "Brightness   - / +", bb, C_TEXT);
+    srow(3, "Auto-sleep",         sl, autoSleepMin ? C_CYAN : C_MUTED);
+}
+static void renderBmsTab() {
+    srow(0, "Charge MOSFET",    bmsCharge ? "ON" : "OFF",    bmsCharge ? C_ACCENT : C_BAD);
+    srow(1, "Discharge MOSFET", bmsDischarge ? "ON" : "OFF", bmsDischarge ? C_ACCENT : C_BAD);
+    srow(2, "Balancer",         bmsBalancer ? "ON" : "OFF",  bmsBalancer ? C_ACCENT : C_MUTED);
+    srow(3, "Cell count",       "4S", C_MUTED);
+    srow(4, "Pack capacity",    "100 Ah", C_MUTED);
+}
+static int16_t netRowY(int i) { return 104 + i * 34; }
+static int16_t rescanY() { return 104 + WIFI_MAXVIS * 34 + 2; }
+static void renderWifiTab() {
+    bool conn = (WiFi.status() == WL_CONNECTED);
+    if (conn) snprintf(wifiMsg, sizeof(wifiMsg), "Connected: %s", WiFi.SSID().c_str());
+    leftText(wifiMsg, 12, 84, 1, conn ? C_ACCENT : C_MUTED);
+    int vis = netCount < WIFI_MAXVIS ? netCount : WIFI_MAXVIS;
+    for (int i = 0; i < vis; i++) {
+        int16_t y = netRowY(i), x = 8, w = Wd - 16, h = 30;
+        gfx->fillRoundRect(x, y, w, h, 6, C_CARD);
+        gfx->drawRoundRect(x, y, w, h, 6, C_BORDER);
+        leftText(netSsid[i], x + 12, y + 9, 1, C_TEXT);
+        int bars = netRssi[i] > -55 ? 4 : netRssi[i] > -65 ? 3 : netRssi[i] > -75 ? 2 : 1;
+        for (int b = 0; b < 4; b++)
+            gfx->fillRect(x + w - 64 + b * 7, y + h - 6 - b * 4, 5, 4 + b * 4, b < bars ? C_ACCENT : C_BORDER);
+        if (netEnc[i]) leftText("L", x + w - 18, y + 9, 1, C_WARN);
+    }
+    int16_t ry = rescanY();
+    gfx->fillRoundRect(8, ry, Wd - 16, 28, 6, C_CARD);
+    gfx->drawRoundRect(8, ry, Wd - 16, 28, 6, C_BORDER);
+    centerText(netCount ? "Rescan" : "Scan", Wd / 2, ry + 14, 2, C_CYAN);
+}
+// keyboard: draw (draw=true) or hit-test (draw=false -> returns key code)
+static int kbProcess(bool draw, int16_t tx, int16_t ty) {
+    const int KB_TOP = 104, KH = 36, GAP = 4, KW = 42;
+    int hit = 0;
+    for (int r = 0; r < 4; r++) {
+        const char* s = KB[kbMode][r]; int L = strlen(s);
+        int totalW = L * KW + (L - 1) * GAP; int16_t sx = (Wd - totalW) / 2, y = KB_TOP + r * (KH + GAP);
+        for (int i = 0; i < L; i++) {
+            int16_t x = sx + i * (KW + GAP);
+            if (draw) {
+                gfx->fillRoundRect(x, y, KW, KH, 5, C_CARD); gfx->drawRoundRect(x, y, KW, KH, 5, C_BORDER);
+                char c[2] = {s[i], 0}; centerText(c, x + KW / 2, y + KH / 2, 2, C_TEXT);
+            } else if (tx >= x && tx < x + KW && ty >= y && ty < y + KH) hit = s[i];
+        }
+    }
+    int16_t y = KB_TOP + 4 * (KH + GAP);
+    struct { int16_t x, w; const char* lb; int code; } ctl[4] = {
+        {8, 70, kbMode == 0 ? "ABC" : kbMode == 1 ? "#+=" : "abc", -2},
+        {84, 206, "space", 32}, {296, 80, "del", -1}, {382, 90, "OK", -4} };
+    for (int k = 0; k < 4; k++) {
+        if (draw) {
+            uint16_t bg = ctl[k].code == -4 ? C_ACCENT : C_CARD;
+            gfx->fillRoundRect(ctl[k].x, y, ctl[k].w, KH, 6, bg); gfx->drawRoundRect(ctl[k].x, y, ctl[k].w, KH, 6, C_BORDER);
+            centerText(ctl[k].lb, ctl[k].x + ctl[k].w / 2, y + KH / 2, 2, ctl[k].code == -4 ? C_BG : C_TEXT);
+        } else if (tx >= ctl[k].x && tx < ctl[k].x + ctl[k].w && ty >= y && ty < y + KH) hit = ctl[k].code;
+    }
+    return hit;
+}
+static void renderKeyboard() {
+    char hdr[48]; snprintf(hdr, sizeof(hdr), "Wi-Fi: %s", wifiSel >= 0 ? netSsid[wifiSel] : "");
+    leftText(hdr, 12, 10, 1, C_MUTED);
+    drawCloseBtn();
+    gfx->fillRoundRect(12, 30, Wd - 24, 30, 6, C_CARD);
+    gfx->drawRoundRect(12, 30, Wd - 24, 30, 6, C_BORDER);
+    leftText(wifiPassLen ? wifiPass : "enter password", 22, 40, 2, wifiPassLen ? C_TEXT : C_MUTED);
+    kbProcess(true, 0, 0);
+}
+static void wifiStartScan() {
+    snprintf(wifiMsg, sizeof(wifiMsg), "scanning...");
+    WiFi.mode(WIFI_STA);
+    int n = WiFi.scanNetworks();
+    if (n < 0) n = 0; if (n > MAXNET) n = MAXNET;
+    netCount = n;
+    for (int i = 0; i < n; i++) {
+        strncpy(netSsid[i], WiFi.SSID(i).c_str(), 32); netSsid[i][32] = 0;
+        netRssi[i] = WiFi.RSSI(i);
+        netEnc[i] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+    }
+    snprintf(wifiMsg, sizeof(wifiMsg), n ? "%d networks found" : "no networks found", n);
+}
+static void wifiTryConnect() {
+    if (wifiSel < 0) return;
+    WiFi.begin(netSsid[wifiSel], wifiPass);
+    snprintf(wifiMsg, sizeof(wifiMsg), "connecting to %s...", netSsid[wifiSel]);
+}
 static void renderSettings() {
     gfx->fillScreen(C_BG);
-    gfx->fillRect(0, 0, Wd, 3, C_ACCENT);
-    drawTabs(false, 0);
-
-    char ibuf[8]; snprintf(ibuf, sizeof(ibuf), "%lus", (unsigned long)(intervalMs / 1000));
-    char bbuf[8]; snprintf(bbuf, sizeof(bbuf), "%d%%", brightness);
-    settingRow(0, "Auto-switch",     autoSwitch ? "ON" : "OFF", autoSwitch ? C_ACCENT : C_MUTED, true);
-    settingRow(1, "Switch interval", ibuf, C_CYAN, true);
-    settingRow(2, "Brightness  - / +", bbuf, C_TEXT, true);
-
-    // info row
-    int16_t y = rowY(3);
-    gfx->fillRoundRect(8, y, Wd - 16, ROW_H, 8, C_CARD);
-    gfx->drawRoundRect(8, y, Wd - 16, ROW_H, 8, C_BORDER);
-    leftText("JC3248W535  -  2 BMS  -  demo v0.1", 14, y + 10, 1, C_MUTED);
-    leftText("tap a BMS tab to exit settings", 14, y + 28, 1, C_MUTED);
-    drawTouchBlob();
+    if (kbActive) { renderKeyboard(); gfx->flush(); return; }
+    leftText("SETTINGS", 12, 12, 2, C_TEXT);
+    drawCloseBtn();
+    drawSubTabs();
+    if (subTab == ST_BMS)       renderBmsTab();
+    else if (subTab == ST_WIFI) renderWifiTab();
+    else                        renderSysTab();
     gfx->flush();
 }
 
 // ---- touch handling ----
 static void handleTap(int16_t x, int16_t y) {
-    manualUntil = millis() + PAUSE_MS;          // any tap pauses auto-switch
-    // tab bar
-    if (y >= 6 && y <= 34) {
-        if (x >= 8 && x < 128)        { view = V_BMS1; return; }
-        if (x >= 136 && x < 256)      { view = V_BMS2; return; }
-        if (x >= GEAR_X - 4)          { view = V_SETTINGS; return; }
+    lastActivity = millis();
+
+    // ---- SETTINGS has its own UI ----
+    if (view == V_SETTINGS) {
+        if (kbActive) {                                   // on-screen keyboard
+            if (x >= CLOSE_X - 4 && y <= 40) { kbActive = false; return; }
+            int code = kbProcess(false, x, y);
+            if (code > 0) { if (wifiPassLen < 32) { wifiPass[wifiPassLen++] = (char)code; wifiPass[wifiPassLen] = 0; } }
+            else if (code == -1) { if (wifiPassLen > 0) wifiPass[--wifiPassLen] = 0; }
+            else if (code == -2) { kbMode = (kbMode + 1) % 3; }
+            else if (code == -4) { kbActive = false; wifiTryConnect(); }
+            return;
+        }
+        if (x >= CLOSE_X - 4 && y <= 40) { view = V_BMS1; manualUntil = millis() + PAUSE_MS; return; }
+        if (y >= 44 && y < 74) {                          // sub-tabs
+            for (int i = 0; i < 3; i++) { int16_t tx, tw; subTabGeom(i, &tx, &tw);
+                if (x >= tx && x < tx + tw) { subTab = i; if (i == ST_WIFI && netCount == 0) wifiStartScan(); return; } }
+            return;
+        }
+        if (subTab == ST_SYSTEM) {
+            if (y >= srowY(0) && y < srowY(0) + 40) autoSwitch = !autoSwitch;
+            else if (y >= srowY(1) && y < srowY(1) + 40) intervalMs = intervalMs == 3000 ? 5000 : intervalMs == 5000 ? 10000 : 3000;
+            else if (y >= srowY(2) && y < srowY(2) + 40) { brightness += (x < Wd / 2) ? -10 : 10; brightness = constrain(brightness, 10, 100); setBrightness(brightness); }
+            else if (y >= srowY(3) && y < srowY(3) + 40) autoSleepMin = autoSleepMin == 0 ? 2 : autoSleepMin == 2 ? 5 : autoSleepMin == 5 ? 30 : autoSleepMin == 30 ? 120 : 0;
+        } else if (subTab == ST_BMS) {
+            if (y >= srowY(0) && y < srowY(0) + 40) bmsCharge = !bmsCharge;
+            else if (y >= srowY(1) && y < srowY(1) + 40) bmsDischarge = !bmsDischarge;
+            else if (y >= srowY(2) && y < srowY(2) + 40) bmsBalancer = !bmsBalancer;
+        } else { // ST_WIFI
+            int vis = netCount < WIFI_MAXVIS ? netCount : WIFI_MAXVIS;
+            for (int i = 0; i < vis; i++) if (y >= netRowY(i) && y < netRowY(i) + 30) {
+                wifiSel = i;
+                if (netEnc[i]) { wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbActive = true; }
+                else wifiTryConnect();
+                return;
+            }
+            int16_t ry = rescanY(); if (y >= ry && y < ry + 28) wifiStartScan();
+        }
+        return;
     }
-    if (view != V_SETTINGS) return;
-    // settings rows
-    if (y >= rowY(0) && y < rowY(0) + ROW_H) { autoSwitch = !autoSwitch; }
-    else if (y >= rowY(1) && y < rowY(1) + ROW_H) {
-        intervalMs = (intervalMs == 3000) ? 5000 : (intervalMs == 5000) ? 10000 : 3000;
-    } else if (y >= rowY(2) && y < rowY(2) + ROW_H) {
-        brightness += (x < Wd / 2) ? -10 : 10;
-        brightness = constrain(brightness, 10, 100);
-        setBrightness(brightness);
+
+    // ---- dashboard top bar ----
+    manualUntil = millis() + PAUSE_MS;
+    if (y >= 6 && y <= 34) {
+        if (x >= TAB1_X && x < TAB1_X + TAB_W) { view = V_BMS1; return; }
+        if (x >= TAB2_X && x < TAB2_X + TAB_W) { view = V_BMS2; return; }
+        if (x >= BED_X && x < BED_X + BED_W)   { pendingSleep = true; return; }
+        if (x >= GEAR_X - 4)                   { view = V_SETTINGS; subTab = ST_SYSTEM; kbActive = false; return; }
     }
 }
 
@@ -365,6 +544,100 @@ static void simStep(uint32_t nowMs) {
     }
 }
 
+// ---- flashy 3D standby animation ----
+static uint16_t wheel(float h) {                       // hue 0..1 -> rgb565
+    h = fmodf(h, 1.0f) * 6.0f; int i = (int)h; float f = h - i;
+    uint8_t v = 255, p = 0, q = (uint8_t)(255 * (1 - f)), t = (uint8_t)(255 * f);
+    switch (i) {
+        case 0: return gfx->color565(v, t, p); case 1: return gfx->color565(q, v, p);
+        case 2: return gfx->color565(p, v, t); case 3: return gfx->color565(p, q, v);
+        case 4: return gfx->color565(t, p, v); default: return gfx->color565(v, p, q);
+    }
+}
+// Flat-shaded rotating icosahedron (20 faces): rotate verts, perspective-project,
+// back-face cull, depth-sort, Lambert-shade each face, glossy edges on top.
+static void drawIco(int16_t cx, int16_t cy, float scale, float ax, float ay, float az, float hue) {
+    static const float t = 1.61803f;
+    static const float BV[12][3] = {{-1,t,0},{1,t,0},{-1,-t,0},{1,-t,0},{0,-1,t},{0,1,t},
+        {0,-1,-t},{0,1,-t},{t,0,-1},{t,0,1},{-t,0,-1},{-t,0,1}};
+    static const uint8_t F[20][3] = {{0,11,5},{0,5,1},{0,1,7},{0,7,10},{0,10,11},{1,5,9},{5,11,4},
+        {11,10,2},{10,7,6},{7,1,8},{3,9,4},{3,4,2},{3,2,6},{3,6,8},{3,8,9},{4,9,5},{2,4,11},{6,2,10},{8,6,7},{9,8,1}};
+    float rx[12], ry[12], rz[12]; int16_t px[12], py[12];
+    float ca = cosf(ax), sa = sinf(ax), cb = cosf(ay), sb = sinf(ay), cc = cosf(az), sc = sinf(az);
+    const float d = 4.0f;                                  // smaller = closer / punchier perspective
+    for (int i = 0; i < 12; i++) {
+        float x = BV[i][0], y = BV[i][1], z = BV[i][2];
+        float y1 = y * ca - z * sa, z1 = y * sa + z * ca;
+        float x2 = x * cb + z1 * sb, z2 = -x * sb + z1 * cb;
+        float x3 = x2 * cc - y1 * sc, y3 = x2 * sc + y1 * cc;
+        rx[i] = x3; ry[i] = y3; rz[i] = z2;
+        float p = d / (d - z2);
+        px[i] = cx + (int16_t)(x3 * scale * p);
+        py[i] = cy + (int16_t)(y3 * scale * p);
+    }
+    const float lx = 0.40f, ly = 0.50f, lz = 0.77f;       // light direction
+    int order[20]; float fz[20]; int n = 0;
+    for (int f = 0; f < 20; f++) {
+        int a = F[f][0], b = F[f][1], c = F[f][2];
+        long area = (long)(px[b] - px[a]) * (py[c] - py[a]) - (long)(py[b] - py[a]) * (px[c] - px[a]);
+        if (area <= 0) continue;                          // back-face cull
+        order[n] = f; fz[n] = rz[a] + rz[b] + rz[c]; n++;
+    }
+    for (int i = 1; i < n; i++) {                          // depth sort (far first)
+        int oo = order[i]; float ff = fz[i]; int k = i - 1;
+        while (k >= 0 && fz[k] > ff) { fz[k+1] = fz[k]; order[k+1] = order[k]; k--; }
+        order[k+1] = oo; fz[k+1] = ff;
+    }
+    for (int i = 0; i < n; i++) {
+        int f = order[i], a = F[f][0], b = F[f][1], c = F[f][2];
+        float ux = rx[b]-rx[a], uy = ry[b]-ry[a], uz = rz[b]-rz[a];
+        float vx = rx[c]-rx[a], vy = ry[c]-ry[a], vz = rz[c]-rz[a];
+        float nx = uy*vz-uz*vy, ny = uz*vx-ux*vz, nz = ux*vy-uy*vx;
+        float nl = sqrtf(nx*nx+ny*ny+nz*nz); if (nl < 1e-3f) nl = 1;
+        float diff = (nx*lx + ny*ly + nz*lz) / nl; if (diff < 0) diff = -diff;
+        float br = 0.22f + 0.78f * diff; if (br > 1) br = 1;
+        uint16_t base = wheel(hue + f * 0.013f);
+        uint8_t rr = ((base >> 11) & 0x1f) << 3, gg = ((base >> 5) & 0x3f) << 2, bb = (base & 0x1f) << 3;
+        gfx->fillTriangle(px[a], py[a], px[b], py[b], px[c], py[c],
+                          gfx->color565((uint8_t)(rr*br), (uint8_t)(gg*br), (uint8_t)(bb*br)));
+    }
+    uint16_t ec = dim(0xff, 0xff, 0xff, 70);               // glossy edge highlight
+    for (int i = 0; i < n; i++) { int f = order[i], a = F[f][0], b = F[f][1], c = F[f][2];
+        gfx->drawTriangle(px[a], py[a], px[b], py[b], px[c], py[c], ec); }
+}
+static void playSleepAnimation() {
+    const int16_t cx = Wd / 2, cy = Ht / 2; const int NS = 56;
+    float ang[NS], spd[NS], ph[NS];
+    for (int i = 0; i < NS; i++) { ang[i] = fmodf(i * 2.39996f, 6.2832f); spd[i] = 0.7f + 0.6f * fabsf(sinf(i * 1.7f)); ph[i] = fmodf(i * 0.137f, 1.0f); }
+    float maxR = sqrtf((float)cx * cx + (float)cy * cy);
+    uint32_t t0 = millis(); const float DUR = 2600.0f;
+    for (;;) {
+        float t = (millis() - t0) / DUR; if (t >= 1.0f) break;
+        float endT = t > 0.66f ? (t - 0.66f) / 0.34f : 0.0f;        // recede / warp-away phase 0..1
+        gfx->fillScreen(C_BG);
+        float warp = t * t * 2.4f + endT * endT * 7.0f;             // accelerate hard at the end
+        for (int i = 0; i < NS; i++) {                              // warp starfield streaks
+            float r = fmodf(ph[i] + warp * spd[i], 1.0f), rr = r * r * maxR;
+            float streak = 6.0f + r * 44.0f + endT * 140.0f;        // long light-streaks on the jump
+            float rl = rr - streak; if (rl < 0) rl = 0;
+            float c = cosf(ang[i]), s = sinf(ang[i]); uint8_t br = (uint8_t)(60 + 180 * r);
+            gfx->drawLine(cx + (int16_t)(c * rl), cy + (int16_t)(s * rl),
+                          cx + (int16_t)(c * rr), cy + (int16_t)(s * rr), dim(0x6b, 0x86, 0xff, br));
+        }
+        float pulse = 0.5f + 0.5f * sinf(t * PI * 4.0f), glowF = 1.0f - endT;
+        for (int g = 4; g >= 1; g--) {
+            int16_t rad = (int16_t)((24 + g * 18 * (0.8f + 0.4f * pulse)) * glowF);
+            if (rad > 1) gfx->fillCircle(cx, cy, rad, dim(0x3d, 0xf0, 0xa8, (uint8_t)(8 + (4 - g) * 7)));
+        }
+        float scale = 40.0f * (0.78f + 0.42f * sinf(t * PI));       // bigger = closer
+        if (endT > 0) scale *= (1.0f - endT) * (1.0f - endT);       // recede to the vanishing point
+        drawIco(cx, cy, scale, t * 7.8f, t * 5.9f, t * 4.0f, t * 2.4f);  // faster spin
+        gfx->flush();
+    }
+    gfx->fillScreen(gfx->color565(255, 255, 255)); gfx->flush();    // flash
+    gfx->fillScreen(C_BG); gfx->flush();
+}
+
 void setup() {
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);
@@ -381,12 +654,15 @@ void setup() {
     C_BORDER = gfx->color565(0x2a, 0x33, 0x42); C_TEXT = gfx->color565(0xea, 0xf2, 0xfb);
     C_MUTED = gfx->color565(0x7e, 0x8b, 0xa0); C_ACCENT = gfx->color565(0x3d, 0xf0, 0xa8);
     C_CYAN = gfx->color565(0x22, 0xd3, 0xee); C_WARN = gfx->color565(0xfb, 0xbf, 0x24);
-    C_BAD = gfx->color565(0xfb, 0x71, 0x85);
+    C_BAD = gfx->color565(0xfb, 0x71, 0x85); C_INDIGO = gfx->color565(0x9d, 0xb4, 0xff);
 
     touch.begin();
     touch.setRotation(TFT_ROT);
     touch.enOffsetCorrection(true);
     touch.setOffsets(12, 310, 319, 14, 461, 479);
+
+    WiFi.mode(WIFI_STA); WiFi.disconnect();   // ready for scan/connect
+    lastActivity = millis();
 
     simInit();
     simStep(millis());
@@ -404,12 +680,40 @@ void loop() {
     uint32_t now = millis();
     bool dirty = false;
 
+    // STANDBY: screen off, just wait for a (fresh) touch to wake -> main screen.
+    if (standby) {
+        bool t = touch.touched();                       // consume every touch event
+        if (t && now - standbySince > 500) {            // ignore residual/held touch
+            standby = false; view = V_BMS1;
+            manualUntil = now + PAUSE_MS; lastTap = now; lastSwitch = now; lastData = now; lastActivity = now;
+            simStep(now);
+            renderBms(V_BMS1, 0, false);
+            setBrightness(brightness);     // reveal a clean frame
+        }
+        delay(8);
+        return;
+    }
+
     // Touch is polled every loop (fast) -> responsive even between redraws.
     if (touch.touched()) {
         uint16_t tx, ty; touch.readData(&tx, &ty);
+        lastActivity = now;
         if (DEBUG_TOUCH) { dbgX = (int16_t)tx; dbgY = (int16_t)ty; dbgUntil = now + 900;
                            if (Serial) Serial.printf("[touch] x=%u y=%u\n", tx, ty); }
         if (now - lastTap > 120) { handleTap((int16_t)tx, (int16_t)ty); lastTap = now; dirty = true; }
+    }
+
+    // Auto-sleep after the configured idle time.
+    if (autoSleepMin > 0 && now - lastActivity > (uint32_t)autoSleepMin * 60000UL) pendingSleep = true;
+
+    // ZZZ pressed -> play the 3D animation, then go to standby (screen off).
+    if (pendingSleep) {
+        pendingSleep = false;
+        playSleepAnimation();
+        setBrightness(0);
+        standby = true; standbySince = millis();
+        touch.touched();               // drop any touch that fired during the animation
+        return;
     }
 
     // Smart auto-switch: only between data screens, only when not recently touched.
@@ -424,7 +728,8 @@ void loop() {
     if (now - lastData >= DATA_MS) {
         simStep(now);
         lastData = now;
-        if (view != V_SETTINGS) dirty = true;   // BMS views show live values
+        if (view != V_SETTINGS) dirty = true;                 // BMS views show live values
+        else if (subTab == ST_WIFI) dirty = true;             // WiFi status updates live
     }
 
     // Only redraw when something actually changed.

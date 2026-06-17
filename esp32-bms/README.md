@@ -36,9 +36,13 @@ Power the board from USB-C or a buck off the pack's main P+/P− output (not the
 - ✅ Display + animated **demo dashboard** (landscape 480×320): auto-switching
   `[BMS 1] [BMS 2]` tabs, SOC ring gauge, V/A tiles, compact MOS/T1/T2 temps,
   cell bars, and a **capacity-over-time** area graph (per-BMS window, 5 time ticks).
-- ✅ **Touch** (AXS15231B) + **Settings** screen (gear tab): auto-switch on/off,
-  interval, brightness (PWM). Smart auto-switch pauses 30 s on interaction.
-- ✅ Efficient **render-on-change** loop (redraws only when data/view changes).
+- ✅ **Touch** (AXS15231B) + **Settings** with close button + sub-tabs
+  (BMS / WiFi / System): WiFi scan + connect (on-screen keyboard), charge/
+  discharge/balancer toggles, auto-switch, interval, brightness (PWM), and
+  **auto-sleep** (Never/2/5/30/120 min). Smart auto-switch pauses 30 s on touch.
+- ✅ **Sleep button** (bed icon) → flashy 3D animation (shaded icosahedron +
+  warp starfield that recedes into the distance) → standby; touch wakes to main.
+- ✅ Power- and capacity-over-time graphs; efficient **render-on-change** loop.
 - ⏳ Data is currently **simulated**; next step is the JK UART protocol parser to
   show live values, then the second BMS and charge/discharge control.
 
