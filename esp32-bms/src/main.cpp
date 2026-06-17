@@ -146,6 +146,22 @@ static void drawBed(int16_t cx, int16_t cy, uint16_t col) {
     leftText("z", x + 20, y - 15, 1, col);           // little sleep z
 }
 
+// WiFi symbol (dot + 3 upward arcs); cy = baseline/dot position.
+static void drawWifi(int16_t cx, int16_t cy, uint16_t color) {
+    gfx->fillCircle(cx, cy, 2, color);
+    const float a0 = 55.0f * (PI / 180.0f), a1 = 125.0f * (PI / 180.0f);
+    int16_t radii[3] = {7, 12, 17};
+    for (int k = 0; k < 3; k++) {
+        int16_t r = radii[k], px = -1, py = -1;
+        for (int s = 0; s <= 10; s++) {
+            float a = a0 + (a1 - a0) * s / 10.0f;
+            int16_t x = cx + (int16_t)(r * cosf(a)), y = cy - (int16_t)(r * sinf(a));
+            if (px >= 0) { gfx->drawLine(px, py, x, y, color); gfx->drawLine(px, py + 1, x, y + 1, color); }
+            px = x; py = y;
+        }
+    }
+}
+
 // ---- tab bar (shared) ----
 #define GEAR_X (Wd - 38)
 #define GEAR_Y 6
@@ -163,6 +179,9 @@ static void drawTabs(bool autoActive, float prog) {
         centerText(lbl, x + TAB_W / 2, y + h / 2, 2, on ? C_BG : C_MUTED);
         if (on && autoActive) gfx->fillRect(x + 6, y + h - 3, (int16_t)((TAB_W - 12) * prog), 2, C_BG);
     }
+    // WiFi indicator (only when connected) — next to the BMS tabs
+    if (WiFi.status() == WL_CONNECTED) drawWifi(252, 30, C_ACCENT);
+
     // sleep button (bed icon) — just left of the gear
     gfx->fillRoundRect(BED_X, y, BED_W, h, 8, C_CARD);
     gfx->drawRoundRect(BED_X, y, BED_W, h, 8, C_BORDER);
