@@ -733,7 +733,8 @@ void setup() {
 }
 
 void loop() {
-    static uint32_t lastTouchMs = 0, lastData = 0;
+    static uint32_t lastEventMs = 0, lastData = 0;
+    static bool fingerDown = false;
     static const uint32_t DATA_MS = 400;   // value/animation refresh rate
     uint32_t now = millis();
     bool dirty = false;
@@ -743,7 +744,7 @@ void loop() {
         bool t = touch.touched();                       // consume every touch event
         if (t && now - standbySince > 500) {            // ignore residual/held touch
             standby = false; view = V_BMS1;
-            manualUntil = now + PAUSE_MS; lastTouchMs = now; lastSwitch = now; lastData = now; lastActivity = now;
+            manualUntil = now + PAUSE_MS; lastEventMs = now; fingerDown = true; lastSwitch = now; lastData = now; lastActivity = now;
             simStep(now);
             renderBms(V_BMS1, 0, false);
             setBrightness(brightness);     // reveal a clean frame
@@ -753,17 +754,17 @@ void loop() {
     }
 
     // Touch is polled every loop (fast) -> responsive even between redraws.
+    // Edge-detect: the controller streams events while a finger is held, so register
+    // a tap only on the PRESS edge (down-transition). Finger is "up" once events stop
+    // for ~70ms -> the next press then counts. Snappy for the keyboard, no bounce.
     if (touch.touched()) {
         uint16_t tx, ty; touch.readData(&tx, &ty);
-        lastActivity = now;
-        // A held finger keeps firing touch events; only treat it as a NEW tap if
-        // there was a gap since the last event (i.e. the finger was released).
-        bool newPress = (now - lastTouchMs > 220);
-        lastTouchMs = now;
+        lastActivity = now; lastEventMs = now;
         if (DEBUG_TOUCH) { dbgX = (int16_t)tx; dbgY = (int16_t)ty; dbgUntil = now + 900;
                            if (Serial) Serial.printf("[touch] x=%u y=%u\n", tx, ty); }
-        if (newPress) { handleTap((int16_t)tx, (int16_t)ty); dirty = true; }
+        if (!fingerDown) { fingerDown = true; handleTap((int16_t)tx, (int16_t)ty); dirty = true; }
     }
+    if (fingerDown && now - lastEventMs > 70) fingerDown = false;   // release detected
 
     // Auto-sleep after the configured idle time.
     if (autoSleepMin > 0 && now >= lastActivity && now - lastActivity > (uint32_t)autoSleepMin * 60000UL)
