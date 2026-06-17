@@ -522,7 +522,7 @@ static void renderSettings() {
 
 // ---- touch handling ----
 static void handleTap(int16_t x, int16_t y) {
-    lastActivity = millis();
+    // (lastActivity is reset on every touch in loop(), before this is called)
 
     // ---- SETTINGS has its own UI ----
     if (view == V_SETTINGS) {
@@ -762,7 +762,8 @@ void loop() {
     }
 
     // Auto-sleep after the configured idle time.
-    if (autoSleepMin > 0 && now - lastActivity > (uint32_t)autoSleepMin * 60000UL) pendingSleep = true;
+    if (autoSleepMin > 0 && now >= lastActivity && now - lastActivity > (uint32_t)autoSleepMin * 60000UL)
+        pendingSleep = true;
 
     // ZZZ pressed -> play the 3D animation, then go to standby (screen off).
     if (pendingSleep) {
