@@ -868,7 +868,9 @@ void loop() {
         simStep(now);
         lastData = now;
         if (view != V_SETTINGS) dirty = true;                 // BMS views show live values
-        else if (subTab == ST_WIFI) dirty = true;             // WiFi status updates live
+        // Settings/WiFi/keyboard are NOT redrawn on a timer — only on input or a
+        // real change (wifiPoll sets dirty on scan/connection changes). Idle full
+        // flushes were blocking + delaying the touch read, hurting responsiveness.
     }
 
     // Only redraw when something actually changed.
