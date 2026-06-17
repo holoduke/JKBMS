@@ -34,7 +34,11 @@ Power the board from USB-C or a buck off the pack's main P+/P− output (not the
 
 ## Status
 - ✅ Display + animated **demo dashboard** (landscape 480×320): auto-switching
-  `[BMS 1] [BMS 2]` tabs, SOC ring gauge, V/A/temp tiles, cell bars, power sparkline.
+  `[BMS 1] [BMS 2]` tabs, SOC ring gauge, V/A tiles, compact MOS/T1/T2 temps,
+  cell bars, and a **capacity-over-time** area graph (per-BMS window, 5 time ticks).
+- ✅ **Touch** (AXS15231B) + **Settings** screen (gear tab): auto-switch on/off,
+  interval, brightness (PWM). Smart auto-switch pauses 30 s on interaction.
+- ✅ Efficient **render-on-change** loop (redraws only when data/view changes).
 - ⏳ Data is currently **simulated**; next step is the JK UART protocol parser to
   show live values, then the second BMS and charge/discharge control.
 
