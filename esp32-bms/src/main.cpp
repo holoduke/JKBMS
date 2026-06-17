@@ -733,7 +733,7 @@ void setup() {
 }
 
 void loop() {
-    static uint32_t lastTap = 0, lastData = 0;
+    static uint32_t lastTouchMs = 0, lastData = 0;
     static const uint32_t DATA_MS = 400;   // value/animation refresh rate
     uint32_t now = millis();
     bool dirty = false;
@@ -743,7 +743,7 @@ void loop() {
         bool t = touch.touched();                       // consume every touch event
         if (t && now - standbySince > 500) {            // ignore residual/held touch
             standby = false; view = V_BMS1;
-            manualUntil = now + PAUSE_MS; lastTap = now; lastSwitch = now; lastData = now; lastActivity = now;
+            manualUntil = now + PAUSE_MS; lastTouchMs = now; lastSwitch = now; lastData = now; lastActivity = now;
             simStep(now);
             renderBms(V_BMS1, 0, false);
             setBrightness(brightness);     // reveal a clean frame
@@ -756,9 +756,13 @@ void loop() {
     if (touch.touched()) {
         uint16_t tx, ty; touch.readData(&tx, &ty);
         lastActivity = now;
+        // A held finger keeps firing touch events; only treat it as a NEW tap if
+        // there was a gap since the last event (i.e. the finger was released).
+        bool newPress = (now - lastTouchMs > 220);
+        lastTouchMs = now;
         if (DEBUG_TOUCH) { dbgX = (int16_t)tx; dbgY = (int16_t)ty; dbgUntil = now + 900;
                            if (Serial) Serial.printf("[touch] x=%u y=%u\n", tx, ty); }
-        if (now - lastTap > 120) { handleTap((int16_t)tx, (int16_t)ty); lastTap = now; dirty = true; }
+        if (newPress) { handleTap((int16_t)tx, (int16_t)ty); dirty = true; }
     }
 
     // Auto-sleep after the configured idle time.
