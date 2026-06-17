@@ -20,6 +20,7 @@
 #define TFT_H 480
 #define NCELLS 4
 #define NCAP 168
+#define FW_VERSION "0.3.0"
 
 #define TOUCH_SDA 4
 #define TOUCH_SCL 8
@@ -67,6 +68,8 @@ static char wifiPass[33] = "";
 static int  wifiPassLen = 0;
 static int  kbMode = 0;                      // 0 lower, 1 UPPER, 2 symbols
 static char wifiMsg[48] = "tap Scan to find networks";
+static bool wifiScanning = false;
+static bool infoPopup = false;
 
 // ---- UI state ----
 enum View { V_BMS1 = 0, V_BMS2 = 1, V_SETTINGS = 2 };
@@ -236,7 +239,7 @@ static void drawPowerGraph(int16_t x, int16_t y, int16_t w, int16_t h, const Bms
     gfx->drawRoundRect(x, y, w, h, 8, C_BORDER);
     leftText("POWER  W", x + 8, y + 7, 1, C_MUTED);
     const int16_t gx = x + 8, gy = y + 22, gw = w - 14, gh = h - 38, base = gy + gh;
-    int cnt = (b.capCount < 2) ? 2 : b.capCount;
+    int cnt = (b.capCount < 2) ? 2 : (b.capCount > NCAP ? NCAP : b.capCount);
     float lo = 1e9f, hi = -1e9f;
     for (int i = 0; i < cnt; i++) { float v = b.pwr[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
     if (lo > 0) lo = 0; if (hi < 0) hi = 0; if (hi - lo < 1) hi = lo + 1;
@@ -277,7 +280,7 @@ static void drawCapacityGraph(int16_t x, int16_t y, int16_t w, int16_t h, const 
     uint16_t area = dim(0x3d, 0xf0, 0xa8, 45), grid = dim(0x2a, 0x33, 0x42, 170);
     for (int p = 0; p <= 100; p += 50) gfx->drawFastHLine(gx, base - (int16_t)(p / 100.0f * gh), gw, grid);
     for (int k = 0; k < 5; k++) gfx->drawFastVLine(gx + (int16_t)((float)k / 4 * gw), gy, gh, grid);
-    int cnt = (b.capCount < 2) ? 2 : b.capCount;
+    int cnt = (b.capCount < 2) ? 2 : (b.capCount > NCAP ? NCAP : b.capCount);
     int16_t px = -1, py = -1;
     for (int i = 0; i < cnt; i++) {
         int16_t sx = gx + (int16_t)((float)i / (cnt - 1) * gw);
@@ -368,6 +371,7 @@ static void renderSysTab() {
     srow(1, "Switch interval",    ib, C_CYAN);
     srow(2, "Brightness   - / +", bb, C_TEXT);
     srow(3, "Auto-sleep",         sl, autoSleepMin ? C_CYAN : C_MUTED);
+    srow(4, "System info",        "view", C_CYAN);
 }
 static void renderBmsTab() {
     srow(0, "Charge MOSFET",    bmsCharge ? "ON" : "OFF",    bmsCharge ? C_ACCENT : C_BAD);
@@ -380,7 +384,6 @@ static int16_t netRowY(int i) { return 104 + i * 34; }
 static int16_t rescanY() { return 104 + WIFI_MAXVIS * 34 + 2; }
 static void renderWifiTab() {
     bool conn = (WiFi.status() == WL_CONNECTED);
-    if (conn) snprintf(wifiMsg, sizeof(wifiMsg), "Connected: %s", WiFi.SSID().c_str());
     leftText(wifiMsg, 12, 84, 1, conn ? C_ACCENT : C_MUTED);
     int vis = netCount < WIFI_MAXVIS ? netCount : WIFI_MAXVIS;
     for (int i = 0; i < vis; i++) {
@@ -435,23 +438,74 @@ static void renderKeyboard() {
     leftText(wifiPassLen ? wifiPass : "enter password", 22, 40, 2, wifiPassLen ? C_TEXT : C_MUTED);
     kbProcess(true, 0, 0);
 }
-static void wifiStartScan() {
+static void wifiStartScan() {                 // async — results harvested in wifiPoll()
+    if (wifiScanning) return;
+    wifiScanning = true; wifiSel = -1;
     snprintf(wifiMsg, sizeof(wifiMsg), "scanning...");
     WiFi.mode(WIFI_STA);
-    int n = WiFi.scanNetworks();
-    if (n < 0) n = 0; if (n > MAXNET) n = MAXNET;
-    netCount = n;
-    for (int i = 0; i < n; i++) {
-        strncpy(netSsid[i], WiFi.SSID(i).c_str(), 32); netSsid[i][32] = 0;
-        netRssi[i] = WiFi.RSSI(i);
-        netEnc[i] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
-    }
-    snprintf(wifiMsg, sizeof(wifiMsg), n ? "%d networks found" : "no networks found", n);
+    WiFi.scanNetworks(true);
 }
 static void wifiTryConnect() {
     if (wifiSel < 0) return;
     WiFi.begin(netSsid[wifiSel], wifiPass);
     snprintf(wifiMsg, sizeof(wifiMsg), "connecting to %s...", netSsid[wifiSel]);
+}
+// Non-blocking: harvest scan results + reflect connection status. Returns true if state changed.
+static bool wifiPoll() {
+    bool changed = false;
+    if (wifiScanning) {
+        int r = WiFi.scanComplete();
+        if (r >= 0) {
+            int n = r > MAXNET ? MAXNET : r; netCount = n;
+            for (int i = 0; i < n; i++) {
+                strncpy(netSsid[i], WiFi.SSID(i).c_str(), 32); netSsid[i][32] = 0;
+                netRssi[i] = WiFi.RSSI(i);
+                netEnc[i] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+            }
+            WiFi.scanDelete();
+            wifiScanning = false; changed = true;
+            snprintf(wifiMsg, sizeof(wifiMsg), n ? "%d networks found" : "no networks found", n);
+        } else if (r == WIFI_SCAN_FAILED) {
+            wifiScanning = false; changed = true;
+            snprintf(wifiMsg, sizeof(wifiMsg), "scan failed");
+        }
+        return changed;
+    }
+    // reflect connection status (only meaningful after a connect attempt)
+    static wl_status_t last = WL_IDLE_STATUS;
+    wl_status_t st = WiFi.status();
+    if (st != last) {
+        last = st; changed = true;
+        if (st == WL_CONNECTED)               snprintf(wifiMsg, sizeof(wifiMsg), "Connected: %s", WiFi.SSID().c_str());
+        else if (st == WL_CONNECT_FAILED)     snprintf(wifiMsg, sizeof(wifiMsg), "connect failed (password?)");
+        else if (st == WL_NO_SSID_AVAIL)      snprintf(wifiMsg, sizeof(wifiMsg), "network not found");
+        else if (st == WL_CONNECTION_LOST)    snprintf(wifiMsg, sizeof(wifiMsg), "connection lost");
+    }
+    return changed;
+}
+static void kvLine(int16_t x, int16_t* y, const char* k, const char* v) {
+    leftText(k, x, *y, 1, C_MUTED);
+    leftText(v, x + 96, *y, 1, C_TEXT);
+    *y += 21;
+}
+static void renderInfoPopup() {
+    int16_t w = Wd - 56, h = Ht - 44, x = (Wd - w) / 2, y = (Ht - h) / 2;
+    gfx->fillRoundRect(x, y, w, h, 10, C_CARD);
+    gfx->drawRoundRect(x, y, w, h, 10, C_ACCENT);
+    leftText("SYSTEM INFO", x + 16, y + 12, 2, C_TEXT);
+    leftText("v" FW_VERSION, x + w - 62, y + 15, 1, C_ACCENT);
+    int16_t lx = x + 16, ly = y + 44; char b[40];
+    kvLine(lx, &ly, "Board", "JC3248W535");
+    snprintf(b, sizeof(b), "ESP32-S3 2-core %uMHz", (unsigned)getCpuFrequencyMhz()); kvLine(lx, &ly, "MCU", b);
+    snprintf(b, sizeof(b), "%lu MB", (unsigned long)(ESP.getFlashChipSize() / 1048576UL)); kvLine(lx, &ly, "Flash", b);
+    snprintf(b, sizeof(b), "%lu / %lu KB", (unsigned long)(ESP.getFreePsram() / 1024), (unsigned long)(ESP.getPsramSize() / 1024)); kvLine(lx, &ly, "PSRAM free", b);
+    snprintf(b, sizeof(b), "%lu KB", (unsigned long)(ESP.getFreeHeap() / 1024)); kvLine(lx, &ly, "Heap free", b);
+    kvLine(lx, &ly, "MAC", WiFi.macAddress().c_str());
+    if (WiFi.status() == WL_CONNECTED) kvLine(lx, &ly, "IP", WiFi.localIP().toString().c_str());
+    else                               kvLine(lx, &ly, "WiFi", "not connected");
+    snprintf(b, sizeof(b), "%lu s", (unsigned long)(millis() / 1000)); kvLine(lx, &ly, "Uptime", b);
+    leftText("BMS info: coming soon", lx, ly + 3, 1, C_MUTED);
+    leftText("tap to close", x + w - 92, y + h - 18, 1, C_MUTED);
 }
 static void renderSettings() {
     gfx->fillScreen(C_BG);
@@ -462,6 +516,7 @@ static void renderSettings() {
     if (subTab == ST_BMS)       renderBmsTab();
     else if (subTab == ST_WIFI) renderWifiTab();
     else                        renderSysTab();
+    if (infoPopup) renderInfoPopup();
     gfx->flush();
 }
 
@@ -471,6 +526,7 @@ static void handleTap(int16_t x, int16_t y) {
 
     // ---- SETTINGS has its own UI ----
     if (view == V_SETTINGS) {
+        if (infoPopup) { infoPopup = false; return; }     // any tap closes the info popup
         if (kbActive) {                                   // on-screen keyboard
             if (x >= CLOSE_X - 4 && y <= 40) { kbActive = false; return; }
             int code = kbProcess(false, x, y);
@@ -491,6 +547,7 @@ static void handleTap(int16_t x, int16_t y) {
             else if (y >= srowY(1) && y < srowY(1) + 40) intervalMs = intervalMs == 3000 ? 5000 : intervalMs == 5000 ? 10000 : 3000;
             else if (y >= srowY(2) && y < srowY(2) + 40) { brightness += (x < Wd / 2) ? -10 : 10; brightness = constrain(brightness, 10, 100); setBrightness(brightness); }
             else if (y >= srowY(3) && y < srowY(3) + 40) autoSleepMin = autoSleepMin == 0 ? 2 : autoSleepMin == 2 ? 5 : autoSleepMin == 5 ? 30 : autoSleepMin == 30 ? 120 : 0;
+            else if (y >= srowY(4) && y < srowY(4) + 40) infoPopup = true;
         } else if (subTab == ST_BMS) {
             if (y >= srowY(0) && y < srowY(0) + 40) bmsCharge = !bmsCharge;
             else if (y >= srowY(1) && y < srowY(1) + 40) bmsDischarge = !bmsDischarge;
@@ -521,6 +578,7 @@ static void handleTap(int16_t x, int16_t y) {
 // ---- simulation ----
 static void genCap(Bms& b, float spanDays, int count) {
     if (count > NCAP) count = NCAP;
+    if (count < 2) count = 2;
     b.capSpanDays = spanDays; b.capCount = count;
     for (int i = 0; i < count; i++) {
         float dpos = (float)i / (count - 1) * spanDays;
@@ -724,6 +782,9 @@ void loop() {
         lastSwitch = now;
     }
 
+    // Non-blocking WiFi scan harvest + connection-status updates.
+    if (wifiPoll() && view == V_SETTINGS && subTab == ST_WIFI) dirty = true;
+
     // Data tick: refresh values (and keep the progress underline moving) periodically.
     if (now - lastData >= DATA_MS) {
         simStep(now);
@@ -735,6 +796,7 @@ void loop() {
     // Only redraw when something actually changed.
     if (dirty) {
         float prog = autoActive ? (float)(now - lastSwitch) / intervalMs : 0;
+        if (prog > 1.0f) prog = 1.0f;
         if (view == V_SETTINGS) renderSettings();
         else                    renderBms(view, prog, autoActive);
     }
