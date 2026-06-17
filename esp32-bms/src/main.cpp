@@ -69,6 +69,7 @@ static bool kbActive = false;
 static char wifiPass[33] = "";
 static int  wifiPassLen = 0;
 static int  kbMode = 0;                      // 0 lower, 1 UPPER, 2 symbols
+static int  wifiScroll = 0;                  // first visible network index
 static char wifiMsg[48] = "tap Scan to find networks";
 static bool wifiScanning = false;
 static bool infoPopup = false;
@@ -406,24 +407,42 @@ static void renderBmsTab() {
 }
 static int16_t netRowY(int i) { return 104 + i * 34; }
 static int16_t rescanY() { return 104 + WIFI_MAXVIS * 34 + 2; }
+static int wifiMaxScroll() { return netCount > WIFI_MAXVIS ? netCount - WIFI_MAXVIS : 0; }
 static void renderWifiTab() {
     bool conn = (WiFi.status() == WL_CONNECTED);
-    leftText(wifiMsg, 12, 84, 1, conn ? C_ACCENT : C_MUTED);
-    int vis = netCount < WIFI_MAXVIS ? netCount : WIFI_MAXVIS;
+    if (wifiScroll > wifiMaxScroll()) wifiScroll = wifiMaxScroll();
+    char msg[56];
+    if (netCount > WIFI_MAXVIS) snprintf(msg, sizeof(msg), "%s   (%d-%d/%d)", wifiMsg,
+                                         wifiScroll + 1, wifiScroll + WIFI_MAXVIS < netCount ? wifiScroll + WIFI_MAXVIS : netCount, netCount);
+    else snprintf(msg, sizeof(msg), "%s", wifiMsg);
+    leftText(msg, 12, 84, 1, conn ? C_ACCENT : C_MUTED);
+
+    int vis = netCount - wifiScroll; if (vis > WIFI_MAXVIS) vis = WIFI_MAXVIS;
     for (int i = 0; i < vis; i++) {
+        int idx = wifiScroll + i;
         int16_t y = netRowY(i), x = 8, w = Wd - 16, h = 30;
         gfx->fillRoundRect(x, y, w, h, 6, C_CARD);
         gfx->drawRoundRect(x, y, w, h, 6, C_BORDER);
-        leftText(netSsid[i], x + 12, y + 9, 1, C_TEXT);
-        int bars = netRssi[i] > -55 ? 4 : netRssi[i] > -65 ? 3 : netRssi[i] > -75 ? 2 : 1;
+        leftText(netSsid[idx], x + 12, y + 9, 1, C_TEXT);
+        int bars = netRssi[idx] > -55 ? 4 : netRssi[idx] > -65 ? 3 : netRssi[idx] > -75 ? 2 : 1;
         for (int b = 0; b < 4; b++)
             gfx->fillRect(x + w - 64 + b * 7, y + h - 6 - b * 4, 5, 4 + b * 4, b < bars ? C_ACCENT : C_BORDER);
-        if (netEnc[i]) leftText("L", x + w - 18, y + 9, 1, C_WARN);
+        if (netEnc[idx]) leftText("L", x + w - 18, y + 9, 1, C_WARN);
     }
     int16_t ry = rescanY();
-    gfx->fillRoundRect(8, ry, Wd - 16, 28, 6, C_CARD);
-    gfx->drawRoundRect(8, ry, Wd - 16, 28, 6, C_BORDER);
-    centerText(netCount ? "Rescan" : "Scan", Wd / 2, ry + 14, 2, C_CYAN);
+    if (wifiMaxScroll() > 0) {                              // scroll arrows + Rescan
+        gfx->fillRoundRect(8, ry, 48, 28, 6, C_CARD);  gfx->drawRoundRect(8, ry, 48, 28, 6, C_BORDER);
+        gfx->fillTriangle(32, ry + 8, 26, ry + 18, 38, ry + 18, wifiScroll > 0 ? C_CYAN : C_BORDER);
+        gfx->fillRoundRect(60, ry, 48, 28, 6, C_CARD); gfx->drawRoundRect(60, ry, 48, 28, 6, C_BORDER);
+        gfx->fillTriangle(84, ry + 20, 78, ry + 10, 90, ry + 10, wifiScroll < wifiMaxScroll() ? C_CYAN : C_BORDER);
+        int16_t rx = 116, rw = Wd - 8 - rx;
+        gfx->fillRoundRect(rx, ry, rw, 28, 6, C_CARD); gfx->drawRoundRect(rx, ry, rw, 28, 6, C_BORDER);
+        centerText("Rescan", rx + rw / 2, ry + 14, 2, C_CYAN);
+    } else {
+        gfx->fillRoundRect(8, ry, Wd - 16, 28, 6, C_CARD);
+        gfx->drawRoundRect(8, ry, Wd - 16, 28, 6, C_BORDER);
+        centerText(netCount ? "Rescan" : "Scan", Wd / 2, ry + 14, 2, C_CYAN);
+    }
 }
 // keyboard: draw (draw=true) or hit-test (draw=false -> returns key code)
 static int kbProcess(bool draw, int16_t tx, int16_t ty) {
@@ -464,7 +483,7 @@ static void renderKeyboard() {
 }
 static void wifiStartScan() {                 // async — results harvested in wifiPoll()
     if (wifiScanning) return;
-    wifiScanning = true; wifiSel = -1;
+    wifiScanning = true; wifiSel = -1; wifiScroll = 0;
     snprintf(wifiMsg, sizeof(wifiMsg), "scanning...");
     WiFi.mode(WIFI_STA);
     WiFi.scanNetworks(true);
@@ -587,14 +606,21 @@ static void handleTap(int16_t x, int16_t y) {
             else if (y >= srowY(1) && y < srowY(1) + 40) bmsDischarge = !bmsDischarge;
             else if (y >= srowY(2) && y < srowY(2) + 40) bmsBalancer = !bmsBalancer;
         } else { // ST_WIFI
-            int vis = netCount < WIFI_MAXVIS ? netCount : WIFI_MAXVIS;
+            int vis = netCount - wifiScroll; if (vis > WIFI_MAXVIS) vis = WIFI_MAXVIS;
             for (int i = 0; i < vis; i++) if (y >= netRowY(i) && y < netRowY(i) + 30) {
-                wifiSel = i;
-                if (netEnc[i]) { wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbActive = true; }
+                wifiSel = wifiScroll + i;
+                if (netEnc[wifiSel]) { wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbActive = true; }
                 else wifiTryConnect();
                 return;
             }
-            int16_t ry = rescanY(); if (y >= ry && y < ry + 28) wifiStartScan();
+            int16_t ry = rescanY();
+            if (y >= ry && y < ry + 28) {
+                if (wifiMaxScroll() > 0) {
+                    if (x < 56)       { if (wifiScroll > 0) wifiScroll--; }                 // up
+                    else if (x < 108) { if (wifiScroll < wifiMaxScroll()) wifiScroll++; }   // down
+                    else              wifiStartScan();
+                } else wifiStartScan();
+            }
         }
         return;
     }
