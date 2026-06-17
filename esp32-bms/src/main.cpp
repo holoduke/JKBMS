@@ -428,6 +428,13 @@ static void renderWifiTab() {
             gfx->fillRect(x + w - 64 + b * 7, y + h - 6 - b * 4, 5, 4 + b * 4, b < bars ? C_ACCENT : C_BORDER);
         if (netEnc[idx]) leftText("L", x + w - 18, y + 9, 1, C_WARN);
     }
+    if (wifiMaxScroll() > 0) {                              // scrollbar indicator
+        int16_t tX = Wd - 6, tY = netRowY(0), tH = netRowY(WIFI_MAXVIS - 1) + 30 - netRowY(0);
+        gfx->fillRoundRect(tX, tY, 4, tH, 2, C_BORDER);
+        int16_t thH = (int16_t)(tH * (float)WIFI_MAXVIS / netCount); if (thH < 14) thH = 14;
+        int16_t thY = tY + (int16_t)((tH - thH) * (float)wifiScroll / wifiMaxScroll());
+        gfx->fillRoundRect(tX, thY, 4, thH, 2, C_ACCENT);
+    }
     int16_t ry = rescanY();
     if (wifiMaxScroll() > 0) {                              // scroll arrows + Rescan
         gfx->fillRoundRect(8, ry, 48, 28, 6, C_CARD);  gfx->drawRoundRect(8, ry, 48, 28, 6, C_BORDER);
@@ -445,7 +452,7 @@ static void renderWifiTab() {
 }
 // keyboard: draw (draw=true) or hit-test (draw=false -> returns key code)
 static int kbProcess(bool draw, int16_t tx, int16_t ty) {
-    const int KB_TOP = 104, KH = 36, GAP = 4, KW = 42;
+    const int KB_TOP = 96, KH = 34, GAP = 4, KW = 42, CTLH = 44;
     int hit = 0;
     for (int r = 0; r < 4; r++) {
         const char* s = KB[kbMode][r]; int L = strlen(s);
@@ -458,16 +465,16 @@ static int kbProcess(bool draw, int16_t tx, int16_t ty) {
             } else if (tx >= x && tx < x + KW && ty >= y && ty < y + KH) hit = s[i];
         }
     }
-    int16_t y = KB_TOP + 4 * (KH + GAP);
+    int16_t y = KB_TOP + 4 * (KH + GAP);   // control row, larger + roomier
     struct { int16_t x, w; const char* lb; int code; } ctl[4] = {
-        {8, 70, kbMode == 0 ? "ABC" : kbMode == 1 ? "#+=" : "abc", -2},
-        {84, 206, "space", 32}, {296, 80, "del", -1}, {382, 90, "OK", -4} };
+        {8, 62, kbMode == 0 ? "ABC" : kbMode == 1 ? "#+=" : "abc", -2},
+        {74, 176, "space", 32}, {254, 92, "del", -1}, {350, 122, "OK", -4} };
     for (int k = 0; k < 4; k++) {
         if (draw) {
             uint16_t bg = ctl[k].code == -4 ? C_ACCENT : C_CARD;
-            gfx->fillRoundRect(ctl[k].x, y, ctl[k].w, KH, 6, bg); gfx->drawRoundRect(ctl[k].x, y, ctl[k].w, KH, 6, C_BORDER);
-            centerText(ctl[k].lb, ctl[k].x + ctl[k].w / 2, y + KH / 2, 2, ctl[k].code == -4 ? C_BG : C_TEXT);
-        } else if (tx >= ctl[k].x && tx < ctl[k].x + ctl[k].w && ty >= y && ty < y + KH) hit = ctl[k].code;
+            gfx->fillRoundRect(ctl[k].x, y, ctl[k].w, CTLH, 6, bg); gfx->drawRoundRect(ctl[k].x, y, ctl[k].w, CTLH, 6, C_BORDER);
+            centerText(ctl[k].lb, ctl[k].x + ctl[k].w / 2, y + CTLH / 2, 2, ctl[k].code == -4 ? C_BG : C_TEXT);
+        } else if (tx >= ctl[k].x && tx < ctl[k].x + ctl[k].w && ty >= y && ty < y + CTLH) hit = ctl[k].code;
     }
     return hit;
 }
