@@ -211,8 +211,10 @@ static void bmsReadAddr(uint8_t addr, int idx) {
     uint16_t crc = mbCrc(req, 6); req[6] = crc & 0xFF; req[7] = crc >> 8;
     while (bmsSerial.available()) bmsSerial.read();
     bmsSerial.write(req, 8); bmsSerial.flush();
+    // Reply (5 + 0x71*2 ≈ 231 bytes) takes ~25 ms at 115200; the loop exits the
+    // instant a full frame lands, so this timeout only bites when a pack is silent.
     static uint8_t r[260]; int n = 0; uint32_t t0 = millis();
-    while (millis() - t0 < 200) { while (bmsSerial.available() && n < 260) r[n++] = bmsSerial.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
+    while (millis() - t0 < 70) { while (bmsSerial.available() && n < 260) r[n++] = bmsSerial.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
     if (n < 5 || r[0] != addr || r[1] != 3) { bmsLive[idx] = false; return; }
     int bc = r[2]; if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) { bmsLive[idx] = false; return; }
     uint8_t *p = r + 3;
@@ -231,10 +233,17 @@ static void bmsReadAddr(uint8_t addr, int idx) {
     b.bmsOk = true; bmsLive[idx] = true;
 }
 // Poll both real BMSes (addr 1 → BMS 1, addr 2 → BMS 2). Skipped in demo mode.
+// A pack that's offline is retried only every BMS_RETRY polls, not every poll, so
+// a missing pack doesn't stall the UI with a timeout every second.
+#define BMS_RETRY 4
 static void bmsRead() {
     if (demoMode) { bmsLive[0] = bmsLive[1] = false; return; }
-    bmsReadAddr(1, 0);
-    bmsReadAddr(2, 1);
+    static uint8_t skip[2] = {0, 0};
+    for (int t = 0; t < 2; t++) {
+        if (!bmsLive[t] && skip[t] > 0) { skip[t]--; continue; }   // back off from a silent pack
+        bmsReadAddr(t + 1, t);
+        skip[t] = bmsLive[t] ? 0 : BMS_RETRY;                      // online → poll every cycle
+    }
 }
 // Write a UINT32 control register (function 0x10, 2 registers) to one BMS (Modbus addr).
 static void bmsWrite(uint8_t addr, uint16_t reg, uint32_t val) {
