@@ -1,7 +1,10 @@
 # esp32-bms-lvgl — LVGL version of the JK BMS dashboard
 
+<p align="center"><img src="docs/dashboard.gif" width="480" alt="LVGL dashboard captured from the device framebuffer"></p>
+
 A rebuild of the `esp32-bms/` dashboard using **LVGL 9** for anti-aliased fonts,
 smooth scrolling, gestures, and real widgets. Same hardware, nicer UI.
+*(The clip above is captured straight from the device's framebuffer over serial.)*
 
 - **Board:** Guition JC3248W535 (ESP32-S3-N16R8, 320×480 QSPI AXS15231B)
 - **Stack:** PlatformIO + pioarduino (arduino-esp32 3.3.x) + Arduino_GFX (display

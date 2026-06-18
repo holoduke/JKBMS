@@ -1141,7 +1141,29 @@ void setup() {
     Serial.println("[lvgl] dashboard ready");
 }
 
+// Stream the live canvas framebuffer over serial so a host script can build a GIF
+// of the actual device output. Downsampled 2x; toggles BMS halfway. Trigger: 'G'.
+static void captureGif() {
+    const int N = 18;
+    uint16_t *fb = gfx->getFramebuffer();
+    Serial.setTxTimeoutMs(1000);   // block on write so frames aren't dropped mid-stream
+    Serial.printf("GIFSTART %d 160 240\n", N); Serial.flush();
+    for (int f = 0; f < N; f++) {
+        if (f == N / 2) switchView(view ^ 1);
+        uint32_t t = millis();
+        while (millis() - t < 180) { lv_task_handler(); delay(2); }
+        if (gfxDirty) { gfx->flush(); gfxDirty = false; }
+        Serial.write("FRAME\n");
+        for (int pr = 0; pr < 480; pr += 2)
+            for (int pc = 0; pc < 320; pc += 2) Serial.write((uint8_t *)&fb[pr * 320 + pc], 2);
+        Serial.flush();
+    }
+    Serial.println("GIFEND");
+    Serial.setTxTimeoutMs(0);
+}
+
 void loop() {
+    if (Serial && Serial.available() && Serial.read() == 'G') captureGif();
     lv_task_handler();
     if (pendingSleep) {
         pendingSleep = false;
