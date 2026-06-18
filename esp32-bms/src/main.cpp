@@ -157,7 +157,7 @@ static void drawBed(int16_t cx, int16_t cy, uint16_t col) {
 // WiFi symbol (dot + 3 upward arcs); cy = baseline/dot position.
 static void drawWifi(int16_t cx, int16_t cy, uint16_t color) {
     gfx->fillCircle(cx, cy, 2, color);
-    const float a0 = 50.0f * (PI / 180.0f), a1 = 130.0f * (PI / 180.0f), yScale = 0.55f;  // flatter
+    const float a0 = 50.0f * (PI / 180.0f), a1 = 130.0f * (PI / 180.0f), yScale = 0.72f;  // slightly flattened
     int16_t radii[3] = {7, 12, 17};
     for (int k = 0; k < 3; k++) {
         int16_t r = radii[k], px = -1, py = -1;
@@ -188,13 +188,13 @@ static void drawTabs(bool autoActive, float prog) {
         if (on && autoActive) gfx->fillRect(x + 6, y + h - 3, (int16_t)((TAB_W - 12) * prog), 2, C_BG);
     }
     // WiFi indicator (only when connected) — next to the BMS tabs
-    if (WiFi.status() == WL_CONNECTED) drawWifi(252, 30, C_ACCENT);
+    if (WiFi.status() == WL_CONNECTED) drawWifi(252, 25, C_ACCENT);   // vertically centred in the bar
 
     // clock (when NTP time is set), left of the sleep button
     struct tm ti;
     if (getLocalTime(&ti, 0)) {
         char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min);
-        leftText(ts, BED_X - 62, 14, 2, C_TEXT);
+        leftText(ts, BED_X - 40, 14, 1, C_TEXT);
     }
 
     // sleep button (bed icon) — just left of the gear, same colour as the gear
@@ -567,6 +567,12 @@ static bool wifiPoll() {
         }
         return changed;
     }
+    // periodic reconnect with saved creds if the link dropped
+    static uint32_t lastRetry = 0;
+    if (connSsid[0] && WiFi.status() != WL_CONNECTED && millis() - lastRetry > 15000) {
+        lastRetry = millis();
+        WiFi.begin(connSsid, connPass);
+    }
     // reflect connection status (only meaningful after a connect attempt)
     static wl_status_t last = WL_IDLE_STATUS;
     wl_status_t st = WiFi.status();
@@ -834,6 +840,7 @@ void setup() {
     touch.setOffsets(12, 310, 319, 14, 461, 479);
 
     WiFi.mode(WIFI_STA);                      // ready for scan/connect
+    WiFi.setAutoReconnect(true);
     {   // auto-reconnect to the last remembered network
         prefs.begin("wifi", true);
         String ss = prefs.getString("ssid", ""), pw = prefs.getString("pass", "");
