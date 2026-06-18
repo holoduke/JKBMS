@@ -99,13 +99,23 @@ static int subTab = ST_SYSTEM;
 static bool autoSwitch = true;
 static int brightness = 90;
 static int autoSleepMin = 0;                 // 0 = never; else 2/5/30/120
-static bool bmsCharge = true, bmsDischarge = true, bmsBalancer = false;
+static bool bmsCharge[2] = {true, true}, bmsDischarge[2] = {true, true}, bmsBalancer[2] = {false, false};
+static int cfgBms = 0;              // which BMS the BMS-settings tab configures
 static bool tempF = false, fmt12 = false, wifiAuto = true;
 static int simSpeed = 1;            // demo data speed (1/2/5x)
 static int sysScroll = 0;           // System-tab scroll offset (px)
 static bool infoPopup = false;
 static bool pendingSleep = false, standby = false;
 static uint32_t lastActivity = 0;
+// power saving
+static bool ecoMode = true;         // throttle refresh when idle
+static int dimAfterSec = 60;        // auto-dim timeout (0 = off)
+static int appliedB = 90;           // currently applied backlight %
+static bool ecoActive = false;      // eco (low-fps) state active
+#define DIM_LEVEL 12                 // backlight % when dimmed
+#define ECO_IDLE_MS 20000UL          // idle before low-fps kicks in
+static lv_timer_t *barTimer = nullptr, *dataTimer = nullptr;
+static bool cfgDirty = false; static uint32_t cfgDirtyAt = 0;   // debounced settings save
 // wifi
 #define MAXNET 10
 static char netSsid[MAXNET][33];
@@ -473,8 +483,8 @@ static void renderBms() {
     for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < clo) clo = b.cell[i]; if (b.cell[i] > chi) chi = b.cell[i]; }
     const char *st; uint32_t sc;
     if (!b.bmsOk) { st = "Protected"; sc = C_BAD; }
-    else if (!bmsDischarge || !bmsCharge) { st = "FET off"; sc = C_WARN; }
-    else if (bmsBalancer && (chi - clo) > 0.015f) { st = "Balancing"; sc = C_CYAN; }
+    else if (!bmsDischarge[view] || !bmsCharge[view]) { st = "FET off"; sc = C_WARN; }
+    else if (bmsBalancer[view] && (chi - clo) > 0.015f) { st = "Balancing"; sc = C_CYAN; }
     else if (fabsf(b.i) < 2.0f) { st = "Idle"; sc = C_MUTED; }
     else { st = "Normal"; sc = C_ACCENT; }
     int pw2 = textW(st, F12) + 28, px2 = cx - pw2 / 2, py2 = 66;
@@ -527,23 +537,40 @@ static void srowAt(int y, const char *label, const char *val, uint32_t vc) {
     lText(val, x + w - textW(val, F16) - 16, y + h / 2 - 9, F16, vc);
 }
 static void srow(int i, const char *label, const char *val, uint32_t vc) { srowAt(srowY(i), label, val, vc); }
+// iOS-style pill toggle, right-aligned in a settings row
+static void srowToggle(int y, const char *label, bool on) {
+    int x = 8, w = Wd - 16, h = SROW_H;
+    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    lText(label, x + 14, y + h / 2 - 9, F16, C_TEXT);
+    int tw = 44, th = 22, tx = x + w - 16 - tw, ty = y + h / 2 - th / 2;
+    fRect(tx, ty, tw, th, th / 2, on ? C_ACCENT : C_BORDER);
+    int kr = 8, kx = on ? tx + tw - kr - 3 : tx + kr + 3;
+    fCircle(kx, ty + th / 2, kr, on ? C_BG : C_MUTED);
+}
 
 // ---- scrollable System list ----
 static const char *SYS_LABEL[] = {
-    "Auto-switch", "Switch interval", "Brightness   - / +", "Auto-sleep", "Temp unit",
-    "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware"};
+    "Auto-switch", "Switch interval", "Brightness   - / +", "Auto-sleep", "Eco mode", "Dim after",
+    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware"};
 #define SYS_ROWS ((int)(sizeof(SYS_LABEL) / sizeof(SYS_LABEL[0])))
+static void dimStr(char *o, size_t n) {
+    if (dimAfterSec == 0) snprintf(o, n, "Off");
+    else if (dimAfterSec < 60) snprintf(o, n, "%ds", dimAfterSec);
+    else snprintf(o, n, "%d min", dimAfterSec / 60);
+}
 static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
     switch (i) {
         case 0: snprintf(o, n, "%s", autoSwitch ? "ON" : "OFF"); *vc = autoSwitch ? C_ACCENT : C_MUTED; break;
         case 1: snprintf(o, n, "%lus", (unsigned long)(intervalMs / 1000)); *vc = C_CYAN; break;
         case 2: snprintf(o, n, "%d%%", brightness); *vc = C_TEXT; break;
         case 3: if (autoSleepMin == 0) snprintf(o, n, "Never"); else snprintf(o, n, "%d min", autoSleepMin); *vc = autoSleepMin ? C_CYAN : C_MUTED; break;
-        case 4: snprintf(o, n, "%s", tempF ? "Fahr." : "Celsius"); *vc = C_CYAN; break;
-        case 5: snprintf(o, n, "%s", fmt12 ? "12-hour" : "24-hour"); *vc = C_CYAN; break;
-        case 6: snprintf(o, n, "%s", wifiAuto ? "ON" : "OFF"); *vc = wifiAuto ? C_ACCENT : C_MUTED; break;
-        case 7: snprintf(o, n, "%dx", simSpeed); *vc = C_CYAN; break;
-        case 8: snprintf(o, n, "view"); *vc = C_CYAN; break;
+        case 4: snprintf(o, n, "%s", ecoMode ? "ON" : "OFF"); *vc = ecoMode ? C_ACCENT : C_MUTED; break;
+        case 5: dimStr(o, n); *vc = dimAfterSec ? C_CYAN : C_MUTED; break;
+        case 6: snprintf(o, n, "%s", tempF ? "Fahr." : "Celsius"); *vc = C_CYAN; break;
+        case 7: snprintf(o, n, "%s", fmt12 ? "12-hour" : "24-hour"); *vc = C_CYAN; break;
+        case 8: snprintf(o, n, "%s", wifiAuto ? "ON" : "OFF"); *vc = wifiAuto ? C_ACCENT : C_MUTED; break;
+        case 9: snprintf(o, n, "%dx", simSpeed); *vc = C_CYAN; break;
+        case 10: snprintf(o, n, "view"); *vc = C_CYAN; break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
@@ -557,7 +584,7 @@ static void drawCloseBtn() {
     for (int o = -1; o <= 1; o++) { line(cx - 6, cy - 6 + o, cx + 6, cy + 6 + o, C_BAD); line(cx - 6, cy + 6 + o, cx + 6, cy - 6 + o, C_BAD); }
 }
 static void drawSubTabs() {
-    const char *nm[3] = {"BMS", "WiFi", "System"};
+    const char *nm[3] = {cfgBms ? "BMS 2" : "BMS 1", "WiFi", "System"};
     for (int i = 0; i < 3; i++) {
         int x, w; subTabGeom(i, &x, &w); bool on = (subTab == i);
         fRect(x, 44, w, 30, 8, on ? C_ACCENT : C_CARD); if (!on) dRect(x, 44, w, 30, 8, C_BORDER);
@@ -569,8 +596,10 @@ static void renderSysTab() {
     for (int i = 0; i < SYS_ROWS; i++) {
         int y = LIST_TOP + i * SROW_STEP - sysScroll;
         if (y + SROW_H < LIST_TOP || y > Ht) continue;     // off-screen
-        char val[16]; uint32_t vc; sysVal(i, val, sizeof(val), &vc);
-        srowAt(y, SYS_LABEL[i], val, vc);
+        if (i == 0) srowToggle(y, SYS_LABEL[i], autoSwitch);
+        else if (i == 4) srowToggle(y, SYS_LABEL[i], ecoMode);
+        else if (i == 8) srowToggle(y, SYS_LABEL[i], wifiAuto);
+        else { char val[16]; uint32_t vc; sysVal(i, val, sizeof(val), &vc); srowAt(y, SYS_LABEL[i], val, vc); }
     }
     if (sysMaxScroll() > 0) {                               // scrollbar
         int tX = Wd - 6, tY = LIST_TOP, tH = sysViewH();
@@ -581,10 +610,11 @@ static void renderSysTab() {
     }
 }
 static void renderBmsTab() {
-    srow(0, "Charge MOSFET", bmsCharge ? "ON" : "OFF", bmsCharge ? C_ACCENT : C_BAD);
-    srow(1, "Discharge MOSFET", bmsDischarge ? "ON" : "OFF", bmsDischarge ? C_ACCENT : C_BAD);
-    srow(2, "Balancer", bmsBalancer ? "ON" : "OFF", bmsBalancer ? C_ACCENT : C_MUTED);
-    srow(3, "Cell count", "4S", C_MUTED);
+    int b = cfgBms;
+    srow(0, "Battery", cfgBms ? "BMS 2  >" : "BMS 1  >", C_CYAN);   // tap to switch which pack
+    srowToggle(srowY(1), "Charge MOSFET", bmsCharge[b]);
+    srowToggle(srowY(2), "Discharge MOSFET", bmsDischarge[b]);
+    srowToggle(srowY(3), "Balancer", bmsBalancer[b]);
     srow(4, "Pack capacity", "100 Ah", C_MUTED);
 }
 // pixel-scrolled WiFi list (drag to scroll, fixed message + Rescan button)
@@ -749,6 +779,34 @@ static lv_area_t dirtyRect;
 static void markRowAt(int y) { dirtyFull = false; dirtyRect = (lv_area_t){8, y, Wd - 9, y + SROW_H - 1}; }
 static void markRow(int i) { markRowAt(srowY(i)); }
 
+// ---- settings persistence (NVS) ----
+static void markCfg() { cfgDirty = true; cfgDirtyAt = millis(); }
+static void saveSettings() {
+    prefs.begin("set", false);
+    prefs.putBool("autosw", autoSwitch); prefs.putUInt("ival", intervalMs);
+    prefs.putInt("bright", brightness); prefs.putInt("sleep", autoSleepMin);
+    prefs.putBool("eco", ecoMode); prefs.putInt("dim", dimAfterSec);
+    prefs.putBool("tF", tempF); prefs.putBool("f12", fmt12);
+    prefs.putBool("wauto", wifiAuto); prefs.putInt("sim", simSpeed);
+    prefs.putBool("bc0", bmsCharge[0]); prefs.putBool("bc1", bmsCharge[1]);
+    prefs.putBool("bd0", bmsDischarge[0]); prefs.putBool("bd1", bmsDischarge[1]);
+    prefs.putBool("bb0", bmsBalancer[0]); prefs.putBool("bb1", bmsBalancer[1]);
+    prefs.end();
+}
+static void loadSettings() {
+    prefs.begin("set", true);
+    autoSwitch = prefs.getBool("autosw", autoSwitch); intervalMs = prefs.getUInt("ival", intervalMs);
+    brightness = prefs.getInt("bright", brightness); autoSleepMin = prefs.getInt("sleep", autoSleepMin);
+    ecoMode = prefs.getBool("eco", ecoMode); dimAfterSec = prefs.getInt("dim", dimAfterSec);
+    tempF = prefs.getBool("tF", tempF); fmt12 = prefs.getBool("f12", fmt12);
+    wifiAuto = prefs.getBool("wauto", wifiAuto); simSpeed = prefs.getInt("sim", simSpeed);
+    bmsCharge[0] = prefs.getBool("bc0", true); bmsCharge[1] = prefs.getBool("bc1", true);
+    bmsDischarge[0] = prefs.getBool("bd0", true); bmsDischarge[1] = prefs.getBool("bd1", true);
+    bmsBalancer[0] = prefs.getBool("bb0", false); bmsBalancer[1] = prefs.getBool("bb1", false);
+    prefs.end();
+    appliedB = brightness;
+}
+
 // ---- touch handling (logic) ----
 static void handleTap(int x, int y) {
     dirtyFull = true;   // most taps change the whole screen unless noted below
@@ -777,20 +835,23 @@ static void handleTap(int x, int y) {
             switch (idx) {
                 case 0: autoSwitch = !autoSwitch; break;
                 case 1: intervalMs = intervalMs == 3000 ? 5000 : intervalMs == 5000 ? 10000 : 3000; break;
-                case 2: brightness += (x < Wd / 2) ? -10 : 10; brightness = constrain(brightness, 10, 100); setBrightness(brightness); break;
+                case 2: brightness += (x < Wd / 2) ? -10 : 10; brightness = constrain(brightness, 10, 100); setBrightness(brightness); appliedB = brightness; break;
                 case 3: autoSleepMin = autoSleepMin == 0 ? 2 : autoSleepMin == 2 ? 5 : autoSleepMin == 5 ? 30 : autoSleepMin == 30 ? 120 : 0; break;
-                case 4: tempF = !tempF; break;
-                case 5: fmt12 = !fmt12; break;
-                case 6: wifiAuto = !wifiAuto; WiFi.setAutoReconnect(wifiAuto); break;
-                case 7: simSpeed = simSpeed == 1 ? 2 : simSpeed == 2 ? 5 : 1; break;
-                case 8: infoPopup = true; return;   // full redraw for the popup
-                default: return;                     // firmware row: no-op
+                case 4: ecoMode = !ecoMode; break;
+                case 5: dimAfterSec = dimAfterSec == 0 ? 30 : dimAfterSec == 30 ? 60 : dimAfterSec == 60 ? 300 : 0; break;
+                case 6: tempF = !tempF; break;
+                case 7: fmt12 = !fmt12; break;
+                case 8: wifiAuto = !wifiAuto; WiFi.setAutoReconnect(wifiAuto); break;
+                case 9: simSpeed = simSpeed == 1 ? 2 : simSpeed == 2 ? 5 : 1; break;
+                case 10: infoPopup = true; return;   // full redraw for the popup
+                default: return;                      // firmware row: no-op
             }
-            markRowAt(ry);
+            markCfg(); markRowAt(ry);
         } else if (subTab == ST_BMS) {
-            if (y >= srowY(0) && y < srowY(0) + 40) { bmsCharge = !bmsCharge; markRow(0); }
-            else if (y >= srowY(1) && y < srowY(1) + 40) { bmsDischarge = !bmsDischarge; markRow(1); }
-            else if (y >= srowY(2) && y < srowY(2) + 40) { bmsBalancer = !bmsBalancer; markRow(2); }
+            if (y >= srowY(0) && y < srowY(0) + 40) { cfgBms ^= 1; return; }  // switch pack (full redraw)
+            else if (y >= srowY(1) && y < srowY(1) + 40) { bmsCharge[cfgBms] = !bmsCharge[cfgBms]; markCfg(); markRow(1); }
+            else if (y >= srowY(2) && y < srowY(2) + 40) { bmsDischarge[cfgBms] = !bmsDischarge[cfgBms]; markCfg(); markRow(2); }
+            else if (y >= srowY(3) && y < srowY(3) + 40) { bmsBalancer[cfgBms] = !bmsBalancer[cfgBms]; markCfg(); markRow(3); }
         } else {   // ST_WIFI
             int top = wListTop(), vbot = wRescanY() - 4;
             if (y >= top && y <= vbot) {
@@ -813,7 +874,7 @@ static void handleTap(int x, int y) {
     if (y <= 44) {
         if (x >= TAB1_X && x < TAB1_X + TAB_W) { switchView(V_BMS1); lastSwitch = millis(); }
         else if (x >= TAB2_X && x < TAB2_X + TAB_W) { switchView(V_BMS2); lastSwitch = millis(); }
-        else if (x >= GEAR_X - 10) { view = V_SETTINGS; subTab = ST_SYSTEM; kbActive = false; infoPopup = false; }  // top-right corner
+        else if (x >= GEAR_X - 10) { cfgBms = (view == V_BMS2) ? 1 : 0; view = V_SETTINGS; kbActive = false; infoPopup = false; }  // keep last sub-tab
         else if (x >= BED_X - 8) pendingSleep = true;                                                              // sleep, left of the gear
     }
 }
@@ -991,45 +1052,82 @@ static void draw_cb(lv_event_t *e) {
     if (view == V_SETTINGS) renderSettings();
     else renderBms();
 }
-static bool pressHandled = false, gMoved = false;
-static int gStartY = 0, gBaseScroll = 0;
+static bool pressHandled = false, gMoved = false, gAnchored = false;
+static int gStartY = 0, gBaseScroll = 0, gLastY = 0;
+static uint32_t gLastT = 0;
+static float gVel = 0;              // finger velocity px/ms during a drag
+// kinetic (momentum) scroll
+static float flingVel = 0;          // scroll velocity px/ms
+static int *flingVar = nullptr, flingMax = 0, flingTop = 0, flingBot = 0;
+// scroll context for the current tab (nullptr = nothing scrolls here)
+static int *scrollCtx(int *maxS, int *top, int *bot) {
+    if (view == V_SETTINGS && subTab == ST_SYSTEM) { *maxS = sysMaxScroll(); *top = LIST_TOP; *bot = Ht; return &sysScroll; }
+    if (view == V_SETTINGS && subTab == ST_WIFI) { *maxS = wMaxScroll(); *top = wListTop(); *bot = wRescanY() - 4; return &wifiScroll; }
+    return nullptr;
+}
 // Keyboard keys act on PRESS (immediate). The System list drag-scrolls on PRESSING.
 // Everything else acts on RELEASE — and only if the finger didn't drag — so
 // scrolling never accidentally toggles a setting.
+static void unsave() {   // instantly undo dim / eco on interaction
+    if (appliedB != brightness) { setBrightness(brightness); appliedB = brightness; }
+    if (ecoActive) { ecoActive = false; if (dataTimer) lv_timer_set_period(dataTimer, 300); if (barTimer) lv_timer_set_period(barTimer, 120); }
+}
 static void press_cb(lv_event_t *e) {
     lastActivity = millis();
     if (standby) return;
+    unsave();
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
-    gStartY = p.y; gMoved = false;
-    gBaseScroll = (view == V_SETTINGS && subTab == ST_WIFI) ? wifiScroll : sysScroll;
+    gMoved = false; gAnchored = false; gVel = 0; flingVel = 0;   // grab cancels any momentum
     if (view == V_SETTINGS && kbActive) { handleTap(p.x, p.y); pressHandled = true; lv_obj_invalidate(scr); }
 }
 static void pressing_cb(lv_event_t *e) {
-    if (standby || pressHandled || kbActive || view != V_SETTINGS) return;
-    int *scrollVar, maxS, top, bot;
-    if (subTab == ST_SYSTEM) { scrollVar = &sysScroll; maxS = sysMaxScroll(); top = LIST_TOP; bot = Ht; }
-    else if (subTab == ST_WIFI) { scrollVar = &wifiScroll; maxS = wMaxScroll(); top = wListTop(); bot = wRescanY() - 4; }
-    else return;
+    if (standby || pressHandled || kbActive) return;
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
+    int maxS = 0, top = 0, bot = 0; int *scrollVar = scrollCtx(&maxS, &top, &bot);
+    if (!gAnchored) {                    // first stable sample → anchor (PRESSED coord can be stale)
+        gStartY = p.y; gBaseScroll = scrollVar ? *scrollVar : 0; gAnchored = true;
+        gLastY = p.y; gLastT = millis(); gVel = 0; return;
+    }
     int dy = p.y - gStartY;
-    if (abs(dy) > 4) gMoved = true;
-    if (!gMoved) return;
-    int ns = gBaseScroll - dy;
-    if (ns < 0) ns = 0; if (ns > maxS) ns = maxS;
-    if (ns != *scrollVar) { *scrollVar = ns; lastActivity = millis(); invArea(0, top, Wd - 1, bot); }
+    if (abs(dy) > 6) gMoved = true;      // ANY drag suppresses the tap on release (also on non-scrolling tabs)
+    uint32_t tn = millis();              // track finger velocity for momentum
+    if (tn > gLastT) gVel = 0.6f * gVel + 0.4f * ((float)(p.y - gLastY) / (tn - gLastT));
+    gLastY = p.y; gLastT = tn;
+    if (gMoved && scrollVar) {           // scroll only where there's a list
+        int ns = gBaseScroll - dy;
+        if (ns < 0) ns = 0; if (ns > maxS) ns = maxS;
+        if (ns != *scrollVar) { *scrollVar = ns; lastActivity = millis(); invArea(0, top, Wd - 1, bot); }
+    }
 }
 static void release_cb(lv_event_t *e) {
     lastActivity = millis();
-    if (standby) { standby = false; setBrightness(brightness); lv_obj_invalidate(scr); return; }  // wake
+    if (standby) { standby = false; appliedB = brightness; setBrightness(brightness); unsave(); lv_obj_invalidate(scr); return; }  // wake
     if (pressHandled) { pressHandled = false; return; }   // keyboard handled on press
-    if (gMoved) { gMoved = false; return; }               // was a scroll → don't toggle
+    if (gMoved) {                                         // was a scroll → fling, don't toggle
+        gMoved = false;
+        int maxS = 0, top = 0, bot = 0; int *sv = scrollCtx(&maxS, &top, &bot);
+        if (sv && millis() - gLastT < 80 && fabsf(gVel) > 0.05f) {   // released while moving → momentum
+            flingVel = -gVel; if (flingVel > 2.5f) flingVel = 2.5f; if (flingVel < -2.5f) flingVel = -2.5f;
+            flingVar = sv; flingMax = maxS; flingTop = top; flingBot = bot;
+        }
+        return;
+    }
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
     handleTap(p.x, p.y);
     if (dirtyFull) lv_obj_invalidate(scr);
     else lv_obj_invalidate_area(scr, &dirtyRect);
+}
+// momentum scroll: decays the released velocity until it stops or hits an edge
+static void fling_cb(lv_timer_t *t) {
+    if (!flingVar || fabsf(flingVel) < 0.04f) { flingVel = 0; return; }
+    int ns = *flingVar + (int)(flingVel * 30.0f);        // 30ms step
+    if (ns < 0) { ns = 0; flingVel = 0; }
+    if (ns > flingMax) { ns = flingMax; flingVel = 0; }
+    if (ns != *flingVar) { *flingVar = ns; invArea(0, flingTop, Wd - 1, flingBot); }
+    flingVel *= 0.86f;                                    // friction
 }
 // The Arduino_Canvas is a persistent full framebuffer: regions we don't
 // invalidate keep their previous pixels. So we redraw selectively —
@@ -1048,7 +1146,18 @@ static void barTick_cb(lv_timer_t *t) {
 static void dataTick_cb(lv_timer_t *t) {
     uint32_t now = millis();
     simStep(now);
-    if (autoSleepMin > 0 && !standby && now - lastActivity > (uint32_t)autoSleepMin * 60000UL) { pendingSleep = true; return; }
+    if (cfgDirty && now - cfgDirtyAt > 1500) { cfgDirty = false; saveSettings(); }   // persist settings
+    // ---- power saving (escalates with idle time; any touch resets it) ----
+    uint32_t idle = now - lastActivity;
+    int tB = (dimAfterSec && !standby && idle > (uint32_t)dimAfterSec * 1000UL) ? DIM_LEVEL : brightness;
+    if (tB != appliedB) { setBrightness(tB); appliedB = tB; }       // auto-dim
+    bool eco = ecoMode && !standby && idle > ECO_IDLE_MS;
+    if (eco != ecoActive) {                                          // low-fps when idle
+        ecoActive = eco;
+        if (dataTimer) lv_timer_set_period(dataTimer, eco ? 1000 : 300);
+        if (barTimer) lv_timer_set_period(barTimer, eco ? 1000 : 120);
+    }
+    if (autoSleepMin > 0 && !standby && idle > (uint32_t)autoSleepMin * 60000UL) { pendingSleep = true; return; }
     if (standby || view == V_SETTINGS) return;
     if (autoSwitch && now >= manualUntil && now - lastSwitch >= intervalMs) {
         switchView(view ^ 1); lastSwitch = now;
@@ -1074,6 +1183,7 @@ void setup() {
     Serial.setTxTimeoutMs(0);   // never block the loop when no USB host is reading
     delay(300);
     Serial.printf("\n[lvgl] boot — LVGL %d.%d.%d\n", lv_version_major(), lv_version_minor(), lv_version_patch());
+    loadSettings();             // restore saved settings before they're used (brightness, wifi, …)
 
     if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");
     gfx->fillScreen(0x0000);
@@ -1117,7 +1227,7 @@ void setup() {
     lv_canvas_set_buffer(capCv, cb, CAP_W, CAP_H, LV_COLOR_FORMAT_RGB565);
 
     // auto-reconnect to the last saved WiFi
-    WiFi.mode(WIFI_STA); WiFi.setAutoReconnect(true);
+    WiFi.mode(WIFI_STA); WiFi.setAutoReconnect(wifiAuto); WiFi.setSleep(true);   // modem power-save
     prefs.begin("wifi", true);
     String ss = prefs.getString("ssid", ""), pw = prefs.getString("pass", "");
     prefs.end();
@@ -1135,8 +1245,9 @@ void setup() {
     // Refresh rates kept modest so the panel isn't flushed at max rate (each full
     // flush ~40ms blocks touch polling). Between ticks lv_task_handler runs every
     // ~1ms and polls touch → responsive input.
-    lv_timer_create(barTick_cb, 120, NULL);    // auto-switch progress bar
-    lv_timer_create(dataTick_cb, 300, NULL);   // live values
+    barTimer = lv_timer_create(barTick_cb, 120, NULL);    // auto-switch progress bar
+    dataTimer = lv_timer_create(dataTick_cb, 300, NULL);  // live values (+ power-save supervisor)
+    lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
     lv_timer_create(wifiTick_cb, 500, NULL);
     Serial.println("[lvgl] dashboard ready");
 }
