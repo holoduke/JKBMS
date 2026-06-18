@@ -38,6 +38,10 @@
 #define BED_W 40
 #define BED_X (GEAR_X - 8 - BED_W)
 
+// This AXS15231B QSPI panel only accepts a FULL-frame write — direct/partial
+// pushes show black. So LVGL renders into an Arduino_Canvas framebuffer and the
+// whole canvas is flushed once per frame. The whole dashboard is redrawn at a
+// uniform high frame rate, so the auto-switch bar animates smoothly with it.
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(TFT_CS, TFT_SCK, TFT_SDA0, TFT_SDA1, TFT_SDA2, TFT_SDA3);
 Arduino_GFX *g = new Arduino_AXS15231B(bus, GFX_NOT_DEFINED, 0, false, TFT_res_W, TFT_res_H);
 Arduino_Canvas *gfx = new Arduino_Canvas(TFT_res_W, TFT_res_H, g, 0, 0, TFT_rot);
@@ -97,6 +101,7 @@ static void timeLabel(char *out, size_t n, float daysAgo, float span) {
 //  so the original drawing code ports almost verbatim. Text is anti-aliased.
 // ============================================================================
 static lv_layer_t *L = nullptr;
+#define F10 &lv_font_montserrat_10
 #define F12 &lv_font_montserrat_12
 #define F14 &lv_font_montserrat_14
 #define F16 &lv_font_montserrat_16
@@ -227,18 +232,24 @@ static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col) {
 static void drawTile(int x, int y, int w, int h, const char *label, const char *val, const char *unit, uint32_t valCol) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     lText(label, x + 8, y + 8, F12, C_MUTED);
-    lText(val, x + 8, y + 24, F20, valCol);
-    lText(unit, x + 8, y + h - 16, F12, C_MUTED);
+    if (unit) {
+        lText(val, x + 8, y + 24, F20, valCol);
+        lText(unit, x + 8, y + h - 16, F12, C_MUTED);
+    } else {
+        // value vertically centred in the area below the label
+        lv_point_t sz; lv_text_get_size(&sz, val, F20, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        int top = y + 24, bot = y + h - 4;
+        lText(val, x + 8, top + (bot - top - sz.y) / 2, F20, valCol);
+    }
 }
 static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float t2) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     const char *lbl[3] = {"MOS", "T1", "T2"}; float v[3] = {mos, t1, t2};
     for (int r = 0; r < 3; r++) {
-        int ry = y + 9 + r * 22;
-        lText(lbl[r], x + 8, ry + 3, F12, C_MUTED);
-        char buf[6]; snprintf(buf, sizeof(buf), "%.0f", v[r]);
-        lText(buf, x + 34, ry, F16, tempColor(v[r]));
-        lText("C", x + 38 + textW(buf, F16), ry + 4, F12, C_MUTED);
+        int ry = y + 12 + r * 19;
+        lText(lbl[r], x + 8, ry + 2, F10, C_MUTED);
+        char buf[8]; snprintf(buf, sizeof(buf), "%.0fC", v[r]);
+        lText(buf, x + 34, ry, F12, tempColor(v[r]));
     }
 }
 static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, uint32_t upSec) {
@@ -250,9 +261,9 @@ static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, 
     uint32_t m = upSec / 60; snprintf(val[2], sizeof(val[2]), "%luh%02lu", (unsigned long)(m / 60), (unsigned long)(m % 60));
     uint32_t vc[3] = {C_ACCENT, C_WARN, C_TEXT};
     for (int r = 0; r < 3; r++) {
-        int ry = y + 10 + r * 20;
-        lText(lbl[r], x + 8, ry, F12, C_MUTED);
-        lText(val[r], x + w - textW(val[r], F12) - 8, ry, F12, vc[r]);
+        int ry = y + 12 + r * 20;
+        lText(lbl[r], x + 8, ry, F10, C_MUTED);
+        lText(val[r], x + w - textW(val[r], F10) - 8, ry, F10, vc[r]);
     }
 }
 static void drawCells(int x, int y, int w, int h, const Bms &b) {
@@ -277,8 +288,8 @@ static void drawCells(int x, int y, int w, int h, const Bms &b) {
 }
 static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    lText("POWER  W", x + 8, y + 6, F12, C_MUTED);
-    const int lblW = 26, gx = x + 8 + lblW, gy = y + 22, gw = w - 14 - lblW, gh = h - 38, base = gy + gh;
+    lText("POWER  W", x + 8, y + 6, F10, C_MUTED);
+    const int lblW = 24, gx = x + 8 + lblW, gy = y + 22, gw = w - 14 - lblW, gh = h - 38, base = gy + gh;
     int cnt = (b.capCount < 2) ? 2 : (b.capCount > NCAP ? NCAP : b.capCount);
     float lo = 1e9f, hi = -1e9f;
     for (int i = 0; i < cnt; i++) { float v = b.pwr[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
@@ -287,9 +298,9 @@ static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     for (int k = 0; k < 5; k++) line(gx + (int)((float)k / 4 * gw), gy, gx + (int)((float)k / 4 * gw), gy + gh, C_BORDER, 170);
     line(gx, zeroY, gx + gw, zeroY, C_BORDER, 170);
     char lb[8];
-    snprintf(lb, sizeof(lb), "%d", (int)hi); lText(lb, x + 4, gy - 4, F12, C_MUTED);
-    lText("0", x + 4, zeroY - 8, F12, C_MUTED);
-    snprintf(lb, sizeof(lb), "%d", (int)lo); lText(lb, x + 4, base - 10, F12, C_MUTED);
+    snprintf(lb, sizeof(lb), "%d", (int)hi); lText(lb, x + 4, gy - 3, F10, C_MUTED);
+    lText("0", x + 4, zeroY - 7, F10, C_MUTED);
+    snprintf(lb, sizeof(lb), "%d", (int)lo); lText(lb, x + 4, base - 9, F10, C_MUTED);
     int px = -1, py = -1;
     for (int i = 0; i < cnt; i++) {
         int sx = gx + (int)((float)i / (cnt - 1) * gw);
@@ -302,9 +313,9 @@ static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     for (int k = 0; k < 5; k++) {
         int fx = gx + (int)((float)k / 4 * gw);
         char lbl[8]; timeLabel(lbl, sizeof(lbl), b.capSpanDays * (1.0f - k / 4.0f), b.capSpanDays);
-        if (k == 0) lText(lbl, fx, base + 6, F12, C_MUTED);
-        else if (k == 4) lText(lbl, fx - textW(lbl, F12), base + 6, F12, C_MUTED);
-        else cText(lbl, fx, base + 12, F12, C_MUTED);
+        if (k == 0) lText(lbl, fx, base + 6, F10, C_MUTED);
+        else if (k == 4) lText(lbl, fx - textW(lbl, F10), base + 6, F10, C_MUTED);
+        else cText(lbl, fx, base + 11, F10, C_MUTED);
     }
 }
 static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
@@ -312,12 +323,12 @@ static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
     char hdr[28];
     if (b.capSpanDays >= 2.0f) snprintf(hdr, sizeof(hdr), "CAPACITY   %.0f days", b.capSpanDays);
     else snprintf(hdr, sizeof(hdr), "CAPACITY   24 hours");
-    lText(hdr, x + 8, y + 7, F12, C_MUTED);
-    const int lblW = 22, gx = x + 10 + lblW, gy = y + 24, gw = w - 20 - lblW, gh = h - 42, base = gy + gh;
+    lText(hdr, x + 8, y + 6, F10, C_MUTED);
+    const int lblW = 22, gx = x + 10 + lblW, gy = y + 26, gw = w - 20 - lblW, gh = h - 44, base = gy + gh;
     for (int p = 0; p <= 100; p += 50) {
         int yy = base - (int)(p / 100.0f * gh);
         line(gx, yy, gx + gw, yy, C_BORDER, 170);
-        char lb[5]; snprintf(lb, sizeof(lb), "%d", p); lText(lb, x + 6, yy - 8, F12, C_MUTED);
+        char lb[5]; snprintf(lb, sizeof(lb), "%d", p); lText(lb, x + 6, yy - 5, F10, C_MUTED);
     }
     for (int k = 0; k < 5; k++) line(gx + (int)((float)k / 4 * gw), gy, gx + (int)((float)k / 4 * gw), gy + gh, C_BORDER, 170);
     int cnt = (b.capCount < 2) ? 2 : (b.capCount > NCAP ? NCAP : b.capCount);
@@ -332,11 +343,39 @@ static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
     for (int k = 0; k < 5; k++) {
         int fx = gx + (int)((float)k / 4 * gw);
         char lbl[8]; timeLabel(lbl, sizeof(lbl), b.capSpanDays * (1.0f - k / 4.0f), b.capSpanDays);
-        if (k == 0) lText(lbl, fx, base + 6, F12, C_MUTED);
-        else if (k == 4) lText(lbl, fx - textW(lbl, F12), base + 6, F12, C_MUTED);
-        else cText(lbl, fx, base + 12, F12, C_MUTED);
+        if (k == 0) lText(lbl, fx, base + 6, F10, C_MUTED);
+        else if (k == 4) lText(lbl, fx - textW(lbl, F10), base + 6, F10, C_MUTED);
+        else cText(lbl, fx, base + 11, F10, C_MUTED);
     }
 }
+
+// The two graphs only change when the active BMS changes, so they are rendered
+// once into offscreen canvases and blitted as images each frame (saves ~336
+// per-frame line draws). Sizes match their slots in renderBms().
+#define POW_W 132
+#define POW_H 86
+#define CAP_W 272
+#define CAP_H 96
+static lv_obj_t *powCv = nullptr, *capCv = nullptr;
+static void renderGraphs() {
+    if (!powCv || !capCv) return;
+    lv_layer_t lyr;
+    lv_canvas_init_layer(powCv, &lyr); L = &lyr;
+    fRect(0, 0, POW_W, POW_H, 0, C_BG);
+    drawPowerGraph(0, 0, POW_W, POW_H, bms[view]);
+    lv_canvas_finish_layer(powCv, &lyr);
+    lv_canvas_init_layer(capCv, &lyr); L = &lyr;
+    fRect(0, 0, CAP_W, CAP_H, 0, C_BG);
+    drawCapacityGraph(0, 0, CAP_W, CAP_H, bms[view]);
+    lv_canvas_finish_layer(capCv, &lyr);
+}
+static void blitCanvas(lv_obj_t *cv, int x, int y, int w, int h) {
+    lv_draw_image_dsc_t id; lv_draw_image_dsc_init(&id);
+    id.src = lv_canvas_get_image(cv);
+    lv_area_t a = {x, y, x + w - 1, y + h - 1};
+    lv_draw_image(L, &id, &a);
+}
+static void switchView(int v) { view = v; renderGraphs(); }
 
 static void renderBms() {
     const Bms &b = bms[view];
@@ -360,16 +399,16 @@ static void renderBms() {
     cText(sub, cx, cy + 122, F12, C_MUTED);
 
     const int rx = 200, rw = Wd - rx - 8;
-    char vbuf[8]; snprintf(vbuf, sizeof(vbuf), "%.1f", b.v);
+    char vbuf[10]; snprintf(vbuf, sizeof(vbuf), "%.2fV", b.v);
     const int ty = 40, th = 70, gap = 8, tw = (rw - 2 * gap) / 3;
-    drawTile(rx, ty, tw, th, "VOLTAGE", vbuf, "VOLT", C_TEXT);
+    drawTile(rx, ty, tw, th, "VOLTAGE", vbuf, nullptr, C_TEXT);
     drawStatsTile(rx + tw + gap, ty, tw, th, b.peakChg, b.peakDis, now / 1000);
     drawTempsTile(rx + 2 * (tw + gap), ty, tw, th, b.tMos, b.tp1, b.tp2);
 
     const int halfW = (rw - 8) / 2;
     drawCells(rx, 120, halfW, 86, b);
-    drawPowerGraph(rx + halfW + 8, 120, rw - halfW - 8, 86, b);
-    drawCapacityGraph(rx, 216, rw, 96, b);
+    blitCanvas(powCv, rx + halfW + 8, 120, POW_W, POW_H);
+    blitCanvas(capCv, rx, 216, CAP_W, CAP_H);
 }
 
 // ============================================================================
@@ -399,17 +438,32 @@ static void click_cb(lv_event_t *e) {
     lv_point_t p; lv_indev_get_point(indev, &p);
     uint32_t now = millis();
     if (p.y >= 6 && p.y <= 34) {
-        if (p.x >= TAB1_X && p.x <= TAB1_X + TAB_W) { view = 0; manualUntil = now + PAUSE_MS; lastSwitch = now; }
-        else if (p.x >= TAB2_X && p.x <= TAB2_X + TAB_W) { view = 1; manualUntil = now + PAUSE_MS; lastSwitch = now; }
+        if (p.x >= TAB1_X && p.x <= TAB1_X + TAB_W) { switchView(0); manualUntil = now + PAUSE_MS; lastSwitch = now; }
+        else if (p.x >= TAB2_X && p.x <= TAB2_X + TAB_W) { switchView(1); manualUntil = now + PAUSE_MS; lastSwitch = now; }
         // gear/bed (settings + sleep) wired in phase 2b
+        lv_obj_invalidate(scr);
     }
-    lv_obj_invalidate(scr);
 }
-static void tick_cb(lv_timer_t *t) {
+// The Arduino_Canvas is a persistent full framebuffer: regions we don't
+// invalidate keep their previous pixels. So we redraw selectively —
+//   • tab strip at high rate  → smooth auto-switch bar
+//   • live values slower       → tiles/ring/cells/power graph
+//   • capacity graph (static)  → only on a BMS switch
+// A full AA repaint of the whole screen is ~220ms; this keeps each repaint small.
+static void invArea(int x1, int y1, int x2, int y2) {
+    lv_area_t a = {x1, y1, x2, y2}; lv_obj_invalidate_area(scr, &a);
+}
+static void barTick_cb(lv_timer_t *t) { invArea(6, 4, TAB2_X + TAB_W, 36); }
+static void dataTick_cb(lv_timer_t *t) {
     uint32_t now = millis();
     simStep(now);
-    if (now >= manualUntil && now - lastSwitch >= intervalMs) { view ^= 1; lastSwitch = now; }
-    lv_obj_invalidate(scr);
+    if (now >= manualUntil && now - lastSwitch >= intervalMs) {
+        switchView(view ^ 1); lastSwitch = now;
+        invArea(0, 36, Wd - 1, Ht - 1);            // full body: new BMS + new graphs
+    } else {
+        invArea(0, 36, 195, Ht - 1);               // left: ring + power readout
+        invArea(196, 36, Wd - 1, 207);             // tiles + cells + power graph
+    }
 }
 
 void setup() {
@@ -443,13 +497,37 @@ void setup() {
     lv_obj_add_event_cb(scr, draw_cb, LV_EVENT_DRAW_MAIN_END, NULL);
     lv_obj_add_event_cb(scr, click_cb, LV_EVENT_CLICKED, NULL);
 
+    // offscreen canvases for the cached graphs
+    powCv = lv_canvas_create(NULL);
+    capCv = lv_canvas_create(NULL);
+    void *pb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(POW_W, POW_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    void *cb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(CAP_W, CAP_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    lv_canvas_set_buffer(powCv, pb, POW_W, POW_H, LV_COLOR_FORMAT_RGB565);
+    lv_canvas_set_buffer(capCv, cb, CAP_W, CAP_H, LV_COLOR_FORMAT_RGB565);
+
     simInit();
-    lv_timer_create(tick_cb, 250, NULL);
+    renderGraphs();
+    lv_obj_invalidate(scr);                     // first full paint
+    lv_timer_create(barTick_cb, 33, NULL);
+    lv_timer_create(dataTick_cb, 200, NULL);
     Serial.println("[lvgl] dashboard ready");
 }
 
 void loop() {
     lv_task_handler();
-    if (gfxDirty) { gfx->flush(); gfxDirty = false; }
-    delay(5);
+    if (gfxDirty) {
+        uint32_t t0 = millis();
+        gfx->flush();
+        gfxDirty = false;
+        // FPS / flush-time meter (only when a serial host is attached)
+        static uint32_t frames = 0, lastReport = 0, flushAccum = 0;
+        frames++; flushAccum += (millis() - t0);
+        uint32_t now = millis();
+        if (Serial && now - lastReport >= 2000) {
+            Serial.printf("[lvgl] %.1f fps, flush ~%lums\n", frames * 1000.0f / (now - lastReport),
+                          (unsigned long)(flushAccum / (frames ? frames : 1)));
+            frames = 0; flushAccum = 0; lastReport = now;
+        }
+    }
+    delay(2);
 }
