@@ -89,6 +89,13 @@ struct Bms {
     bool bmsOk;                 // overall BMS status (no active protection)
 };
 static Bms bms[2];
+// Real graph history: one sample/hour per BMS, ring-buffered to NCAP (=168 = 7 days),
+// persisted to NVS so the trends survive a reboot. Demo mode uses genCap() instead.
+#define HIST_INTERVAL_MS 3600000UL   // 1 hour between samples → NCAP samples span 7 days
+static float histCap[2][NCAP], histPwr[2][NCAP];   // SOC % and power (W) over time, oldest→newest
+static uint16_t histCount[2] = {0, 0};
+static uint32_t histLastMs[2] = {0, 0};
+static bool histDirty = false; static uint32_t histDirtyAt = 0;
 static bool bmsLive[2] = {false, false};   // per-BMS: real device responded over Modbus this poll
 static bool demoMode = false;              // ON = both BMSes simulated; OFF = poll real BMS 1 (addr 1) & 2 (addr 2)
 static float packFullAh[2] = {100.0f, 100.0f};   // full-charge capacity from each BMS (Ah)
@@ -146,6 +153,29 @@ static void genCap(Bms &b, float span, int count) {
     }
 }
 static void simInit() { genCap(bms[0], 7, 168); genCap(bms[1], 1, 48); }
+// Append one real sample to BMS idx's history (ring-buffer, drops the oldest when full).
+static void histAppend(int idx, float soc, float watt) {
+    if (histCount[idx] >= NCAP) {
+        memmove(histCap[idx], histCap[idx] + 1, (NCAP - 1) * sizeof(float));
+        memmove(histPwr[idx], histPwr[idx] + 1, (NCAP - 1) * sizeof(float));
+        histCount[idx] = NCAP - 1;
+    }
+    histCap[idx][histCount[idx]] = soc;
+    histPwr[idx][histCount[idx]] = watt;
+    histCount[idx]++;
+    histDirty = true; histDirtyAt = millis();
+}
+// Sample any live BMS once per HIST_INTERVAL (first reading seeds it immediately).
+static void histSample() {
+    uint32_t now = millis();
+    for (int t = 0; t < 2; t++) {
+        if (!bmsLive[t]) continue;
+        if (histCount[t] == 0 || (now - histLastMs[t]) >= HIST_INTERVAL_MS) {
+            histAppend(t, bms[t].soc, bms[t].v * bms[t].i);
+            histLastMs[t] = now;
+        }
+    }
+}
 static void simStep(uint32_t nowMs) {
     float s = nowMs / 1000.0f * simSpeed;
     for (int t = 0; t < 2; t++) {
@@ -443,6 +473,7 @@ static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = fal
 static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     lText("POWER  W", x + 8, y + 6, F10, C_MUTED);
+    if (b.capCount < 2) { cText("collecting data", x + w / 2, y + h / 2, F12, C_MUTED); return; }
     const int lblW = 24, gx = x + 8 + lblW, gy = y + 22, gw = w - 14 - lblW, gh = h - 38, base = gy + gh;
     int cnt = (b.capCount < 2) ? 2 : (b.capCount > NCAP ? NCAP : b.capCount);
     float lo = 1e9f, hi = -1e9f;
@@ -476,8 +507,10 @@ static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     char hdr[28];
     if (b.capSpanDays >= 2.0f) snprintf(hdr, sizeof(hdr), "CAPACITY   %.0f days", b.capSpanDays);
-    else snprintf(hdr, sizeof(hdr), "CAPACITY   24 hours");
+    else if (b.capCount >= 2) snprintf(hdr, sizeof(hdr), "CAPACITY   %.0f hours", b.capSpanDays * 24.0f);
+    else snprintf(hdr, sizeof(hdr), "CAPACITY");
     lText(hdr, x + 8, y + 6, F10, C_MUTED);
+    if (b.capCount < 2) { cText("collecting data", x + w / 2, y + h / 2, F12, C_MUTED); return; }
     const int lblW = 22, gx = x + 10 + lblW, gy = y + 26, gw = w - 20 - lblW, gh = h - 44, base = gy + gh;
     for (int p = 0; p <= 100; p += 50) {
         int yy = base - (int)(p / 100.0f * gh);
@@ -511,8 +544,19 @@ static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
 #define CAP_W 272
 #define CAP_H 96
 static lv_obj_t *powCv = nullptr, *capCv = nullptr;
+// In live mode the graphs are driven by the persisted real history; copy it into
+// the active BMS's display buffer. Demo mode keeps the genCap() synthetic curves.
+static void prepGraphData(int v) {
+    if (demoMode) return;
+    Bms &b = bms[v];
+    int c = histCount[v]; if (c > NCAP) c = NCAP;
+    for (int i = 0; i < c; i++) { b.cap[i] = histCap[v][i]; b.pwr[i] = histPwr[v][i]; }
+    b.capCount = c;
+    b.capSpanDays = c > 1 ? (float)(c - 1) / 24.0f : 0.0f;   // 1 sample/hour
+}
 static void renderGraphs() {
     if (!powCv || !capCv) return;
+    prepGraphData(view);
     lv_layer_t lyr;
     lv_canvas_init_layer(powCv, &lyr); L = &lyr;
     fRect(0, 0, POW_W, POW_H, 0, C_BG);
@@ -882,6 +926,28 @@ static void loadSettings() {
     prefs.end();
     appliedB = brightness;
 }
+// Persist the real graph history (only the valid `count` samples per BMS).
+static void saveHistory() {
+    prefs.begin("hist", false);
+    for (int t = 0; t < 2; t++) {
+        char k[8];
+        snprintf(k, sizeof(k), "c%d", t); prefs.putUShort(k, histCount[t]);
+        snprintf(k, sizeof(k), "cap%d", t); prefs.putBytes(k, histCap[t], histCount[t] * sizeof(float));
+        snprintf(k, sizeof(k), "pwr%d", t); prefs.putBytes(k, histPwr[t], histCount[t] * sizeof(float));
+    }
+    prefs.end();
+}
+static void loadHistory() {
+    prefs.begin("hist", true);
+    for (int t = 0; t < 2; t++) {
+        char k[8];
+        snprintf(k, sizeof(k), "c%d", t); int c = prefs.getUShort(k, 0); if (c > NCAP) c = NCAP;
+        snprintf(k, sizeof(k), "cap%d", t); prefs.getBytes(k, histCap[t], c * sizeof(float));
+        snprintf(k, sizeof(k), "pwr%d", t); prefs.getBytes(k, histPwr[t], c * sizeof(float));
+        histCount[t] = c;
+    }
+    prefs.end();
+}
 
 // ---- touch handling (logic) ----
 static void handleTap(int x, int y) {
@@ -920,7 +986,7 @@ static void handleTap(int x, int y) {
                 case 8: wifiAuto = !wifiAuto; WiFi.setAutoReconnect(wifiAuto); break;
                 case 9: simSpeed = simSpeed == 1 ? 2 : simSpeed == 2 ? 5 : 1; break;
                 case 10: infoPopup = true; return;   // full redraw for the popup
-                case 12: demoMode = !demoMode; bmsRead(); break;   // toggle sim vs live BMS, re-poll
+                case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
@@ -1254,11 +1320,17 @@ static void invArea(int x1, int y1, int x2, int y2) {
 // row (red ↔ accent) and the body (stale ↔ live) so the UI tracks reconnects.
 static void bmsPoll_cb(lv_timer_t *t) {
     bool was0 = bmsLive[0], was1 = bmsLive[1];
+    int hc = histCount[view];
     bmsRead();
+    histSample();                              // append a real point when one is due
     if (standby || view == V_SETTINGS) return;
     if (bmsLive[0] != was0 || bmsLive[1] != was1) {
         invArea(6, 4, TAB2_X + TAB_W, 36);     // tab colours
         invArea(0, 36, Wd - 1, Ht - 1);        // body: stale ↔ live values
+    }
+    if (histCount[view] != hc) {               // a new sample landed → refresh the graphs
+        renderGraphs();
+        invArea(196, 118, Wd - 1, 313);        // power + capacity graph slots
     }
 }
 static void barTick_cb(lv_timer_t *t) {
@@ -1270,6 +1342,7 @@ static void dataTick_cb(lv_timer_t *t) {
     uint32_t now = millis();
     simStep(now);
     if (cfgDirty && now - cfgDirtyAt > 1500) { cfgDirty = false; saveSettings(); }   // persist settings
+    if (histDirty && now - histDirtyAt > 2000) { histDirty = false; saveHistory(); } // persist graph history
     // ---- power saving (escalates with idle time; any touch resets it) ----
     uint32_t idle = now - lastActivity;
     int tB = (dimAfterSec && !standby && idle > (uint32_t)dimAfterSec * 1000UL) ? DIM_LEVEL : brightness;
@@ -1314,6 +1387,7 @@ void setup() {
     delay(300);
     Serial.printf("\n[lvgl] boot — LVGL %d.%d.%d\n", lv_version_major(), lv_version_minor(), lv_version_patch());
     loadSettings();             // restore saved settings before they're used (brightness, wifi, …)
+    loadHistory();              // restore the persisted graph history (survives reboot)
 
     if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");
     gfx->fillScreen(0x0000);
@@ -1374,6 +1448,7 @@ void setup() {
     // doesn't answer shows a red tab + "Offline". Skipped entirely in demo mode.
     bmsSerial.begin(115200, SERIAL_8N1, BMS_RX_PIN, BMS_TX_PIN);
     bmsRead();
+    histSample();               // continue the persisted history with a fresh point
     renderGraphs();
     lastActivity = millis();
     lv_obj_invalidate(scr);                     // first full paint
