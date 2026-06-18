@@ -149,6 +149,22 @@ static void simStep(uint32_t nowMs) {
 }
 static uint32_t socColor(float soc) { return soc >= 60 ? C_ACCENT : soc >= 30 ? C_WARN : C_BAD; }
 static uint32_t tempColor(float t) { return t >= 55 ? C_BAD : t >= 45 ? C_WARN : C_ACCENT; }
+#define PACK_AH 100.0f
+// estimated runtime (discharging) / time-to-full (charging), shorthand e.g. 8h30
+static void runtimeStr(float soc, float i, char *o, size_t n, uint32_t *col) {
+    if (i < -0.5f) {                                   // discharging → time left
+        int m = (int)((soc / 100.0f * PACK_AH) / (-i) * 60.0f + 0.5f);
+        if (m < 60) snprintf(o, n, "%dm", m);
+        else if (m < 1440) snprintf(o, n, "%dh%02d", m / 60, m % 60);
+        else snprintf(o, n, "%dd%dh", m / 1440, (m % 1440) / 60);
+        *col = C_TEXT;
+    } else if (i > 0.5f) {                             // charging → time to full
+        int m = (int)(((100.0f - soc) / 100.0f * PACK_AH) / i * 60.0f + 0.5f);
+        if (m < 60) snprintf(o, n, "+%dm", m);
+        else snprintf(o, n, "+%dh%02d", m / 60, m % 60);
+        *col = C_ACCENT;
+    } else { snprintf(o, n, "--"); *col = C_MUTED; }   // idle
+}
 static void timeLabel(char *out, size_t n, float daysAgo, float span) {
     if (daysAgo < 0.04f) { snprintf(out, n, "now"); return; }
     if (span >= 2.0f) snprintf(out, n, "%.0fd", daysAgo);
@@ -316,16 +332,17 @@ static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float
         lText(buf, x + 34, ry, F12, tempColor(v[r]));
     }
 }
-static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, uint32_t upSec) {
+static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, uint32_t upSec, const char *rt, uint32_t rtCol) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    const char *lbl[3] = {"PK CHG", "PK DIS", "UPTIME"};
-    char val[3][10];
+    const char *lbl[4] = {"PK CHG", "PK DIS", "UPTIME", "RUNTIME"};
+    char val[4][10];
     snprintf(val[0], sizeof(val[0]), "%.0fW", pkChg);
     snprintf(val[1], sizeof(val[1]), "%.0fW", pkDis);
     uint32_t m = upSec / 60; snprintf(val[2], sizeof(val[2]), "%luh%02lu", (unsigned long)(m / 60), (unsigned long)(m % 60));
-    uint32_t vc[3] = {C_ACCENT, C_WARN, C_TEXT};
-    for (int r = 0; r < 3; r++) {
-        int ry = y + 12 + r * 20;
+    snprintf(val[3], sizeof(val[3]), "%s", rt);
+    uint32_t vc[4] = {C_ACCENT, C_WARN, C_TEXT, rtCol};
+    for (int r = 0; r < 4; r++) {
+        int ry = y + 8 + r * 15;
         lText(lbl[r], x + 8, ry, F10, C_MUTED);
         lText(val[r], x + w - textW(val[r], F10) - 8, ry, F10, vc[r]);
     }
@@ -480,7 +497,8 @@ static void renderBms() {
     const int ty = 40, th = 70, gap = 8;
     const int vW = 78, sW = 102, tpW = rw - vW - sW - 2 * gap;  // stats wider, temps + voltage narrower
     drawTile(rx, ty, vW, th, "VOLTAGE", vbuf, nullptr, C_TEXT);
-    drawStatsTile(rx + vW + gap, ty, sW, th, b.peakChg, b.peakDis, now / 1000);
+    char rt[10]; uint32_t rtCol; runtimeStr(b.soc, b.i, rt, sizeof(rt), &rtCol);
+    drawStatsTile(rx + vW + gap, ty, sW, th, b.peakChg, b.peakDis, now / 1000, rt, rtCol);
     drawTempsTile(rx + vW + gap + sW + gap, ty, tpW, th, b.tMos, b.tp1, b.tp2);
 
     const int cellsW = rw - 8 - POW_W;          // ~1/3 cells, ~2/3 power graph
