@@ -149,7 +149,7 @@ static void simInit() { genCap(bms[0], 7, 168); genCap(bms[1], 1, 48); }
 static void simStep(uint32_t nowMs) {
     float s = nowMs / 1000.0f * simSpeed;
     for (int t = 0; t < 2; t++) {
-        if (!demoMode && bmsLive[t]) continue;   // real device is answering — don't simulate over it
+        if (!demoMode) continue;                 // live mode shows only real data (or a stale/offline state)
         float ph = t * 2.1f;
         bms[t].soc = 62 + 30 * sinf(s * 0.05f + ph);
         bms[t].i = 28 * sinf(s * 0.18f + ph) + (t ? -4 : 3);
@@ -363,13 +363,16 @@ static void drawTabs(bool autoActive, float prog) {
     dRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_BORDER);
     drawGear(GEAR_X + GEAR_W / 2, GEAR_Y + h / 2, 7, C_MUTED, C_CARD);
 }
-static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col) {
-    ring(cx, cy, ro, ri, 0, 360, C_BORDER);
-    if (pct >= 99.5f) ring(cx, cy, ro, ri, 0, 360, col);
-    else if (pct > 0.5f) {
-        int ea = 270 + (int)(pct * 3.6f); while (ea >= 360) ea -= 360;
-        ring(cx, cy, ro, ri, 270, ea, col);
+static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col, bool stale = false) {
+    ring(cx, cy, ro, ri, 0, 360, C_BORDER);          // empty track only when stale
+    if (!stale) {
+        if (pct >= 99.5f) ring(cx, cy, ro, ri, 0, 360, col);
+        else if (pct > 0.5f) {
+            int ea = 270 + (int)(pct * 3.6f); while (ea >= 360) ea -= 360;
+            ring(cx, cy, ro, ri, 270, ea, col);
+        }
     }
+    if (stale) { cText("--", cx, cy - 6, F48, C_MUTED); return; }
     char buf[8]; snprintf(buf, sizeof(buf), "%d", (int)(pct + 0.5f));
     cText(buf, cx, cy - 6, F48, C_TEXT);
     cText("%", cx, cy + 30, F16, C_MUTED);
@@ -387,17 +390,18 @@ static void drawTile(int x, int y, int w, int h, const char *label, const char *
         lText(val, x + 8, top + (bot - top - sz.y) / 2, F20, valCol);
     }
 }
-static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float t2) {
+static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float t2, bool stale = false) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     const char *lbl[3] = {"MOS", "T1", "T2"}; float v[3] = {mos, t1, t2};
     for (int r = 0; r < 3; r++) {
         int ry = y + 12 + r * 19;
         lText(lbl[r], x + 8, ry + 2, F10, C_MUTED);
+        if (stale) { lText("--", x + 34, ry, F12, C_MUTED); continue; }
         char buf[8]; snprintf(buf, sizeof(buf), "%.0fC", v[r]);
         lText(buf, x + 34, ry, F12, tempColor(v[r]));
     }
 }
-static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, uint32_t upSec, const char *rt, uint32_t rtCol) {
+static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, uint32_t upSec, const char *rt, uint32_t rtCol, bool stale = false) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     const char *lbl[4] = {"PK CHG", "PK DIS", "UPTIME", "REMAIN"};
     char val[4][10];
@@ -406,17 +410,20 @@ static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, 
     uint32_t m = upSec / 60; snprintf(val[2], sizeof(val[2]), "%luh%02lu", (unsigned long)(m / 60), (unsigned long)(m % 60));
     snprintf(val[3], sizeof(val[3]), "%s", rt);
     uint32_t vc[4] = {C_ACCENT, C_WARN, C_TEXT, rtCol};
+    if (stale) { for (int r = 0; r < 4; r++) { if (r != 2) { snprintf(val[r], sizeof(val[r]), "--"); vc[r] = C_MUTED; } } }  // uptime still real
     for (int r = 0; r < 4; r++) {
         int ry = y + 8 + r * 15;
         lText(lbl[r], x + 8, ry, F10, C_MUTED);
         lText(val[r], x + w - textW(val[r], F10) - 8, ry, F10, vc[r]);
     }
 }
-static void drawCells(int x, int y, int w, int h, const Bms &b) {
+static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = false) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     float lo = 9, hi = 0; int loI = 0, hiI = 0;
     for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < lo) { lo = b.cell[i]; loI = i; } if (b.cell[i] > hi) { hi = b.cell[i]; hiI = i; } }
-    char hdr[20]; snprintf(hdr, sizeof(hdr), "CELLS  %dmV", (int)((hi - lo) * 1000));
+    char hdr[20];
+    if (stale) snprintf(hdr, sizeof(hdr), "CELLS  --");
+    else snprintf(hdr, sizeof(hdr), "CELLS  %dmV", (int)((hi - lo) * 1000));
     lText(hdr, x + 8, y + 7, F12, C_MUTED);
     const int top = y + 22, rh = (h - 28) / NCELLS;
     for (int i = 0; i < NCELLS; i++) {
@@ -425,6 +432,7 @@ static void drawCells(int x, int y, int w, int h, const Bms &b) {
         lText(cl, x + 8, midY, F12, C_MUTED);
         int bx = x + 28, bw = w - 28 - 42, by = ry + 2, bh = rh - 4;
         fRect(bx, by, bw, bh, 2, C_BORDER);
+        if (stale) { lText("--", x + w - 40, midY, F12, C_MUTED); continue; }
         float frac = (b.cell[i] - 3.0f) / 0.6f; frac = frac < 0.05f ? 0.05f : frac > 1 ? 1 : frac;
         uint32_t c = (i == loI) ? C_CYAN : (i == hiI) ? C_WARN : C_ACCENT;
         fRect(bx, by, (int)(bw * frac), bh, 2, c);
@@ -547,30 +555,36 @@ static void renderBms() {
     fRect(px2, py2, pw2, 20, 10, C_CARD); dRect(px2, py2, pw2, 20, 10, C_BORDER);
     fCircle(px2 + 13, py2 + 10, 4, sc);
     lText(st, px2 + 22, py2 + 5, F12, sc);
-    drawRing(cx, cy, 74, 58, b.soc, socColor(b.soc));
-    bool chg = (b.i >= 0); uint32_t pcol = chg ? C_ACCENT : C_WARN;
-    char pw[12]; snprintf(pw, sizeof(pw), "%.0f W", fabsf(b.v * b.i));
-    int bw = textW(pw, F20);
-    cText(pw, cx + 8, cy + 96, F20, pcol);
-    int ax = cx + 8 - bw / 2 - 16, ay = cy + 96 - 6;
-    if (chg) tri(ax, ay + 10, ax + 10, ay + 10, ax + 5, ay, C_ACCENT);
-    else tri(ax, ay, ax + 10, ay, ax + 5, ay + 10, C_WARN);
-    char sub[26]; snprintf(sub, sizeof(sub), "%s  %.1f A", chg ? "CHARGING" : "DISCHARGING", fabsf(b.i));
-    cText(sub, cx, cy + 122, F12, C_MUTED);
+    bool stale = (!demoMode && !bmsLive[view]);   // live mode, this pack isn't answering → no data
+    drawRing(cx, cy, 74, 58, b.soc, socColor(b.soc), stale);
+    if (stale) {
+        cText("-- W", cx + 8, cy + 96, F20, C_MUTED);
+        cText("NO DATA", cx, cy + 122, F12, C_MUTED);
+    } else {
+        bool chg = (b.i >= 0); uint32_t pcol = chg ? C_ACCENT : C_WARN;
+        char pw[12]; snprintf(pw, sizeof(pw), "%.0f W", fabsf(b.v * b.i));
+        int bw = textW(pw, F20);
+        cText(pw, cx + 8, cy + 96, F20, pcol);
+        int ax = cx + 8 - bw / 2 - 16, ay = cy + 96 - 6;
+        if (chg) tri(ax, ay + 10, ax + 10, ay + 10, ax + 5, ay, C_ACCENT);
+        else tri(ax, ay, ax + 10, ay, ax + 5, ay + 10, C_WARN);
+        char sub[26]; snprintf(sub, sizeof(sub), "%s  %.1f A", chg ? "CHARGING" : "DISCHARGING", fabsf(b.i));
+        cText(sub, cx, cy + 122, F12, C_MUTED);
+    }
 
     const int rx = 200, rw = Wd - rx - 8;
-    char vbuf[10]; snprintf(vbuf, sizeof(vbuf), "%.2fV", b.v);
+    char vbuf[10]; if (stale) snprintf(vbuf, sizeof(vbuf), "--"); else snprintf(vbuf, sizeof(vbuf), "%.2fV", b.v);
     const int ty = 40, th = 70, gap = 8;
     const int vW = 78, sW = 102, tpW = rw - vW - sW - 2 * gap;  // stats wider, temps + voltage narrower
-    drawTile(rx, ty, vW, th, "VOLTAGE", vbuf, nullptr, C_TEXT);
+    drawTile(rx, ty, vW, th, "VOLTAGE", vbuf, nullptr, stale ? C_MUTED : C_TEXT);
     char rt[10]; uint32_t rtCol;
     float fullAh = (!demoMode && bmsLive[view]) ? packFullAh[view] : PACK_AH;
     runtimeStr(b.soc, b.i, fullAh, rt, sizeof(rt), &rtCol);
-    drawStatsTile(rx + vW + gap, ty, sW, th, b.peakChg, b.peakDis, now / 1000, rt, rtCol);
-    drawTempsTile(rx + vW + gap + sW + gap, ty, tpW, th, b.tMos, b.tp1, b.tp2);
+    drawStatsTile(rx + vW + gap, ty, sW, th, b.peakChg, b.peakDis, now / 1000, rt, rtCol, stale);
+    drawTempsTile(rx + vW + gap + sW + gap, ty, tpW, th, b.tMos, b.tp1, b.tp2, stale);
 
     const int cellsW = rw - 8 - POW_W;          // ~1/3 cells, ~2/3 power graph
-    drawCells(rx, 120, cellsW, 86, b);
+    drawCells(rx, 120, cellsW, 86, b, stale);
     blitCanvas(powCv, rx + cellsW + 8, 120, POW_W, POW_H);
     blitCanvas(capCv, rx, 216, CAP_W, CAP_H);
 }
@@ -1236,6 +1250,17 @@ static void fling_cb(lv_timer_t *t) {
 static void invArea(int x1, int y1, int x2, int y2) {
     lv_area_t a = {x1, y1, x2, y2}; lv_obj_invalidate_area(scr, &a);
 }
+// Poll the live BMSes; when a pack's online/offline state flips, repaint the tab
+// row (red ↔ accent) and the body (stale ↔ live) so the UI tracks reconnects.
+static void bmsPoll_cb(lv_timer_t *t) {
+    bool was0 = bmsLive[0], was1 = bmsLive[1];
+    bmsRead();
+    if (standby || view == V_SETTINGS) return;
+    if (bmsLive[0] != was0 || bmsLive[1] != was1) {
+        invArea(6, 4, TAB2_X + TAB_W, 36);     // tab colours
+        invArea(0, 36, Wd - 1, Ht - 1);        // body: stale ↔ live values
+    }
+}
 static void barTick_cb(lv_timer_t *t) {
     if (standby || view == V_SETTINGS) return;
     if (!autoSwitch || millis() < manualUntil) return;   // paused/off → bar not moving, skip flush
@@ -1359,7 +1384,7 @@ void setup() {
     dataTimer = lv_timer_create(dataTick_cb, 300, NULL);  // live values (+ power-save supervisor)
     lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
     lv_timer_create(wifiTick_cb, 500, NULL);
-    lv_timer_create([](lv_timer_t *) { bmsRead(); }, 1000, NULL);   // poll live BMS 1
+    lv_timer_create(bmsPoll_cb, 1000, NULL);              // poll live BMSes (+ repaint on reconnect)
     Serial.println("[lvgl] dashboard ready");
 }
 
