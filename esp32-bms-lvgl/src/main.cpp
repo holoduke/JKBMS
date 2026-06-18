@@ -1,15 +1,18 @@
-// JK BMS LVGL dashboard — Guition JC3248W535.
-// Phase 2a: main dashboard in LVGL (tabs + icons, SOC arc, V/temps/stats cards,
-// cell bars, power + capacity charts) with simulated data + auto-switch.
+// JK BMS LVGL dashboard — Guition JC3248W535 (480x320 landscape).
+// Faithful pixel-for-pixel reproduction of the esp32-bms/ Arduino_GFX dashboard,
+// drawn through LVGL's vector draw API (so the text is anti-aliased). Every shape,
+// coordinate and colour matches the original; only the fonts are nicer. Data is
+// simulated; tabs auto-switch (BMS1<->BMS2), a tap pauses it for 30s.
 #include <Arduino.h>
 #include <lvgl.h>
 #include <Arduino_GFX_Library.h>
+#include <time.h>
 #include <math.h>
 #include "pincfg.h"
 #include "dispcfg.h"
 #include "AXS15231B_touch.h"
 
-// ---- palette ----
+// ---- palette (identical to the original) ----
 #define C_BG 0x04060c
 #define C_CARD 0x121824
 #define C_BORDER 0x2a3342
@@ -22,6 +25,18 @@
 
 #define NCELLS 4
 #define NCAP 168
+#define Wd 480
+#define Ht 320
+
+// top-bar geometry (matches original)
+#define TAB_W 104
+#define TAB1_X 8
+#define TAB2_X 120
+#define GEAR_X (Wd - 38)
+#define GEAR_Y 6
+#define GEAR_W 30
+#define BED_W 40
+#define BED_X (GEAR_X - 8 - BED_W)
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(TFT_CS, TFT_SCK, TFT_SDA0, TFT_SDA1, TFT_SDA2, TFT_SDA3);
 Arduino_GFX *g = new Arduino_AXS15231B(bus, GFX_NOT_DEFINED, 0, false, TFT_res_W, TFT_res_H);
@@ -38,9 +53,9 @@ struct Bms {
     float peakChg, peakDis;
 };
 static Bms bms[2];
-static int active = 0;
-static bool autoSwitch = true;
-static uint32_t lastSwitch = 0;
+static int view = 0;                 // 0=BMS1, 1=BMS2
+static uint32_t lastSwitch = 0, manualUntil = 0;
+static const uint32_t intervalMs = 5000, PAUSE_MS = 30000;
 
 static void genCap(Bms &b, float span, int count) {
     if (count > NCAP) count = NCAP; if (count < 2) count = 2;
@@ -69,8 +84,297 @@ static void simStep(uint32_t nowMs) {
         if (-p > bms[t].peakDis) bms[t].peakDis = -p;
     }
 }
+static uint32_t socColor(float soc) { return soc >= 60 ? C_ACCENT : soc >= 30 ? C_WARN : C_BAD; }
+static uint32_t tempColor(float t) { return t >= 55 ? C_BAD : t >= 45 ? C_WARN : C_ACCENT; }
+static void timeLabel(char *out, size_t n, float daysAgo, float span) {
+    if (daysAgo < 0.04f) { snprintf(out, n, "now"); return; }
+    if (span >= 2.0f) snprintf(out, n, "%.0fd", daysAgo);
+    else snprintf(out, n, "%.0fh", daysAgo * 24.0f);
+}
 
-// ---- LVGL glue ----
+// ============================================================================
+//  LVGL draw wrappers — a thin Arduino_GFX-like layer over the LVGL draw API,
+//  so the original drawing code ports almost verbatim. Text is anti-aliased.
+// ============================================================================
+static lv_layer_t *L = nullptr;
+#define F12 &lv_font_montserrat_12
+#define F14 &lv_font_montserrat_14
+#define F16 &lv_font_montserrat_16
+#define F20 &lv_font_montserrat_20
+#define F28 &lv_font_montserrat_28
+#define F48 &lv_font_montserrat_48
+
+// pooled label text so the string outlives LVGL's deferred draw dispatch
+static char tpool[80][24];
+static int tpi = 0;
+static const char *pool(const char *s) { char *d = tpool[tpi]; tpi = (tpi + 1) % 80; snprintf(d, 24, "%s", s); return d; }
+
+static void fRect(int x, int y, int w, int h, int r, uint32_t col, lv_opa_t opa = LV_OPA_COVER) {
+    lv_draw_rect_dsc_t d; lv_draw_rect_dsc_init(&d);
+    d.bg_color = lv_color_hex(col); d.bg_opa = opa; d.radius = r;
+    lv_area_t a = {x, y, x + w - 1, y + h - 1}; lv_draw_rect(L, &d, &a);
+}
+static void dRect(int x, int y, int w, int h, int r, uint32_t col) {  // border only
+    lv_draw_rect_dsc_t d; lv_draw_rect_dsc_init(&d);
+    d.bg_opa = LV_OPA_TRANSP; d.radius = r;
+    d.border_color = lv_color_hex(col); d.border_width = 1; d.border_opa = LV_OPA_COVER;
+    lv_area_t a = {x, y, x + w - 1, y + h - 1}; lv_draw_rect(L, &d, &a);
+}
+static void fCircle(int cx, int cy, int r, uint32_t col) { fRect(cx - r, cy - r, 2 * r, 2 * r, LV_RADIUS_CIRCLE, col); }
+static void line(int x1, int y1, int x2, int y2, uint32_t col, lv_opa_t opa = LV_OPA_COVER, int wdt = 1) {
+    lv_draw_line_dsc_t d; lv_draw_line_dsc_init(&d);
+    d.color = lv_color_hex(col); d.opa = opa; d.width = wdt;
+    d.p1.x = x1; d.p1.y = y1; d.p2.x = x2; d.p2.y = y2;
+    lv_draw_line(L, &d);
+}
+static void tri(int x1, int y1, int x2, int y2, int x3, int y3, uint32_t col) {
+    lv_draw_triangle_dsc_t d; lv_draw_triangle_dsc_init(&d);
+    d.color = lv_color_hex(col); d.opa = LV_OPA_COVER;
+    d.p[0].x = x1; d.p[0].y = y1; d.p[1].x = x2; d.p[1].y = y2; d.p[2].x = x3; d.p[2].y = y3;
+    lv_draw_triangle(L, &d);
+}
+static void ring(int cx, int cy, int ro, int ri, int a0, int a1, uint32_t col) {
+    lv_draw_arc_dsc_t d; lv_draw_arc_dsc_init(&d);
+    d.color = lv_color_hex(col); d.width = ro - ri; d.opa = LV_OPA_COVER;
+    d.center.x = cx; d.center.y = cy; d.radius = ro;
+    d.start_angle = a0; d.end_angle = a1;
+    lv_draw_arc(L, &d);
+}
+static int textW(const char *s, const lv_font_t *f) {
+    lv_point_t p; lv_text_get_size(&p, s, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE); return p.x;
+}
+static void lText(const char *s, int x, int y, const lv_font_t *f, uint32_t col) {  // top-left
+    lv_draw_label_dsc_t d; lv_draw_label_dsc_init(&d);
+    d.text = pool(s); d.color = lv_color_hex(col); d.font = f;
+    lv_area_t a = {x, y, x + 460, y + 60}; lv_draw_label(L, &d, &a);
+}
+static void cText(const char *s, int cx, int cy, const lv_font_t *f, uint32_t col) {  // centred on point
+    lv_point_t sz; lv_text_get_size(&sz, s, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    lv_draw_label_dsc_t d; lv_draw_label_dsc_init(&d);
+    d.text = pool(s); d.color = lv_color_hex(col); d.font = f;
+    lv_area_t a = {cx - sz.x / 2, cy - sz.y / 2, cx - sz.x / 2 + sz.x, cy - sz.y / 2 + sz.y};
+    lv_draw_label(L, &d, &a);
+}
+
+// ============================================================================
+//  Widgets — ported 1:1 from esp32-bms/src/main.cpp
+// ============================================================================
+static void drawGear(int cx, int cy, int r, uint32_t col, uint32_t hole) {
+    for (int k = 0; k < 8; k++) {
+        float a = k * (PI / 4);
+        fCircle(cx + (int)((r + 2) * cosf(a)), cy + (int)((r + 2) * sinf(a)), 2, col);
+    }
+    fCircle(cx, cy, r, col);
+    fCircle(cx, cy, (int)(r * 0.42f), hole);
+}
+static void drawBed(int cx, int cy, uint32_t col) {
+    int x = cx - 13, y = cy + 5;
+    fRect(x + 1, y, 2, 4, 0, col);
+    fRect(x + 22, y, 2, 4, 0, col);
+    fRect(x, y - 6, 26, 6, 2, col);
+    fRect(x, y - 13, 3, 9, 0, col);
+    fRect(x + 4, y - 9, 8, 4, 2, col);
+    lText("z", x + 20, y - 18, F12, col);
+}
+static void drawWifi(int cx, int cy, uint32_t color) {
+    fCircle(cx, cy, 2, color);
+    const float a0 = 50.0f * (PI / 180.0f), a1 = 130.0f * (PI / 180.0f), yScale = 0.72f;
+    int radii[3] = {7, 12, 17};
+    for (int k = 0; k < 3; k++) {
+        int r = radii[k], px = -1, py = -1;
+        for (int s = 0; s <= 10; s++) {
+            float a = a0 + (a1 - a0) * s / 10.0f;
+            int x = cx + (int)(r * cosf(a)), y = cy - (int)(r * sinf(a) * yScale);
+            if (px >= 0) { line(px, py, x, y, color); line(px, py + 1, x, y + 1, color); }
+            px = x; py = y;
+        }
+    }
+}
+static void drawTabs(bool autoActive, float prog) {
+    const int y = 6, h = 28;
+    const int tabX[2] = {TAB1_X, TAB2_X};
+    for (int t = 0; t < 2; t++) {
+        int x = tabX[t]; bool on = (view == t);
+        fRect(x, y, TAB_W, h, 8, on ? C_ACCENT : C_CARD);
+        if (!on) dRect(x, y, TAB_W, h, 8, C_BORDER);
+        char lbl[8]; snprintf(lbl, sizeof(lbl), "BMS %d", t + 1);
+        cText(lbl, x + TAB_W / 2, y + h / 2, F16, on ? C_BG : C_MUTED);
+        if (on && autoActive) fRect(x + 6, y + h - 3, (int)((TAB_W - 12) * prog), 2, 0, C_BG);
+    }
+    struct tm ti;
+    if (getLocalTime(&ti, 0)) {
+        char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min);
+        cText(ts, BED_X - 36, 20, F16, C_TEXT);
+    }
+    fRect(BED_X, y, BED_W, h, 8, C_CARD);
+    dRect(BED_X, y, BED_W, h, 8, C_BORDER);
+    drawBed(BED_X + BED_W / 2, y + h / 2, C_MUTED);
+    fRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_CARD);
+    dRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_BORDER);
+    drawGear(GEAR_X + GEAR_W / 2, GEAR_Y + h / 2, 7, C_MUTED, C_CARD);
+}
+static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col) {
+    ring(cx, cy, ro, ri, 0, 360, C_BORDER);
+    if (pct >= 99.5f) ring(cx, cy, ro, ri, 0, 360, col);
+    else if (pct > 0.5f) {
+        int ea = 270 + (int)(pct * 3.6f); while (ea >= 360) ea -= 360;
+        ring(cx, cy, ro, ri, 270, ea, col);
+    }
+    char buf[8]; snprintf(buf, sizeof(buf), "%d", (int)(pct + 0.5f));
+    cText(buf, cx, cy - 6, F48, C_TEXT);
+    cText("%", cx, cy + 30, F16, C_MUTED);
+}
+static void drawTile(int x, int y, int w, int h, const char *label, const char *val, const char *unit, uint32_t valCol) {
+    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    lText(label, x + 8, y + 8, F12, C_MUTED);
+    lText(val, x + 8, y + 24, F20, valCol);
+    lText(unit, x + 8, y + h - 16, F12, C_MUTED);
+}
+static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float t2) {
+    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    const char *lbl[3] = {"MOS", "T1", "T2"}; float v[3] = {mos, t1, t2};
+    for (int r = 0; r < 3; r++) {
+        int ry = y + 9 + r * 22;
+        lText(lbl[r], x + 8, ry + 3, F12, C_MUTED);
+        char buf[6]; snprintf(buf, sizeof(buf), "%.0f", v[r]);
+        lText(buf, x + 34, ry, F16, tempColor(v[r]));
+        lText("C", x + 38 + textW(buf, F16), ry + 4, F12, C_MUTED);
+    }
+}
+static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, uint32_t upSec) {
+    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    const char *lbl[3] = {"PK CHG", "PK DIS", "UPTIME"};
+    char val[3][10];
+    snprintf(val[0], sizeof(val[0]), "%.0fW", pkChg);
+    snprintf(val[1], sizeof(val[1]), "%.0fW", pkDis);
+    uint32_t m = upSec / 60; snprintf(val[2], sizeof(val[2]), "%luh%02lu", (unsigned long)(m / 60), (unsigned long)(m % 60));
+    uint32_t vc[3] = {C_ACCENT, C_WARN, C_TEXT};
+    for (int r = 0; r < 3; r++) {
+        int ry = y + 10 + r * 20;
+        lText(lbl[r], x + 8, ry, F12, C_MUTED);
+        lText(val[r], x + w - textW(val[r], F12) - 8, ry, F12, vc[r]);
+    }
+}
+static void drawCells(int x, int y, int w, int h, const Bms &b) {
+    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    float lo = 9, hi = 0; int loI = 0, hiI = 0;
+    for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < lo) { lo = b.cell[i]; loI = i; } if (b.cell[i] > hi) { hi = b.cell[i]; hiI = i; } }
+    char hdr[20]; snprintf(hdr, sizeof(hdr), "CELLS  %dmV", (int)((hi - lo) * 1000));
+    lText(hdr, x + 8, y + 7, F12, C_MUTED);
+    const int top = y + 22, rh = (h - 28) / NCELLS;
+    for (int i = 0; i < NCELLS; i++) {
+        int ry = top + i * rh, midY = ry + (rh - 8) / 2 - 2;
+        char cl[4]; snprintf(cl, sizeof(cl), "C%d", i + 1);
+        lText(cl, x + 8, midY, F12, C_MUTED);
+        int bx = x + 28, bw = w - 28 - 42, by = ry + 2, bh = rh - 4;
+        fRect(bx, by, bw, bh, 2, C_BORDER);
+        float frac = (b.cell[i] - 3.0f) / 0.6f; frac = frac < 0.05f ? 0.05f : frac > 1 ? 1 : frac;
+        uint32_t c = (i == loI) ? C_CYAN : (i == hiI) ? C_WARN : C_ACCENT;
+        fRect(bx, by, (int)(bw * frac), bh, 2, c);
+        char cv[8]; snprintf(cv, sizeof(cv), "%.2f", b.cell[i]);
+        lText(cv, x + w - 40, midY, F12, C_TEXT);
+    }
+}
+static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
+    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    lText("POWER  W", x + 8, y + 6, F12, C_MUTED);
+    const int lblW = 26, gx = x + 8 + lblW, gy = y + 22, gw = w - 14 - lblW, gh = h - 38, base = gy + gh;
+    int cnt = (b.capCount < 2) ? 2 : (b.capCount > NCAP ? NCAP : b.capCount);
+    float lo = 1e9f, hi = -1e9f;
+    for (int i = 0; i < cnt; i++) { float v = b.pwr[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+    if (lo > 0) lo = 0; if (hi < 0) hi = 0; if (hi - lo < 1) hi = lo + 1;
+    int zeroY = base - (int)((0 - lo) / (hi - lo) * gh);
+    for (int k = 0; k < 5; k++) line(gx + (int)((float)k / 4 * gw), gy, gx + (int)((float)k / 4 * gw), gy + gh, C_BORDER, 170);
+    line(gx, zeroY, gx + gw, zeroY, C_BORDER, 170);
+    char lb[8];
+    snprintf(lb, sizeof(lb), "%d", (int)hi); lText(lb, x + 4, gy - 4, F12, C_MUTED);
+    lText("0", x + 4, zeroY - 8, F12, C_MUTED);
+    snprintf(lb, sizeof(lb), "%d", (int)lo); lText(lb, x + 4, base - 10, F12, C_MUTED);
+    int px = -1, py = -1;
+    for (int i = 0; i < cnt; i++) {
+        int sx = gx + (int)((float)i / (cnt - 1) * gw);
+        int sy = base - (int)((b.pwr[i] - lo) / (hi - lo) * gh);
+        int t = sy < zeroY ? sy : zeroY;
+        line(sx, t, sx, t + abs(sy - zeroY), C_CYAN, 45);
+        if (px >= 0) line(px, py, sx, sy, C_CYAN, LV_OPA_COVER, 2);
+        px = sx; py = sy;
+    }
+    for (int k = 0; k < 5; k++) {
+        int fx = gx + (int)((float)k / 4 * gw);
+        char lbl[8]; timeLabel(lbl, sizeof(lbl), b.capSpanDays * (1.0f - k / 4.0f), b.capSpanDays);
+        if (k == 0) lText(lbl, fx, base + 6, F12, C_MUTED);
+        else if (k == 4) lText(lbl, fx - textW(lbl, F12), base + 6, F12, C_MUTED);
+        else cText(lbl, fx, base + 12, F12, C_MUTED);
+    }
+}
+static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
+    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    char hdr[28];
+    if (b.capSpanDays >= 2.0f) snprintf(hdr, sizeof(hdr), "CAPACITY   %.0f days", b.capSpanDays);
+    else snprintf(hdr, sizeof(hdr), "CAPACITY   24 hours");
+    lText(hdr, x + 8, y + 7, F12, C_MUTED);
+    const int lblW = 22, gx = x + 10 + lblW, gy = y + 24, gw = w - 20 - lblW, gh = h - 42, base = gy + gh;
+    for (int p = 0; p <= 100; p += 50) {
+        int yy = base - (int)(p / 100.0f * gh);
+        line(gx, yy, gx + gw, yy, C_BORDER, 170);
+        char lb[5]; snprintf(lb, sizeof(lb), "%d", p); lText(lb, x + 6, yy - 8, F12, C_MUTED);
+    }
+    for (int k = 0; k < 5; k++) line(gx + (int)((float)k / 4 * gw), gy, gx + (int)((float)k / 4 * gw), gy + gh, C_BORDER, 170);
+    int cnt = (b.capCount < 2) ? 2 : (b.capCount > NCAP ? NCAP : b.capCount);
+    int px = -1, py = -1;
+    for (int i = 0; i < cnt; i++) {
+        int sx = gx + (int)((float)i / (cnt - 1) * gw);
+        int sy = base - (int)(b.cap[i] / 100.0f * gh);
+        line(sx, sy, sx, base, C_ACCENT, 45);
+        if (px >= 0) line(px, py, sx, sy, C_ACCENT, LV_OPA_COVER, 2);
+        px = sx; py = sy;
+    }
+    for (int k = 0; k < 5; k++) {
+        int fx = gx + (int)((float)k / 4 * gw);
+        char lbl[8]; timeLabel(lbl, sizeof(lbl), b.capSpanDays * (1.0f - k / 4.0f), b.capSpanDays);
+        if (k == 0) lText(lbl, fx, base + 6, F12, C_MUTED);
+        else if (k == 4) lText(lbl, fx - textW(lbl, F12), base + 6, F12, C_MUTED);
+        else cText(lbl, fx, base + 12, F12, C_MUTED);
+    }
+}
+
+static void renderBms() {
+    const Bms &b = bms[view];
+    uint32_t now = millis();
+    bool autoActive = (now >= manualUntil);
+    float prog = autoActive ? (float)(now - lastSwitch) / intervalMs : 0;
+    if (prog > 1) prog = 1; if (prog < 0) prog = 0;
+    drawTabs(autoActive, prog);
+
+    const int cx = 100, cy = 178;
+    cText("STATE OF CHARGE", cx, 52, F12, C_MUTED);
+    drawRing(cx, cy, 74, 58, b.soc, socColor(b.soc));
+    bool chg = (b.i >= 0); uint32_t pcol = chg ? C_ACCENT : C_WARN;
+    char pw[12]; snprintf(pw, sizeof(pw), "%.0f W", fabsf(b.v * b.i));
+    int bw = textW(pw, F20);
+    cText(pw, cx + 8, cy + 96, F20, pcol);
+    int ax = cx + 8 - bw / 2 - 16, ay = cy + 96 - 6;
+    if (chg) tri(ax, ay + 10, ax + 10, ay + 10, ax + 5, ay, C_ACCENT);
+    else tri(ax, ay, ax + 10, ay, ax + 5, ay + 10, C_WARN);
+    char sub[26]; snprintf(sub, sizeof(sub), "%s  %.1f A", chg ? "CHARGING" : "DISCHARGING", fabsf(b.i));
+    cText(sub, cx, cy + 122, F12, C_MUTED);
+
+    const int rx = 200, rw = Wd - rx - 8;
+    char vbuf[8]; snprintf(vbuf, sizeof(vbuf), "%.1f", b.v);
+    const int ty = 40, th = 70, gap = 8, tw = (rw - 2 * gap) / 3;
+    drawTile(rx, ty, tw, th, "VOLTAGE", vbuf, "VOLT", C_TEXT);
+    drawStatsTile(rx + tw + gap, ty, tw, th, b.peakChg, b.peakDis, now / 1000);
+    drawTempsTile(rx + 2 * (tw + gap), ty, tw, th, b.tMos, b.tp1, b.tp2);
+
+    const int halfW = (rw - 8) / 2;
+    drawCells(rx, 120, halfW, 86, b);
+    drawPowerGraph(rx + halfW + 8, 120, rw - halfW - 8, 86, b);
+    drawCapacityGraph(rx, 216, rw, 96, b);
+}
+
+// ============================================================================
+//  LVGL glue
+// ============================================================================
 static uint32_t millis_cb(void) { return millis(); }
 static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
     gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, lv_area_get_width(area), lv_area_get_height(area));
@@ -83,204 +387,29 @@ static void my_touchpad_read(lv_indev_t *indev, lv_indev_data_t *data) {
     else data->state = LV_INDEV_STATE_RELEASED;
 }
 
-// ---- widgets (updated each tick) ----
-static lv_obj_t *tabBtn[2], *wifiIcon, *clockLbl;
-static lv_obj_t *socArc, *socPct, *powLbl, *stateLbl;
-static lv_obj_t *voltVal, *tempVal[3], *statVal[3];
-static lv_obj_t *cellBar[NCELLS], *cellVal[NCELLS];
-static lv_obj_t *powChart, *capChart;
-static lv_chart_series_t *powSer, *capSer;
-
-static lv_obj_t *mkLabel(lv_obj_t *par, const char *txt, const lv_font_t *font, uint32_t color) {
-    lv_obj_t *l = lv_label_create(par);
-    lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, font, 0);
-    lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
-    return l;
+static lv_obj_t *scr;
+static void draw_cb(lv_event_t *e) {
+    L = lv_event_get_layer(e);
+    tpi = 0;
+    renderBms();
 }
-static lv_obj_t *mkCard(lv_obj_t *par, int x, int y, int w, int h) {
-    lv_obj_t *o = lv_obj_create(par);
-    lv_obj_set_pos(o, x, y); lv_obj_set_size(o, w, h);
-    lv_obj_set_style_bg_color(o, lv_color_hex(C_CARD), 0);
-    lv_obj_set_style_border_color(o, lv_color_hex(C_BORDER), 0);
-    lv_obj_set_style_border_width(o, 1, 0);
-    lv_obj_set_style_radius(o, 8, 0);
-    lv_obj_set_style_pad_all(o, 6, 0);
-    lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-    return o;
-}
-
-static void setActiveTab(int t) {
-    active = t;
-    for (int i = 0; i < 2; i++) {
-        bool on = (i == t);
-        lv_obj_set_style_bg_color(tabBtn[i], lv_color_hex(on ? C_ACCENT : C_CARD), 0);
-        lv_obj_set_style_text_color(lv_obj_get_child(tabBtn[i], 0), lv_color_hex(on ? C_BG : C_MUTED), 0);
+static void click_cb(lv_event_t *e) {
+    lv_indev_t *indev = lv_indev_active();
+    if (!indev) return;
+    lv_point_t p; lv_indev_get_point(indev, &p);
+    uint32_t now = millis();
+    if (p.y >= 6 && p.y <= 34) {
+        if (p.x >= TAB1_X && p.x <= TAB1_X + TAB_W) { view = 0; manualUntil = now + PAUSE_MS; lastSwitch = now; }
+        else if (p.x >= TAB2_X && p.x <= TAB2_X + TAB_W) { view = 1; manualUntil = now + PAUSE_MS; lastSwitch = now; }
+        // gear/bed (settings + sleep) wired in phase 2b
     }
+    lv_obj_invalidate(scr);
 }
-static void tab_cb(lv_event_t *e) { setActiveTab((int)(intptr_t)lv_event_get_user_data(e)); autoSwitch = false; lastSwitch = millis(); }
-
-static void reloadCharts() {
-    const Bms &b = bms[active];
-    int n = b.capCount;
-    lv_chart_set_point_count(capChart, n);
-    lv_chart_set_point_count(powChart, n);
-    int32_t *cy = lv_chart_get_y_array(capChart, capSer);
-    int32_t *py = lv_chart_get_y_array(powChart, powSer);
-    for (int i = 0; i < n; i++) { cy[i] = (int32_t)b.cap[i]; py[i] = (int32_t)b.pwr[i]; }
-    lv_chart_refresh(capChart);
-    lv_chart_refresh(powChart);
-}
-
-static void updateLive() {
-    const Bms &b = bms[active];
-    char buf[24];
-    lv_arc_set_value(socArc, (int)(b.soc + 0.5f));
-    snprintf(buf, sizeof(buf), "%d%%", (int)(b.soc + 0.5f)); lv_label_set_text(socPct, buf);
-    bool chg = b.i >= 0;
-    snprintf(buf, sizeof(buf), "%s %.0f W", chg ? LV_SYMBOL_UP : LV_SYMBOL_DOWN, fabsf(b.v * b.i));
-    lv_label_set_text(powLbl, buf);
-    lv_obj_set_style_text_color(powLbl, lv_color_hex(chg ? C_ACCENT : C_WARN), 0);
-    snprintf(buf, sizeof(buf), "%s  %.1f A", chg ? "CHARGING" : "DISCHARGING", fabsf(b.i));
-    lv_label_set_text(stateLbl, buf);
-
-    snprintf(buf, sizeof(buf), "%.1f", b.v); lv_label_set_text(voltVal, buf);
-    float tv[3] = {b.tMos, b.tp1, b.tp2};
-    for (int i = 0; i < 3; i++) { snprintf(buf, sizeof(buf), "%.0f" "\xC2\xB0", tv[i]); lv_label_set_text(tempVal[i], buf); }
-    snprintf(buf, sizeof(buf), "%.0fW", b.peakChg); lv_label_set_text(statVal[0], buf);
-    snprintf(buf, sizeof(buf), "%.0fW", b.peakDis); lv_label_set_text(statVal[1], buf);
-    uint32_t m = millis() / 60000; snprintf(buf, sizeof(buf), "%luh%02lu", (unsigned long)(m / 60), (unsigned long)(m % 60));
-    lv_label_set_text(statVal[2], buf);
-
-    float lo = 9, hi = 0;
-    for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < lo) lo = b.cell[i]; if (b.cell[i] > hi) hi = b.cell[i]; }
-    for (int i = 0; i < NCELLS; i++) {
-        lv_bar_set_value(cellBar[i], (int)((b.cell[i] - 3.0f) / 0.6f * 100), LV_ANIM_OFF);
-        uint32_t c = (b.cell[i] <= lo) ? C_CYAN : (b.cell[i] >= hi) ? C_WARN : C_ACCENT;
-        lv_obj_set_style_bg_color(cellBar[i], lv_color_hex(c), LV_PART_INDICATOR);
-        snprintf(buf, sizeof(buf), "%.2f", b.cell[i]); lv_label_set_text(cellVal[i], buf);
-    }
-}
-
 static void tick_cb(lv_timer_t *t) {
     uint32_t now = millis();
     simStep(now);
-    if (autoSwitch && now - lastSwitch >= 5000) { setActiveTab(active ^ 1); lastSwitch = now; reloadCharts(); }
-    updateLive();
-    // clock
-    struct tm ti;
-    if (getLocalTime(&ti, 0)) { char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min); lv_label_set_text(clockLbl, ts); }
-}
-
-static lv_obj_t *mkIconBtn(lv_obj_t *par, const char *sym, int x) {
-    lv_obj_t *b = lv_button_create(par);
-    lv_obj_set_size(b, 34, 30); lv_obj_set_pos(b, x, 3);
-    lv_obj_set_style_bg_color(b, lv_color_hex(C_CARD), 0);
-    lv_obj_set_style_border_color(b, lv_color_hex(C_BORDER), 0);
-    lv_obj_set_style_border_width(b, 1, 0);
-    lv_obj_t *l = mkLabel(b, sym, &lv_font_montserrat_16, C_MUTED); lv_obj_center(l);
-    return b;
-}
-
-static void build_dashboard() {
-    lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(C_BG), 0);
-    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_pad_all(scr, 0, 0);
-
-    // header: BMS tabs
-    for (int i = 0; i < 2; i++) {
-        tabBtn[i] = lv_button_create(scr);
-        lv_obj_set_size(tabBtn[i], 104, 30); lv_obj_set_pos(tabBtn[i], 8 + i * 112, 4);
-        lv_obj_set_style_radius(tabBtn[i], 8, 0);
-        char nm[8]; snprintf(nm, sizeof(nm), "BMS %d", i + 1);
-        lv_obj_t *l = mkLabel(tabBtn[i], nm, &lv_font_montserrat_16, C_MUTED); lv_obj_center(l);
-        lv_obj_add_event_cb(tabBtn[i], tab_cb, LV_EVENT_CLICKED, (void *)(intptr_t)i);
-    }
-    wifiIcon = mkLabel(scr, LV_SYMBOL_WIFI, &lv_font_montserrat_16, C_ACCENT); lv_obj_set_pos(wifiIcon, 244, 10);
-    lv_obj_add_flag(wifiIcon, LV_OBJ_FLAG_HIDDEN);
-    clockLbl = mkLabel(scr, "", &lv_font_montserrat_16, C_TEXT); lv_obj_set_pos(clockLbl, 300, 10);
-    mkIconBtn(scr, LV_SYMBOL_POWER, 398);     // sleep (wired in phase 2b)
-    mkIconBtn(scr, LV_SYMBOL_SETTINGS, 438);  // settings (wired in phase 2b)
-
-    // SOC arc (left)
-    socArc = lv_arc_create(scr);
-    lv_obj_set_size(socArc, 168, 168); lv_obj_set_pos(socArc, 12, 70);
-    lv_arc_set_rotation(socArc, 135); lv_arc_set_bg_angles(socArc, 0, 270);
-    lv_arc_set_range(socArc, 0, 100);
-    lv_obj_remove_flag(socArc, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_arc_color(socArc, lv_color_hex(C_BORDER), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(socArc, lv_color_hex(C_ACCENT), LV_PART_INDICATOR);
-    lv_obj_set_style_arc_width(socArc, 12, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(socArc, 12, LV_PART_INDICATOR);
-    lv_obj_remove_style(socArc, NULL, LV_PART_KNOB);
-    socPct = mkLabel(scr, "--%", &lv_font_montserrat_28, C_TEXT);
-    lv_obj_align_to(socPct, socArc, LV_ALIGN_CENTER, 0, -6);
-    powLbl = mkLabel(scr, "-- W", &lv_font_montserrat_20, C_ACCENT);
-    lv_obj_set_pos(powLbl, 40, 246);
-    stateLbl = mkLabel(scr, "", &lv_font_montserrat_12, C_MUTED);
-    lv_obj_set_pos(stateLbl, 24, 274);
-
-    // right column: voltage / temps / stats cards
-    const int rx = 200, rw = 272;
-    lv_obj_t *cv = mkCard(scr, rx, 40, 84, 70);
-    mkLabel(cv, "VOLTAGE", &lv_font_montserrat_12, C_MUTED);
-    voltVal = mkLabel(cv, "--.-", &lv_font_montserrat_20, C_TEXT); lv_obj_set_pos(voltVal, 0, 24);
-    lv_obj_set_pos(mkLabel(cv, "V", &lv_font_montserrat_12, C_MUTED), 0, 48);
-
-    lv_obj_t *cs = mkCard(scr, rx + 94, 40, 84, 70);
-    const char *sl[3] = {"PK+", "PK-", "UP"};
-    for (int i = 0; i < 3; i++) {
-        lv_obj_t *a = mkLabel(cs, sl[i], &lv_font_montserrat_12, C_MUTED); lv_obj_set_pos(a, 0, i * 18);
-        statVal[i] = mkLabel(cs, "--", &lv_font_montserrat_12, (i == 0) ? C_ACCENT : (i == 1) ? C_WARN : C_TEXT);
-        lv_obj_set_pos(statVal[i], 34, i * 18);
-    }
-    lv_obj_t *ct = mkCard(scr, rx + 188, 40, 84, 70);
-    const char *tl[3] = {"MOS", "T1", "T2"};
-    for (int i = 0; i < 3; i++) {
-        lv_obj_t *a = mkLabel(ct, tl[i], &lv_font_montserrat_12, C_MUTED); lv_obj_set_pos(a, 0, i * 18);
-        tempVal[i] = mkLabel(ct, "--", &lv_font_montserrat_16, C_ACCENT); lv_obj_set_pos(tempVal[i], 34, i * 18 - 2);
-    }
-
-    // cells card (4 horizontal bars)
-    lv_obj_t *cc = mkCard(scr, rx, 118, 84 + 94, 86);   // spans two columns
-    mkLabel(cc, "CELLS", &lv_font_montserrat_12, C_MUTED);
-    for (int i = 0; i < NCELLS; i++) {
-        int16_t yy = 16 + i * 15;
-        const char *cn[NCELLS] = {"C1", "C2", "C3", "C4"};
-        lv_obj_set_pos(mkLabel(cc, cn[i], &lv_font_montserrat_12, C_MUTED), 0, yy);
-        cellBar[i] = lv_bar_create(cc);
-        lv_obj_set_size(cellBar[i], 78, 8); lv_obj_set_pos(cellBar[i], 24, yy + 1);
-        lv_bar_set_range(cellBar[i], 0, 100);
-        lv_obj_set_style_bg_color(cellBar[i], lv_color_hex(C_BORDER), LV_PART_MAIN);
-        lv_obj_set_style_bg_color(cellBar[i], lv_color_hex(C_ACCENT), LV_PART_INDICATOR);
-        cellVal[i] = mkLabel(cc, "-.--", &lv_font_montserrat_12, C_TEXT); lv_obj_set_pos(cellVal[i], 108, yy);
-    }
-
-    // power + capacity charts (right) — use full right width
-    lv_obj_t *pc = mkCard(scr, rx, 212, 132, 96);
-    mkLabel(pc, "POWER W", &lv_font_montserrat_12, C_MUTED);
-    powChart = lv_chart_create(pc);
-    lv_obj_set_size(powChart, 116, 56); lv_obj_set_pos(powChart, 0, 18);
-    lv_chart_set_type(powChart, LV_CHART_TYPE_LINE);
-    lv_chart_set_div_line_count(powChart, 3, 0);
-    lv_chart_set_range(powChart, LV_CHART_AXIS_PRIMARY_Y, -260, 260);
-    lv_obj_set_style_size(powChart, 0, 0, LV_PART_INDICATOR);   // hide points
-    powSer = lv_chart_add_series(powChart, lv_color_hex(C_CYAN), LV_CHART_AXIS_PRIMARY_Y);
-
-    lv_obj_t *capc = mkCard(scr, rx + 140, 212, 132, 96);
-    mkLabel(capc, "CAPACITY %", &lv_font_montserrat_12, C_MUTED);
-    capChart = lv_chart_create(capc);
-    lv_obj_set_size(capChart, 116, 56); lv_obj_set_pos(capChart, 0, 18);
-    lv_chart_set_type(capChart, LV_CHART_TYPE_LINE);
-    lv_chart_set_div_line_count(capChart, 3, 0);
-    lv_chart_set_range(capChart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
-    lv_obj_set_style_size(capChart, 0, 0, LV_PART_INDICATOR);
-    capSer = lv_chart_add_series(capChart, lv_color_hex(C_ACCENT), LV_CHART_AXIS_PRIMARY_Y);
-
-    setActiveTab(0);
-    reloadCharts();
-    updateLive();
+    if (now >= manualUntil && now - lastSwitch >= intervalMs) { view ^= 1; lastSwitch = now; }
+    lv_obj_invalidate(scr);
 }
 
 void setup() {
@@ -307,9 +436,15 @@ void setup() {
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, my_touchpad_read);
 
+    scr = lv_screen_active();
+    lv_obj_set_style_bg_color(scr, lv_color_hex(C_BG), 0);
+    lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(scr, draw_cb, LV_EVENT_DRAW_MAIN_END, NULL);
+    lv_obj_add_event_cb(scr, click_cb, LV_EVENT_CLICKED, NULL);
+
     simInit();
-    build_dashboard();
-    lv_timer_create(tick_cb, 400, NULL);
+    lv_timer_create(tick_cb, 250, NULL);
     Serial.println("[lvgl] dashboard ready");
 }
 

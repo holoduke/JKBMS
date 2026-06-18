@@ -21,6 +21,7 @@ LVGL config: `include/lv_conf.h` (Montserrat 12/14/16/20/28 enabled, 16-bit colo
 - ✅ Phase 1: LVGL up — display + touch + AA fonts (test screen).
 - ✅ Phase 2a: main dashboard in LVGL — header tabs + WiFi/clock/sleep/settings
   icons (LVGL symbols), SOC arc gauge, voltage/stats/temps cards, 4 cell bars,
-  power + capacity line charts, simulated data + auto-switch.
+  power + capacity graphs (drawn via LVGL vector API) — pixel-faithful to the
+  original, anti-aliased text. Simulated data + auto-switch (tap pauses 30s).
 - ⏳ Phase 2b: settings screen (BMS/WiFi/System sub-tabs), WiFi scan/connect +
   keyboard, sleep animation, real WiFi icon/clock wiring.
