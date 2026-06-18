@@ -49,9 +49,31 @@
 // into a persistent Arduino_Canvas framebuffer and the whole canvas is flushed
 // once per frame (~40ms → ~25fps ceiling). We keep each frame cheap by only
 // redrawing the regions that changed (the canvas keeps the rest).
+// Canvas with a cache-friendly rotated blit. The framebuffer lives in PSRAM
+// (320x480x2 = 300KB, too big for internal RAM). The stock Arduino_GFX rotate
+// writes the framebuffer with a 640-byte stride → every pixel is a PSRAM/cache
+// miss (~150ms for a full screen). blit() instead writes each framebuffer column
+// CONTIGUOUSLY (burst-friendly) and reads the small internal LVGL buffer strided
+// → the same 90° rotation, ~5-8x faster.
+class FastCanvas : public Arduino_Canvas {
+public:
+    FastCanvas(int16_t w, int16_t h, Arduino_G *o, int16_t ox, int16_t oy, uint8_t r)
+        : Arduino_Canvas(w, h, o, ox, oy, r) {}
+    void blit(int x, int y, int w, int h, const uint16_t *src) {
+        uint16_t *fb = getFramebuffer();
+        const int FBH = _height;          // physical height in this rotation = 320
+        const int top = _max_y;           // 319
+        for (int i = 0; i < w; i++) {
+            uint16_t *d = fb + (int32_t)(x + i) * FBH + (top - y);   // landscape (x+i, y) in fb
+            const uint16_t *s = src + i;
+            for (int j = 0; j < h; j++) { *d-- = *s; s += w; }       // ly++ → fb addr-- (contiguous)
+        }
+    }
+};
+
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(TFT_CS, TFT_SCK, TFT_SDA0, TFT_SDA1, TFT_SDA2, TFT_SDA3);
 Arduino_GFX *g = new Arduino_AXS15231B(bus, GFX_NOT_DEFINED, 0, false, TFT_res_W, TFT_res_H);
-Arduino_Canvas *gfx = new Arduino_Canvas(TFT_res_W, TFT_res_H, g, 0, 0, TFT_rot);
+FastCanvas *gfx = new FastCanvas(TFT_res_W, TFT_res_H, g, 0, 0, TFT_rot);
 AXS15231B_Touch touch(Touch_SCL, Touch_SDA, Touch_INT, Touch_ADDR, TFT_rot);
 static bool gfxDirty = false;
 
@@ -86,7 +108,6 @@ static bool pendingSleep = false, standby = false;
 static uint32_t lastActivity = 0;
 // wifi
 #define MAXNET 10
-#define WIFI_MAXVIS 5
 static char netSsid[MAXNET][33];
 static int netRssi[MAXNET];
 static bool netEnc[MAXNET];
@@ -716,7 +737,7 @@ static void handleTap(int x, int y) {
     if (view == V_SETTINGS) {
         if (infoPopup) { infoPopup = false; return; }
         if (kbActive) {
-            if (x >= CLOSE_X - 4 && y <= 40) { kbActive = false; return; }
+            if (x >= CLOSE_X - 12 && y <= 44) { kbActive = false; return; }
             int code = kbProcess(false, x, y);
             if (code > 0) { if (wifiPassLen < 32) { wifiPass[wifiPassLen++] = (char)code; wifiPass[wifiPassLen] = 0; } }
             else if (code == -1) { if (wifiPassLen > 0) wifiPass[--wifiPassLen] = 0; }
@@ -724,7 +745,7 @@ static void handleTap(int x, int y) {
             else if (code == -4) { kbActive = false; wifiTryConnect(); }
             return;
         }
-        if (x >= CLOSE_X - 4 && y <= 40) { view = V_BMS1; renderGraphs(); manualUntil = millis() + PAUSE_MS; lastSwitch = millis(); return; }
+        if (x >= CLOSE_X - 12 && y <= 44) { switchView(V_BMS1); manualUntil = millis() + PAUSE_MS; lastSwitch = millis(); return; }
         if (y >= 44 && y < 74) {
             for (int i = 0; i < 3; i++) { int tx, tw; subTabGeom(i, &tx, &tw);
                 if (x >= tx && x < tx + tw) { subTab = i; if (i == ST_WIFI && netCount == 0) wifiStartScan(); return; } }
@@ -769,13 +790,13 @@ static void handleTap(int x, int y) {
         }
         return;
     }
-    // dashboard top bar
+    // dashboard top bar — generous hit zones (corners are hard to hit precisely)
     manualUntil = millis() + PAUSE_MS;
-    if (y >= 6 && y <= 34) {
-        if (x >= TAB1_X && x < TAB1_X + TAB_W) { view = V_BMS1; renderGraphs(); lastSwitch = millis(); }
-        else if (x >= TAB2_X && x < TAB2_X + TAB_W) { view = V_BMS2; renderGraphs(); lastSwitch = millis(); }
-        else if (x >= BED_X && x < BED_X + BED_W) pendingSleep = true;
-        else if (x >= GEAR_X - 4) { view = V_SETTINGS; subTab = ST_SYSTEM; kbActive = false; infoPopup = false; }
+    if (y <= 44) {
+        if (x >= TAB1_X && x < TAB1_X + TAB_W) { switchView(V_BMS1); lastSwitch = millis(); }
+        else if (x >= TAB2_X && x < TAB2_X + TAB_W) { switchView(V_BMS2); lastSwitch = millis(); }
+        else if (x >= GEAR_X - 10) { view = V_SETTINGS; subTab = ST_SYSTEM; kbActive = false; infoPopup = false; }  // top-right corner
+        else if (x >= BED_X - 8) pendingSleep = true;                                                              // sleep, left of the gear
     }
 }
 
@@ -934,7 +955,7 @@ static void playBootAnimation() {
 // ============================================================================
 static uint32_t millis_cb(void) { return millis(); }
 static void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-    gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, lv_area_get_width(area), lv_area_get_height(area));
+    gfx->blit(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area), (uint16_t *)px_map);
     gfxDirty = true;
     lv_disp_flush_ready(disp);
 }
@@ -1051,6 +1072,7 @@ void setup() {
     // per full repaint (was /10 = 10 chunks; /4 = ~4) => snappier taps/switches.
     uint32_t w = gfx->width(), h = gfx->height(), bufSize = w * h / 4;
     lv_color_t *buf = (lv_color_t *)heap_caps_malloc(bufSize * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!buf) { Serial.println("[lvgl] FATAL: draw buffer alloc failed"); while (1) delay(1000); }
     lv_display_t *disp = lv_display_create(w, h);
     lv_display_set_flush_cb(disp, my_disp_flush);
     lv_display_set_buffers(disp, buf, NULL, bufSize * 2, LV_DISPLAY_RENDER_MODE_PARTIAL);
@@ -1072,6 +1094,7 @@ void setup() {
     capCv = lv_canvas_create(NULL);
     void *pb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(POW_W, POW_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     void *cb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(CAP_W, CAP_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (!pb || !cb) { Serial.println("[lvgl] FATAL: graph canvas alloc failed"); while (1) delay(1000); }
     lv_canvas_set_buffer(powCv, pb, POW_W, POW_H, LV_COLOR_FORMAT_RGB565);
     lv_canvas_set_buffer(capCv, cb, CAP_W, CAP_H, LV_COLOR_FORMAT_RGB565);
 
