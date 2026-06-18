@@ -194,7 +194,7 @@ static void drawTabs(bool autoActive, float prog) {
     struct tm ti;
     if (getLocalTime(&ti, 0)) {
         char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min);
-        leftText(ts, BED_X - 40, 14, 1, C_TEXT);
+        centerText(ts, BED_X - 36, 20, 2, C_TEXT);   // size 2, vertically centred in the bar
     }
 
     // sleep button (bed icon) — just left of the gear, same colour as the gear
