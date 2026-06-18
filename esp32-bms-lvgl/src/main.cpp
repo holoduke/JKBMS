@@ -334,7 +334,7 @@ static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float
 }
 static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, uint32_t upSec, const char *rt, uint32_t rtCol) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    const char *lbl[4] = {"PK CHG", "PK DIS", "UPTIME", "RUNTIME"};
+    const char *lbl[4] = {"PK CHG", "PK DIS", "UPTIME", "REMAINING"};
     char val[4][10];
     snprintf(val[0], sizeof(val[0]), "%.0fW", pkChg);
     snprintf(val[1], sizeof(val[1]), "%.0fW", pkDis);
