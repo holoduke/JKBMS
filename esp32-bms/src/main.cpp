@@ -6,6 +6,7 @@
 #include <Arduino_GFX_Library.h>
 #include <WiFi.h>
 #include <Preferences.h>
+#include <time.h>
 #include <math.h>
 #include "AXS15231B_touch.h"
 
@@ -97,7 +98,9 @@ struct Bms {
     float pwr[NCAP];        // power (W) history, same time base
     int capCount;
     float capSpanDays;
+    float peakChg, peakDis; // peak charge / discharge power (W)
 };
+static bool ntpStarted = false;
 static Bms bms[2];
 
 // ---- helpers ----
@@ -187,10 +190,17 @@ static void drawTabs(bool autoActive, float prog) {
     // WiFi indicator (only when connected) — next to the BMS tabs
     if (WiFi.status() == WL_CONNECTED) drawWifi(252, 30, C_ACCENT);
 
-    // sleep button (bed icon) — just left of the gear
+    // clock (when NTP time is set), left of the sleep button
+    struct tm ti;
+    if (getLocalTime(&ti, 0)) {
+        char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min);
+        leftText(ts, BED_X - 62, 14, 2, C_TEXT);
+    }
+
+    // sleep button (bed icon) — just left of the gear, same colour as the gear
     gfx->fillRoundRect(BED_X, y, BED_W, h, 8, C_CARD);
     gfx->drawRoundRect(BED_X, y, BED_W, h, 8, C_BORDER);
-    drawBed(BED_X + BED_W / 2, y + h / 2, C_INDIGO);
+    drawBed(BED_X + BED_W / 2, y + h / 2, C_MUTED);
     // gear tab
     bool gon = (view == V_SETTINGS);
     gfx->fillRoundRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, gon ? C_ACCENT : C_CARD);
@@ -235,6 +245,23 @@ static void drawTempsTile(int16_t x, int16_t y, int16_t w, int16_t h, float mos,
     }
 }
 // Compact CELLS panel: 4 horizontal bars stacked vertically (fits half width).
+// Peak charge / peak discharge / uptime, three compact rows (right-aligned values).
+static void drawStatsTile(int16_t x, int16_t y, int16_t w, int16_t h, float pkChg, float pkDis, uint32_t upSec) {
+    gfx->fillRoundRect(x, y, w, h, 8, C_CARD);
+    gfx->drawRoundRect(x, y, w, h, 8, C_BORDER);
+    const char* lbl[3] = {"PK CHG", "PK DIS", "UPTIME"};
+    char val[3][10];
+    snprintf(val[0], sizeof(val[0]), "%.0fW", pkChg);
+    snprintf(val[1], sizeof(val[1]), "%.0fW", pkDis);
+    uint32_t m = upSec / 60; snprintf(val[2], sizeof(val[2]), "%luh%02lu", (unsigned long)(m / 60), (unsigned long)(m % 60));
+    uint16_t vc[3] = {C_ACCENT, C_WARN, C_TEXT};
+    for (int r = 0; r < 3; r++) {
+        int16_t ry = y + 10 + r * 20;
+        leftText(lbl[r], x + 8, ry, 1, C_MUTED);
+        int16_t bx, by; uint16_t bw, bh; gfx->setTextSize(1); gfx->getTextBounds(val[r], 0, 0, &bx, &by, &bw, &bh);
+        leftText(val[r], x + w - bw - 8, ry, 1, vc[r]);
+    }
+}
 static void drawCells(int16_t x, int16_t y, int16_t w, int16_t h, const Bms& b) {
     gfx->fillRoundRect(x, y, w, h, 8, C_CARD);
     gfx->drawRoundRect(x, y, w, h, 8, C_BORDER);
@@ -341,17 +368,23 @@ static void renderBms(int active, float prog, bool autoActive) {
     const int16_t cx = 100, cy = 178;
     centerText("STATE OF CHARGE", cx, 52, 1, C_MUTED);
     drawRing(cx, cy, 74, 58, b.soc, socColor(b.soc));
-    char pw[12]; snprintf(pw, sizeof(pw), "%.0f W", b.v * b.i);
-    centerText(pw, cx, cy + 96, 2, (b.i >= 0) ? C_ACCENT : C_WARN);
-    centerText((b.i >= 0) ? "CHARGING" : "DISCHARGING", cx, cy + 120, 1, C_MUTED);
+    // power readout with the charge/discharge arrow merged next to it
+    bool chg = (b.i >= 0); uint16_t pcol = chg ? C_ACCENT : C_WARN;
+    char pw[12]; snprintf(pw, sizeof(pw), "%.0f W", fabsf(b.v * b.i));
+    int16_t bx, by; uint16_t bw, bh; gfx->setTextSize(2); gfx->getTextBounds(pw, 0, 0, &bx, &by, &bw, &bh);
+    centerText(pw, cx + 8, cy + 96, 2, pcol);
+    int16_t ax = cx + 8 - bw / 2 - 16, ay = cy + 96 - 6;
+    if (chg) gfx->fillTriangle(ax, ay + 10, ax + 10, ay + 10, ax + 5, ay, C_ACCENT);
+    else     gfx->fillTriangle(ax, ay, ax + 10, ay, ax + 5, ay + 10, C_WARN);
+    char sub[26]; snprintf(sub, sizeof(sub), "%s  %.1f A", chg ? "CHARGING" : "DISCHARGING", fabsf(b.i));
+    centerText(sub, cx, cy + 120, 1, C_MUTED);
 
     const int16_t rx = 200, rw = Wd - rx - 8;
-    char vbuf[8], ibuf[8];
+    char vbuf[8];
     snprintf(vbuf, sizeof(vbuf), "%.1f", b.v);
-    snprintf(ibuf, sizeof(ibuf), "%+.1f", b.i);
     const int16_t ty = 40, th = 70, gap = 8, tw = (rw - 2 * gap) / 3;
     drawTile(rx,                  ty, tw, th, "VOLTAGE", vbuf, "VOLT", C_TEXT, 0);
-    drawTile(rx + tw + gap,       ty, tw, th, "CURRENT", ibuf, "AMP",  (b.i >= 0) ? C_ACCENT : C_WARN, b.i >= 0 ? 1 : -1);
+    drawStatsTile(rx + tw + gap,  ty, tw, th, b.peakChg, b.peakDis, millis() / 1000);
     drawTempsTile(rx + 2 * (tw + gap), ty, tw, th, b.tMos, b.tp1, b.tp2);
 
     const int16_t halfW = (rw - 8) / 2;
@@ -541,6 +574,7 @@ static bool wifiPoll() {
         last = st; changed = true;
         if (st == WL_CONNECTED) {
             snprintf(wifiMsg, sizeof(wifiMsg), "Connected: %s", WiFi.SSID().c_str());
+            if (!ntpStarted) { configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.nist.gov"); ntpStarted = true; }
             if (!wifiSaved && connSsid[0]) {        // remember creds for next power-on
                 prefs.begin("wifi", false);
                 prefs.putString("ssid", connSsid); prefs.putString("pass", connPass);
@@ -676,6 +710,9 @@ static void simStep(uint32_t nowMs) {
         bms[t].tp1  = 24 + 3 * sinf(s * 0.03f + ph) + t;
         bms[t].tp2  = 25 + 3 * sinf(s * 0.04f + ph + 1.0f) + t;
         for (int i = 0; i < NCELLS; i++) bms[t].cell[i] = bms[t].v / NCELLS + 0.015f * sinf(s * 0.5f + i * 1.7f + ph);
+        float p = bms[t].v * bms[t].i;
+        if (p > bms[t].peakChg) bms[t].peakChg = p;
+        if (-p > bms[t].peakDis) bms[t].peakDis = -p;
     }
 }
 
