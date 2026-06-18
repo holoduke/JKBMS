@@ -38,10 +38,11 @@
 #define BED_W 40
 #define BED_X (GEAR_X - 8 - BED_W)
 
-// This AXS15231B QSPI panel only accepts a FULL-frame write — direct/partial
-// pushes show black. So LVGL renders into an Arduino_Canvas framebuffer and the
-// whole canvas is flushed once per frame. The whole dashboard is redrawn at a
-// uniform high frame rate, so the auto-switch bar animates smoothly with it.
+// This AXS15231B QSPI panel only displays correctly with a FULL-frame write
+// (raw per-shape and partial-region pushes show black / tear). So LVGL renders
+// into a persistent Arduino_Canvas framebuffer and the whole canvas is flushed
+// once per frame (~40ms → ~25fps ceiling). We keep each frame cheap by only
+// redrawing the regions that changed (the canvas keeps the rest).
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(TFT_CS, TFT_SCK, TFT_SDA0, TFT_SDA1, TFT_SDA2, TFT_SDA3);
 Arduino_GFX *g = new Arduino_AXS15231B(bus, GFX_NOT_DEFINED, 0, false, TFT_res_W, TFT_res_H);
 Arduino_Canvas *gfx = new Arduino_Canvas(TFT_res_W, TFT_res_H, g, 0, 0, TFT_rot);
@@ -460,14 +461,22 @@ static void dataTick_cb(lv_timer_t *t) {
     if (now >= manualUntil && now - lastSwitch >= intervalMs) {
         switchView(view ^ 1); lastSwitch = now;
         invArea(0, 36, Wd - 1, Ht - 1);            // full body: new BMS + new graphs
-    } else {
-        invArea(0, 36, 195, Ht - 1);               // left: ring + power readout
-        invArea(196, 36, Wd - 1, 207);             // tiles + cells + power graph
+        return;
     }
+    // Spread the heavy AA repaint over several ticks — one section per tick keeps
+    // each frame small so the auto-switch bar stays smooth between updates.
+    static int sec = 0;
+    switch (sec) {
+        case 0: invArea(0, 40, 195, 305); break;   // left: SOC ring + power readout
+        case 1: invArea(196, 36, 479, 112); break; // tiles row (V / stats / temps)
+        case 2: invArea(196, 114, 338, 207); break;// cells card
+    }
+    sec = (sec + 1) % 3;
 }
 
 void setup() {
     Serial.begin(115200);
+    Serial.setTxTimeoutMs(0);   // never block the loop when no USB host is reading
     delay(300);
     Serial.printf("\n[lvgl] boot — LVGL %d.%d.%d\n", lv_version_major(), lv_version_minor(), lv_version_patch());
 
@@ -515,19 +524,6 @@ void setup() {
 
 void loop() {
     lv_task_handler();
-    if (gfxDirty) {
-        uint32_t t0 = millis();
-        gfx->flush();
-        gfxDirty = false;
-        // FPS / flush-time meter (only when a serial host is attached)
-        static uint32_t frames = 0, lastReport = 0, flushAccum = 0;
-        frames++; flushAccum += (millis() - t0);
-        uint32_t now = millis();
-        if (Serial && now - lastReport >= 2000) {
-            Serial.printf("[lvgl] %.1f fps, flush ~%lums\n", frames * 1000.0f / (now - lastReport),
-                          (unsigned long)(flushAccum / (frames ? frames : 1)));
-            frames = 0; flushAccum = 0; lastReport = now;
-        }
-    }
-    delay(2);
+    if (gfxDirty) { gfx->flush(); gfxDirty = false; }
+    delay(1);
 }
