@@ -709,7 +709,9 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
     }
 }
 static int sysViewH() { return Ht - LIST_TOP - 2; }
-static int sysContentH() { return SYS_ROWS * SROW_STEP; }
+// + one row of bottom padding so the last entry can scroll clear of the panel's
+// bottom edge (touch is unreliable in the last few px there).
+static int sysContentH() { return SYS_ROWS * SROW_STEP + SROW_STEP; }
 static int sysMaxScroll() { int m = sysContentH() - sysViewH(); return m > 0 ? m : 0; }
 static void subTabGeom(int i, int *x, int *w) { int gap = 6; *w = (Wd - 16 - 2 * gap) / 3; *x = 8 + i * (*w + gap); }
 static void drawCloseBtn() {
