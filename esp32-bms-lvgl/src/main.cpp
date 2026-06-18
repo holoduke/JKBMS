@@ -17,6 +17,8 @@
 #define FW_VERSION "0.4.0"
 #define BL_CH_FREQ 5000
 #define BL_CH_RES 8
+#define BMS_TX_PIN 17               // ESP TX -> BMS RX
+#define BMS_RX_PIN 18               // ESP RX <- BMS TX
 
 // ---- palette (identical to the original) ----
 #define C_BG 0x04060c
@@ -87,6 +89,10 @@ struct Bms {
     bool bmsOk;                 // overall BMS status (no active protection)
 };
 static Bms bms[2];
+static bool bmsLive[2] = {false, false};   // per-BMS: real device responded over Modbus this poll
+static bool demoMode = false;              // ON = both BMSes simulated; OFF = poll real BMS 1 (addr 1) & 2 (addr 2)
+static float packFullAh[2] = {100.0f, 100.0f};   // full-charge capacity from each BMS (Ah)
+HardwareSerial bmsSerial(1);           // BMS UART: RX=IO18, TX=IO17, 115200
 enum View { V_BMS1 = 0, V_BMS2 = 1, V_SETTINGS = 2 };
 static int view = V_BMS1;
 static uint32_t lastSwitch = 0, manualUntil = 0;
@@ -143,6 +149,7 @@ static void simInit() { genCap(bms[0], 7, 168); genCap(bms[1], 1, 48); }
 static void simStep(uint32_t nowMs) {
     float s = nowMs / 1000.0f * simSpeed;
     for (int t = 0; t < 2; t++) {
+        if (!demoMode && bmsLive[t]) continue;   // real device is answering — don't simulate over it
         float ph = t * 2.1f;
         bms[t].soc = 62 + 30 * sinf(s * 0.05f + ph);
         bms[t].i = 28 * sinf(s * 0.18f + ph) + (t ? -4 : 3);
@@ -157,19 +164,65 @@ static void simStep(uint32_t nowMs) {
         if (-p > bms[t].peakDis) bms[t].peakDis = -p;
     }
 }
+// ---- real BMS over Modbus RTU (JK "RS485 Modbus", TTL on the GPS/UART port) ----
+static uint16_t mbCrc(const uint8_t *d, int n) {
+    uint16_t c = 0xFFFF;
+    for (int i = 0; i < n; i++) { c ^= d[i]; for (int b = 0; b < 8; b++) c = (c & 1) ? (c >> 1) ^ 0xA001 : c >> 1; }
+    return c;
+}
+// Read the 0x1200 status block from one BMS (Modbus addr) into bms[idx]. Sets bmsLive[idx].
+static void bmsReadAddr(uint8_t addr, int idx) {
+    uint8_t req[8] = {addr, 3, 0x12, 0x00, 0x00, 0x71, 0, 0};
+    uint16_t crc = mbCrc(req, 6); req[6] = crc & 0xFF; req[7] = crc >> 8;
+    while (bmsSerial.available()) bmsSerial.read();
+    bmsSerial.write(req, 8); bmsSerial.flush();
+    static uint8_t r[260]; int n = 0; uint32_t t0 = millis();
+    while (millis() - t0 < 200) { while (bmsSerial.available() && n < 260) r[n++] = bmsSerial.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
+    if (n < 5 || r[0] != addr || r[1] != 3) { bmsLive[idx] = false; return; }
+    int bc = r[2]; if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) { bmsLive[idx] = false; return; }
+    uint8_t *p = r + 3;
+    auto U16 = [&](int o) { return (uint16_t)(p[o] << 8 | p[o + 1]); };
+    auto U32 = [&](int o) { return (uint32_t)((uint32_t)p[o] << 24 | p[o + 1] << 16 | p[o + 2] << 8 | p[o + 3]); };
+    Bms &b = bms[idx];
+    for (int i = 0; i < NCELLS; i++) b.cell[i] = U16(i * 2) / 1000.0f;
+    b.v = U32(0x90) / 1000.0f;
+    b.i = (int32_t)U32(0x98) / 1000.0f;
+    b.tMos = (int16_t)U16(0x8A) / 10.0f;
+    b.tp1 = (int16_t)U16(0x9C) / 10.0f;
+    b.tp2 = (int16_t)U16(0x9E) / 10.0f;
+    b.soc = p[0xA7];
+    uint32_t full = U32(0xAC); if (full > 1000) packFullAh[idx] = full / 1000.0f;
+    float w = b.v * b.i; if (w > b.peakChg) b.peakChg = w; if (-w > b.peakDis) b.peakDis = -w;
+    b.bmsOk = true; bmsLive[idx] = true;
+}
+// Poll both real BMSes (addr 1 → BMS 1, addr 2 → BMS 2). Skipped in demo mode.
+static void bmsRead() {
+    if (demoMode) { bmsLive[0] = bmsLive[1] = false; return; }
+    bmsReadAddr(1, 0);
+    bmsReadAddr(2, 1);
+}
+// Write a UINT32 control register (function 0x10, 2 registers) to one BMS (Modbus addr).
+static void bmsWrite(uint8_t addr, uint16_t reg, uint32_t val) {
+    uint8_t f[13] = {addr, 0x10, (uint8_t)(reg >> 8), (uint8_t)reg, 0, 2, 4,
+                     (uint8_t)(val >> 24), (uint8_t)(val >> 16), (uint8_t)(val >> 8), (uint8_t)val, 0, 0};
+    uint16_t crc = mbCrc(f, 11); f[11] = crc & 0xFF; f[12] = crc >> 8;
+    while (bmsSerial.available()) bmsSerial.read();
+    bmsSerial.write(f, 13); bmsSerial.flush();
+    uint32_t t0 = millis(); while (millis() - t0 < 150) { while (bmsSerial.available()) bmsSerial.read(); }
+}
 static uint32_t socColor(float soc) { return soc >= 60 ? C_ACCENT : soc >= 30 ? C_WARN : C_BAD; }
 static uint32_t tempColor(float t) { return t >= 55 ? C_BAD : t >= 45 ? C_WARN : C_ACCENT; }
 #define PACK_AH 100.0f
 // estimated runtime (discharging) / time-to-full (charging), shorthand e.g. 8h30
-static void runtimeStr(float soc, float i, char *o, size_t n, uint32_t *col) {
+static void runtimeStr(float soc, float i, float fullAh, char *o, size_t n, uint32_t *col) {
     if (i < -0.5f) {                                   // discharging → time left
-        int m = (int)((soc / 100.0f * PACK_AH) / (-i) * 60.0f + 0.5f);
+        int m = (int)((soc / 100.0f * fullAh) / (-i) * 60.0f + 0.5f);
         if (m < 60) snprintf(o, n, "%dm", m);
         else if (m < 1440) snprintf(o, n, "%dh%02d", m / 60, m % 60);
         else snprintf(o, n, "%dd%dh", m / 1440, (m % 1440) / 60);
         *col = C_TEXT;
     } else if (i > 0.5f) {                             // charging → time to full
-        int m = (int)(((100.0f - soc) / 100.0f * PACK_AH) / i * 60.0f + 0.5f);
+        int m = (int)(((100.0f - soc) / 100.0f * fullAh) / i * 60.0f + 0.5f);
         if (m < 60) snprintf(o, n, "+%dm", m);
         else snprintf(o, n, "+%dh%02d", m / 60, m % 60);
         *col = C_ACCENT;
@@ -290,10 +343,12 @@ static void drawTabs(bool autoActive, float prog) {
     const int tabX[2] = {TAB1_X, TAB2_X};
     for (int t = 0; t < 2; t++) {
         int x = tabX[t]; bool on = (view == t);
-        fRect(x, y, TAB_W, h, 8, on ? C_ACCENT : C_CARD);
-        if (!on) dRect(x, y, TAB_W, h, 8, C_BORDER);
+        bool offline = !demoMode && !bmsLive[t];   // real mode + this BMS isn't answering
+        uint32_t bg = on ? (offline ? C_BAD : C_ACCENT) : C_CARD;
+        fRect(x, y, TAB_W, h, 8, bg);
+        if (!on) dRect(x, y, TAB_W, h, 8, offline ? C_BAD : C_BORDER);
         char lbl[8]; snprintf(lbl, sizeof(lbl), "BMS %d", t + 1);
-        cText(lbl, x + TAB_W / 2, y + h / 2, F16, on ? C_BG : C_MUTED);
+        cText(lbl, x + TAB_W / 2, y + h / 2, F16, on ? C_BG : (offline ? C_BAD : C_MUTED));
         if (on && autoActive) fRect(x + 6, y + h - 3, (int)((TAB_W - 12) * prog), 2, 0, C_BG);
     }
     struct tm ti;
@@ -482,7 +537,8 @@ static void renderBms() {
     float clo = 9, chi = 0;
     for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < clo) clo = b.cell[i]; if (b.cell[i] > chi) chi = b.cell[i]; }
     const char *st; uint32_t sc;
-    if (!b.bmsOk) { st = "Protected"; sc = C_BAD; }
+    if (!demoMode && !bmsLive[view]) { st = "Offline"; sc = C_BAD; }
+    else if (!b.bmsOk) { st = "Protected"; sc = C_BAD; }
     else if (!bmsDischarge[view] || !bmsCharge[view]) { st = "FET off"; sc = C_WARN; }
     else if (bmsBalancer[view] && (chi - clo) > 0.015f) { st = "Balancing"; sc = C_CYAN; }
     else if (fabsf(b.i) < 2.0f) { st = "Idle"; sc = C_MUTED; }
@@ -507,7 +563,9 @@ static void renderBms() {
     const int ty = 40, th = 70, gap = 8;
     const int vW = 78, sW = 102, tpW = rw - vW - sW - 2 * gap;  // stats wider, temps + voltage narrower
     drawTile(rx, ty, vW, th, "VOLTAGE", vbuf, nullptr, C_TEXT);
-    char rt[10]; uint32_t rtCol; runtimeStr(b.soc, b.i, rt, sizeof(rt), &rtCol);
+    char rt[10]; uint32_t rtCol;
+    float fullAh = (!demoMode && bmsLive[view]) ? packFullAh[view] : PACK_AH;
+    runtimeStr(b.soc, b.i, fullAh, rt, sizeof(rt), &rtCol);
     drawStatsTile(rx + vW + gap, ty, sW, th, b.peakChg, b.peakDis, now / 1000, rt, rtCol);
     drawTempsTile(rx + vW + gap + sW + gap, ty, tpW, th, b.tMos, b.tp1, b.tp2);
 
@@ -551,7 +609,7 @@ static void srowToggle(int y, const char *label, bool on) {
 // ---- scrollable System list ----
 static const char *SYS_LABEL[] = {
     "Auto-switch", "Switch interval", "Brightness   - / +", "Auto-sleep", "Eco mode", "Dim after",
-    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware"};
+    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode"};
 #define SYS_ROWS ((int)(sizeof(SYS_LABEL) / sizeof(SYS_LABEL[0])))
 static void dimStr(char *o, size_t n) {
     if (dimAfterSec == 0) snprintf(o, n, "Off");
@@ -599,6 +657,7 @@ static void renderSysTab() {
         if (i == 0) srowToggle(y, SYS_LABEL[i], autoSwitch);
         else if (i == 4) srowToggle(y, SYS_LABEL[i], ecoMode);
         else if (i == 8) srowToggle(y, SYS_LABEL[i], wifiAuto);
+        else if (i == 12) srowToggle(y, SYS_LABEL[i], demoMode);
         else { char val[16]; uint32_t vc; sysVal(i, val, sizeof(val), &vc); srowAt(y, SYS_LABEL[i], val, vc); }
     }
     if (sysMaxScroll() > 0) {                               // scrollbar
@@ -615,7 +674,8 @@ static void renderBmsTab() {
     srowToggle(srowY(1), "Charge MOSFET", bmsCharge[b]);
     srowToggle(srowY(2), "Discharge MOSFET", bmsDischarge[b]);
     srowToggle(srowY(3), "Balancer", bmsBalancer[b]);
-    srow(4, "Pack capacity", "100 Ah", C_MUTED);
+    char cap[12]; snprintf(cap, sizeof(cap), "%.0f Ah", (!demoMode && bmsLive[b]) ? packFullAh[b] : 100.0f);
+    srow(4, "Pack capacity", cap, C_MUTED);
 }
 // pixel-scrolled WiFi list (drag to scroll, fixed message + Rescan button)
 #define WROW_STEP 34
@@ -791,6 +851,7 @@ static void saveSettings() {
     prefs.putBool("bc0", bmsCharge[0]); prefs.putBool("bc1", bmsCharge[1]);
     prefs.putBool("bd0", bmsDischarge[0]); prefs.putBool("bd1", bmsDischarge[1]);
     prefs.putBool("bb0", bmsBalancer[0]); prefs.putBool("bb1", bmsBalancer[1]);
+    prefs.putBool("demo", demoMode);
     prefs.end();
 }
 static void loadSettings() {
@@ -803,6 +864,7 @@ static void loadSettings() {
     bmsCharge[0] = prefs.getBool("bc0", true); bmsCharge[1] = prefs.getBool("bc1", true);
     bmsDischarge[0] = prefs.getBool("bd0", true); bmsDischarge[1] = prefs.getBool("bd1", true);
     bmsBalancer[0] = prefs.getBool("bb0", false); bmsBalancer[1] = prefs.getBool("bb1", false);
+    demoMode = prefs.getBool("demo", demoMode);
     prefs.end();
     appliedB = brightness;
 }
@@ -844,14 +906,15 @@ static void handleTap(int x, int y) {
                 case 8: wifiAuto = !wifiAuto; WiFi.setAutoReconnect(wifiAuto); break;
                 case 9: simSpeed = simSpeed == 1 ? 2 : simSpeed == 2 ? 5 : 1; break;
                 case 10: infoPopup = true; return;   // full redraw for the popup
+                case 12: demoMode = !demoMode; bmsRead(); break;   // toggle sim vs live BMS, re-poll
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
         } else if (subTab == ST_BMS) {
             if (y >= srowY(0) && y < srowY(0) + 40) { cfgBms ^= 1; return; }  // switch pack (full redraw)
-            else if (y >= srowY(1) && y < srowY(1) + 40) { bmsCharge[cfgBms] = !bmsCharge[cfgBms]; markCfg(); markRow(1); }
-            else if (y >= srowY(2) && y < srowY(2) + 40) { bmsDischarge[cfgBms] = !bmsDischarge[cfgBms]; markCfg(); markRow(2); }
-            else if (y >= srowY(3) && y < srowY(3) + 40) { bmsBalancer[cfgBms] = !bmsBalancer[cfgBms]; markCfg(); markRow(3); }
+            else if (y >= srowY(1) && y < srowY(1) + 40) { bmsCharge[cfgBms] = !bmsCharge[cfgBms]; if (!demoMode && bmsLive[cfgBms]) bmsWrite(cfgBms + 1, 0x1070, bmsCharge[cfgBms] ? 1 : 0); markCfg(); markRow(1); }
+            else if (y >= srowY(2) && y < srowY(2) + 40) { bmsDischarge[cfgBms] = !bmsDischarge[cfgBms]; if (!demoMode && bmsLive[cfgBms]) bmsWrite(cfgBms + 1, 0x1074, bmsDischarge[cfgBms] ? 1 : 0); markCfg(); markRow(2); }
+            else if (y >= srowY(3) && y < srowY(3) + 40) { bmsBalancer[cfgBms] = !bmsBalancer[cfgBms]; if (!demoMode && bmsLive[cfgBms]) bmsWrite(cfgBms + 1, 0x1078, bmsBalancer[cfgBms] ? 1 : 0); markCfg(); markRow(3); }
         } else {   // ST_WIFI
             int top = wListTop(), vbot = wRescanY() - 4;
             if (y >= top && y <= vbot) {
@@ -967,65 +1030,100 @@ static void ctc(const char *s, int cx, int cy, uint8_t size, uint16_t col) {
     gfx->setTextColor(col); gfx->setCursor(cx - w / 2 - x1, cy - h / 2 - y1); gfx->print(s);
 }
 // jagged lightning bolt from (x1,y1) to (x2,y2)
-static void drawBolt(int x1, int y1, int x2, int y2, uint16_t col, float seed) {
-    const int seg = 9; int px = x1, py = y1;
-    float dx = x2 - x1, dy = y2 - y1, len = sqrtf(dx * dx + dy * dy) + 0.01f;
-    for (int s = 1; s <= seg; s++) {
-        float f = (float)s / seg;
-        int mx = x1 + (int)(dx * f), my = y1 + (int)(dy * f);
-        float j = (s < seg) ? 22.0f * sinf(seed + s * 1.7f) * (1.0f - f) : 0;
-        int nx = mx + (int)(-dy / len * j), ny = my + (int)(dx / len * j);
-        gfx->drawLine(px, py, nx, ny, col); gfx->drawLine(px, py + 1, nx, ny + 1, col);
-        px = nx; py = ny;
-    }
+static void tl(int x1, int y1, int x2, int y2, uint16_t c) {   // 2px line
+    gfx->drawLine(x1, y1, x2, y2, c); gfx->drawLine(x1, y1 + 1, x2, y2 + 1, c);
 }
-// Terminator-style power-on: arcing energy core spins up, surge, then "ONLINE".
+// Bigger jointed red ninja (knees + elbows + sword + headband tails). sc = scale.
+// run = run-cycle phase (0..1 loops); air = leaping (legs tucked, arms thrown).
+static void drawNinja(int cx, int footY, float run, bool air, float sc) {
+    uint16_t body = gfx->color565(0xcc, 0x22, 0x22), limb = gfx->color565(0x84, 0x16, 0x16);
+    uint16_t scarf = gfx->color565(0xff, 0x55, 0x55), blade = gfx->color565(0xcf, 0xd8, 0xe6);
+    uint16_t skin = gfx->color565(0xe6, 0xc2, 0xa0);
+    int hipY = footY - (int)(30 * sc), shY = footY - (int)(50 * sc);
+    int headX = cx + (int)(3 * sc), headY = footY - (int)(58 * sc), hr = (int)(8 * sc);
+    int thL = (int)(16 * sc), shL = (int)(16 * sc), uaL = (int)(13 * sc), laL = (int)(13 * sc);
+    float ph = run * 6.2832f;
+    auto leg = [&](float a, uint16_t col) {
+        float th = 0.7f * sinf(a), kb = 0.4f + 0.8f * (0.5f + 0.5f * sinf(a + 1.7f));
+        int kx = cx + (int)(sinf(th) * thL), ky = hipY + (int)(cosf(th) * thL);
+        int fx = kx + (int)(sinf(th - kb) * shL), fy = ky + (int)(cosf(th - kb) * shL);
+        tl(cx, hipY, kx, ky, col); tl(kx, ky, fx, fy, col); gfx->fillCircle(fx, fy, (int)(2 * sc), col);
+    };
+    auto legTuck = [&](float s, uint16_t col) {
+        int kx = cx + (int)(s * 11 * sc), ky = hipY - (int)(2 * sc);
+        int fx = kx - (int)(s * 5 * sc), fy = ky - (int)(11 * sc);
+        tl(cx, hipY, kx, ky, col); tl(kx, ky, fx, fy, col);
+    };
+    auto arm = [&](float a, uint16_t col) {
+        float ta = 0.9f * sinf(a);
+        int ex = cx + (int)(sinf(ta) * uaL), ey = shY + (int)(4 * sc) + (int)(cosf(ta) * uaL * 0.5f);
+        int hx = ex + (int)(sinf(ta + 1.0f) * laL), hy = ey + (int)(cosf(ta + 1.0f) * laL * 0.7f);
+        tl(cx, shY + (int)(3 * sc), ex, ey, col); tl(ex, ey, hx, hy, col);
+    };
+    // back limbs (darker, behind torso)
+    if (air) { legTuck(-0.7f, limb); arm(-1.3f, limb); }
+    else { leg(ph + 3.1416f, limb); arm(ph, limb); }
+    // sword across the back
+    tl(cx - (int)(3 * sc), shY + (int)(2 * sc), cx - (int)(11 * sc), shY + (int)(24 * sc), blade);
+    // torso
+    gfx->fillTriangle(cx - (int)(5 * sc), hipY, cx + (int)(5 * sc), hipY, headX, shY, body);
+    gfx->fillTriangle(cx - (int)(3 * sc), hipY, headX + (int)(5 * sc), shY, headX, headY + hr, body);
+    gfx->fillRect(cx - (int)(5 * sc), hipY - (int)(2 * sc), (int)(11 * sc), (int)(3 * sc), gfx->color565(0x40, 0x0a, 0x0a)); // belt
+    // head + mask + face + headband tails
+    gfx->fillCircle(headX, headY, hr, body);
+    gfx->fillRect(headX + (int)(2 * sc), headY - (int)(1 * sc), (int)(5 * sc), (int)(3 * sc), skin);  // eye strip
+    gfx->fillRect(headX - hr, headY - (int)(3 * sc), 2 * hr, (int)(3 * sc), scarf);                    // band
+    for (int k = 0; k < 3; k++) { int x1 = headX - hr - (int)((5 + k * 8) * sc), y1 = headY - (int)(2 * sc) + (int)(8 * sc * sinf(ph * 1.5f + k)); tl(headX - hr, headY - (int)(1 * sc), x1, y1, scarf); }
+    // front limbs (brighter, in front)
+    if (air) { arm(1.3f, body); legTuck(0.8f, body); }
+    else { arm(ph + 3.1416f, body); leg(ph, body); }
+}
+// Draw the parallax city scene + ninja for boot time t (0..0.82 on-screen).
+static int bootSx[44], bootSy[44]; static bool bootInit = false;
+static void drawBootScene(float t) {
+    const int W = Wd, H = Ht, groundY = 250;
+    if (!bootInit) { for (int i = 0; i < 44; i++) { bootSx[i] = (i * 97) % W; bootSy[i] = (i * 53) % 70 + 4; } bootInit = true; }
+    // sky gradient (dark blue → near black at top)
+    for (int b = 0; b < 6; b++) gfx->fillRect(0, b * 12, W, 12, gfx->color565(3 + b, 4 + b, 10 + b * 2));
+    gfx->fillRect(0, 72, W, groundY - 72, gfx->color565(7, 8, 20));
+    gfx->fillCircle(W - 70, 56, 26, gfx->color565(0x40, 0x44, 0x60));      // moon
+    gfx->fillCircle(W - 62, 50, 26, gfx->color565(7, 8, 20));              // crescent cut
+    float scF = t * W * 0.5f;                                              // stars (far parallax)
+    for (int i = 0; i < 44; i++) { int x = ((int)(bootSx[i] - scF * (0.3f + (i % 3) * 0.15f))) % W; if (x < 0) x += W; gfx->drawPixel(x, bootSy[i], dimC(0x9d, 0xb4, 0xff, 110 + (i % 4) * 35)); }
+    float bc = fmodf(t * W * 1.6f, 1120);                                  // buildings (mid) + windows
+    for (int i = -1; i < 16; i++) {
+        int bx = (int)(i * 70 - bc), bh = 44 + (((i + 16) * 53) % 86), bw = 36 + (((i + 16) * 37) % 26);
+        gfx->fillRect(bx, groundY - bh, bw, bh, gfx->color565(14, 15, 28));
+        for (int wy = groundY - bh + 6; wy < groundY - 6; wy += 12)
+            for (int wx = bx + 5; wx < bx + bw - 4; wx += 10)
+                if (((wx * 7 + wy * 13 + i) % 5) < 2) gfx->fillRect(wx, wy, 4, 5, gfx->color565(0x6a, 0x5a, 0x20));
+    }
+    for (int i = 0; i < 18; i++) {                                         // speed lines (fast)
+        float r = fmodf(t * 3.4f * (0.6f + (i % 5) * 0.12f) + i * 0.137f, 1.0f);
+        int x = (int)((1 - r) * (W + 90)) - 90, y = (i * 113) % H, len = 26 + (int)(80 * r);
+        gfx->drawFastHLine(x, y, len, dimC(0xff, 0x44, 0x44, (uint8_t)(45 + 140 * r)));
+    }
+    gfx->fillRect(0, groundY, W, H - groundY, gfx->color565(9, 10, 18));
+    gfx->drawFastHLine(0, groundY, W, gfx->color565(0x80, 0x14, 0x14));
+    float gc = fmodf(t * W * 2.8f, 40);                                    // ground dashes (fastest)
+    for (int i = -1; i < W / 40 + 1; i++) gfx->drawFastHLine((int)(i * 40 - gc), groundY + 8, 20, dimC(0xff, 0x30, 0x30, 90));
+    // ninja: runs in place (world scrolls), then leaps OFF the top-right
+    int nx, ny; bool air;
+    if (t < 0.60f) { nx = 150; ny = groundY; air = false; }
+    else { float a = (t - 0.60f) / 0.22f; if (a > 1) a = 1; nx = 150 + (int)(a * (W - 60)); ny = groundY - (int)(a * (groundY + 120)); air = true; }
+    drawNinja(nx, ny, t * 8.0f, air, 1.7f);
+}
+// Power-on: fast parallax city, a running ninja leaps off-screen, then flashes.
 static void playBootAnimation() {
-    const int cx = Wd / 2, cy = Ht / 2;
-    const float maxR = sqrtf((float)cx * cx + (float)cy * cy);
-    uint32_t t0 = millis(); const float DUR = 2800.0f;
+    uint32_t t0 = millis(); const float DUR = 3000.0f;
     for (;;) {
         float t = (millis() - t0) / DUR; if (t >= 1.0f) break;
-        float ramp = t < 0.85f ? t / 0.85f : 1.0f;
-        setBrightness((int)(15 + 85 * (t < 0.9f ? t / 0.9f : 1.0f)));   // power fades on
-        gfx->fillScreen(gfx->color565(6, 2, 2));
-        for (int y = 0; y < Ht; y += 4) {                              // red scanlines
-            uint8_t a = (uint8_t)(18 + 14 * sinf(t * 22 + y * 0.32f));
-            gfx->drawFastHLine(0, y, Wd, dimC(0x80, 0x12, 0x06, a));
-        }
-        for (int r = 0; r < 3; r++) {                                  // expanding shock rings
-            float rp = fmodf(t * 1.6f + r * 0.33f, 1.0f); int rad = (int)(rp * maxR);
-            gfx->drawCircle(cx, cy, rad, dimC(0xff, 0x66, 0x14, (uint8_t)(170 * (1 - rp))));
-            gfx->drawCircle(cx, cy, rad + 1, dimC(0xff, 0x66, 0x14, (uint8_t)(120 * (1 - rp))));
-        }
-        int nb = (int)(2 + 5 * ramp);                                  // crackling bolts
-        for (int i = 0; i < nb; i++) {
-            if (((int)(t * 34) + i) % 3) continue;
-            float a = fmodf(i * 2.39996f + t * 3.0f, 6.2832f);
-            int ex = cx + (int)(cosf(a) * maxR * 0.95f), ey = cy + (int)(sinf(a) * maxR * 0.95f);
-            drawBolt(ex, ey, cx, cy, gfx->color565(255, 210, 130), t * 7 + i * 2.1f);
-        }
-        for (int g = 6; g >= 1; g--) {                                 // core glow
-            int rad = (int)((8 + g * 9) * (0.5f + 0.6f * ramp));
-            gfx->fillCircle(cx, cy, rad, dimC(0xff, 0x70, 0x18, (uint8_t)(12 + (6 - g) * 9)));
-        }
-        float scale = 9 + 34 * ramp;                                   // spinning 3D core (red/amber)
-        drawIco(cx, cy, scale, t * 8.2f, t * 6.1f, t * 4.3f, 0.02f + t * 0.06f);
-        int bw = Wd - 160, bx = 80, by = Ht - 28;                       // charge bar
-        gfx->drawRoundRect(bx, by, bw, 12, 4, gfx->color565(120, 50, 40));
-        gfx->fillRoundRect(bx + 1, by + 1, (int)((bw - 2) * ramp), 10, 4, gfx->color565(255, 150, 50));
-        ctc(ramp < 0.99f ? "POWERING UP" : "ONLINE", cx, by - 16, 1, gfx->color565(255, 170, 90));
-        if (t > 0.85f && t < 0.91f) gfx->fillScreen(gfx->color565(255, 255, 255));   // power-on flash
+        setBrightness((int)(20 + 80 * (t < 0.7f ? t / 0.7f : 1.0f)));
+        if (t < 0.82f) drawBootScene(t);                                   // scene + leap-out
+        else { int ph = (int)((t - 0.82f) / 0.045f); gfx->fillScreen((ph & 1) ? gfx->color565(255, 255, 255) : gfx->color565(0x40, 0, 0)); }  // flashes
         gfx->flush();
     }
-    // settle: green core + title
-    gfx->fillScreen(c565(C_BG));
-    for (int g = 6; g >= 1; g--) gfx->fillCircle(cx, cy, 14 + g * 9, dimC(0x3d, 0xf0, 0xa8, (uint8_t)(10 + (6 - g) * 8)));
-    drawIco(cx, cy, 42, 1.1f, 0.7f, 0.35f, 0.40f);
-    ctc("JK BMS", cx, cy + 92, 3, c565(C_TEXT));
-    ctc("SYSTEM ONLINE", cx, cy + 116, 1, c565(C_ACCENT));
-    gfx->flush();
-    delay(650);
+    gfx->fillScreen(c565(C_BG)); gfx->flush();                             // hand off to the app
     setBrightness(brightness);
 }
 
@@ -1160,8 +1258,15 @@ static void dataTick_cb(lv_timer_t *t) {
     if (autoSleepMin > 0 && !standby && idle > (uint32_t)autoSleepMin * 60000UL) { pendingSleep = true; return; }
     if (standby || view == V_SETTINGS) return;
     if (autoSwitch && now >= manualUntil && now - lastSwitch >= intervalMs) {
-        switchView(view ^ 1); lastSwitch = now;
-        invArea(0, 36, Wd - 1, Ht - 1);            // full body: new BMS + new graphs
+        int other = view ^ 1;
+        // only flip to the other pack if it's available (demo mode shows both;
+        // in live mode skip a BMS that isn't answering — if both are down, stay put)
+        bool otherOk = demoMode || bmsLive[other];
+        lastSwitch = now;
+        if (otherOk) {
+            switchView(other);
+            invArea(0, 36, Wd - 1, Ht - 1);        // full body: new BMS + new graphs
+        }
         return;
     }
     // Spread the heavy AA repaint over several ticks — one section per tick keeps
@@ -1239,6 +1344,11 @@ void setup() {
     }
 
     simInit();
+    // Live BMSes over Modbus-RTU on UART1 (RX=IO18, TX=IO17): addr 1 → BMS 1,
+    // addr 2 → BMS 2. bmsRead() flips bmsLive[] per a valid reply; a BMS that
+    // doesn't answer shows a red tab + "Offline". Skipped entirely in demo mode.
+    bmsSerial.begin(115200, SERIAL_8N1, BMS_RX_PIN, BMS_TX_PIN);
+    bmsRead();
     renderGraphs();
     lastActivity = millis();
     lv_obj_invalidate(scr);                     // first full paint
@@ -1249,31 +1359,11 @@ void setup() {
     dataTimer = lv_timer_create(dataTick_cb, 300, NULL);  // live values (+ power-save supervisor)
     lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
     lv_timer_create(wifiTick_cb, 500, NULL);
+    lv_timer_create([](lv_timer_t *) { bmsRead(); }, 1000, NULL);   // poll live BMS 1
     Serial.println("[lvgl] dashboard ready");
 }
 
-// Stream the live canvas framebuffer over serial so a host script can build a GIF
-// of the actual device output (full 320x480 frames). Toggles BMS halfway. Trigger: 'G'.
-static void captureGif() {
-    const int N = 18;
-    uint16_t *fb = gfx->getFramebuffer();
-    Serial.setTxTimeoutMs(1000);   // block on write so frames aren't dropped mid-stream
-    Serial.printf("GIFSTART %d 320 480\n", N); Serial.flush();   // full physical res
-    for (int f = 0; f < N; f++) {
-        if (f == N / 2) switchView(view ^ 1);
-        uint32_t t = millis();
-        while (millis() - t < 180) { lv_task_handler(); delay(2); }
-        if (gfxDirty) { gfx->flush(); gfxDirty = false; }
-        Serial.write("FRAME\n");
-        Serial.write((const uint8_t *)fb, (size_t)320 * 480 * 2);   // whole frame in one write (fast)
-        Serial.flush();
-    }
-    Serial.println("GIFEND");
-    Serial.setTxTimeoutMs(0);
-}
-
 void loop() {
-    if (Serial && Serial.available() && Serial.read() == 'G') captureGif();
     lv_task_handler();
     if (pendingSleep) {
         pendingSleep = false;
