@@ -262,7 +262,8 @@ static void drawPowerGraph(int16_t x, int16_t y, int16_t w, int16_t h, const Bms
     gfx->fillRoundRect(x, y, w, h, 8, C_CARD);
     gfx->drawRoundRect(x, y, w, h, 8, C_BORDER);
     leftText("POWER  W", x + 8, y + 7, 1, C_MUTED);
-    const int16_t gx = x + 8, gy = y + 22, gw = w - 14, gh = h - 38, base = gy + gh;
+    const int16_t lblW = 26;
+    const int16_t gx = x + 8 + lblW, gy = y + 22, gw = w - 14 - lblW, gh = h - 38, base = gy + gh;
     int cnt = (b.capCount < 2) ? 2 : (b.capCount > NCAP ? NCAP : b.capCount);
     float lo = 1e9f, hi = -1e9f;
     for (int i = 0; i < cnt; i++) { float v = b.pwr[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
@@ -271,6 +272,10 @@ static void drawPowerGraph(int16_t x, int16_t y, int16_t w, int16_t h, const Bms
     int16_t zeroY = base - (int16_t)((0 - lo) / (hi - lo) * gh);
     for (int k = 0; k < 5; k++) gfx->drawFastVLine(gx + (int16_t)((float)k / 4 * gw), gy, gh, grid);
     gfx->drawFastHLine(gx, zeroY, gw, grid);
+    { char lb[8];                                          // Y-axis W labels: max / 0 / min
+      snprintf(lb, sizeof(lb), "%d", (int)hi); leftText(lb, x + 6, gy - 2, 1, C_MUTED);
+      leftText("0", x + 6, zeroY - 3, 1, C_MUTED);
+      snprintf(lb, sizeof(lb), "%d", (int)lo); leftText(lb, x + 6, base - 6, 1, C_MUTED); }
     int16_t px = -1, py = -1;
     for (int i = 0; i < cnt; i++) {
         int16_t sx = gx + (int16_t)((float)i / (cnt - 1) * gw);
@@ -300,9 +305,15 @@ static void drawCapacityGraph(int16_t x, int16_t y, int16_t w, int16_t h, const 
     if (b.capSpanDays >= 2.0f) snprintf(hdr, sizeof(hdr), "CAPACITY   %.0f days", b.capSpanDays);
     else                       snprintf(hdr, sizeof(hdr), "CAPACITY   24 hours");
     leftText(hdr, x + 8, y + 8, 1, C_MUTED);
-    const int16_t gx = x + 10, gy = y + 24, gw = w - 20, gh = h - 42, base = gy + gh;
+    const int16_t lblW = 22;
+    const int16_t gx = x + 10 + lblW, gy = y + 24, gw = w - 20 - lblW, gh = h - 42, base = gy + gh;
     uint16_t area = dim(0x3d, 0xf0, 0xa8, 45), grid = dim(0x2a, 0x33, 0x42, 170);
-    for (int p = 0; p <= 100; p += 50) gfx->drawFastHLine(gx, base - (int16_t)(p / 100.0f * gh), gw, grid);
+    for (int p = 0; p <= 100; p += 50) {                   // gridlines + Y-axis % labels
+        int16_t yy = base - (int16_t)(p / 100.0f * gh);
+        gfx->drawFastHLine(gx, yy, gw, grid);
+        char lb[5]; snprintf(lb, sizeof(lb), "%d", p);
+        leftText(lb, x + 8, yy - 3, 1, C_MUTED);
+    }
     for (int k = 0; k < 5; k++) gfx->drawFastVLine(gx + (int16_t)((float)k / 4 * gw), gy, gh, grid);
     int cnt = (b.capCount < 2) ? 2 : (b.capCount > NCAP ? NCAP : b.capCount);
     int16_t px = -1, py = -1;
