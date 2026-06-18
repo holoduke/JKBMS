@@ -62,6 +62,7 @@ struct Bms {
     float cap[NCAP], pwr[NCAP];
     int capCount; float capSpanDays;
     float peakChg, peakDis;
+    bool bmsOk;                 // overall BMS status (no active protection)
 };
 static Bms bms[2];
 enum View { V_BMS1 = 0, V_BMS2 = 1, V_SETTINGS = 2 };
@@ -119,6 +120,7 @@ static void simStep(uint32_t nowMs) {
         bms[t].tp1 = 24 + 3 * sinf(s * 0.03f + ph) + t;
         bms[t].tp2 = 25 + 3 * sinf(s * 0.04f + ph + 1) + t;
         for (int i = 0; i < NCELLS; i++) bms[t].cell[i] = bms[t].v / NCELLS + 0.015f * sinf(s * 0.5f + i * 1.7f + ph);
+        bms[t].bmsOk = true;
         float p = bms[t].v * bms[t].i;
         if (p > bms[t].peakChg) bms[t].peakChg = p;
         if (-p > bms[t].peakDis) bms[t].peakDis = -p;
@@ -393,7 +395,7 @@ static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
 // The two graphs only change when the active BMS changes, so they are rendered
 // once into offscreen canvases and blitted as images each frame (saves ~336
 // per-frame line draws). Sizes match their slots in renderBms().
-#define POW_W 132
+#define POW_W 164
 #define POW_H 86
 #define CAP_W 272
 #define CAP_H 96
@@ -427,7 +429,20 @@ static void renderBms() {
     drawTabs(autoActive, prog);
 
     const int cx = 100, cy = 178;
-    cText("STATE OF CHARGE", cx, 52, F12, C_MUTED);
+    cText("STATE OF CHARGE", cx, 48, F12, C_MUTED);
+    // operational status (from the BMS) — pill with a status dot
+    float clo = 9, chi = 0;
+    for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < clo) clo = b.cell[i]; if (b.cell[i] > chi) chi = b.cell[i]; }
+    const char *st; uint32_t sc;
+    if (!b.bmsOk) { st = "Protected"; sc = C_BAD; }
+    else if (!bmsDischarge || !bmsCharge) { st = "FET off"; sc = C_WARN; }
+    else if (bmsBalancer && (chi - clo) > 0.015f) { st = "Balancing"; sc = C_CYAN; }
+    else if (fabsf(b.i) < 2.0f) { st = "Idle"; sc = C_MUTED; }
+    else { st = "Normal"; sc = C_ACCENT; }
+    int pw2 = textW(st, F12) + 28, px2 = cx - pw2 / 2, py2 = 66;
+    fRect(px2, py2, pw2, 20, 10, C_CARD); dRect(px2, py2, pw2, 20, 10, C_BORDER);
+    fCircle(px2 + 13, py2 + 10, 4, sc);
+    lText(st, px2 + 22, py2 + 5, F12, sc);
     drawRing(cx, cy, 74, 58, b.soc, socColor(b.soc));
     bool chg = (b.i >= 0); uint32_t pcol = chg ? C_ACCENT : C_WARN;
     char pw[12]; snprintf(pw, sizeof(pw), "%.0f W", fabsf(b.v * b.i));
@@ -441,14 +456,15 @@ static void renderBms() {
 
     const int rx = 200, rw = Wd - rx - 8;
     char vbuf[10]; snprintf(vbuf, sizeof(vbuf), "%.2fV", b.v);
-    const int ty = 40, th = 70, gap = 8, tw = (rw - 2 * gap) / 3;
-    drawTile(rx, ty, tw, th, "VOLTAGE", vbuf, nullptr, C_TEXT);
-    drawStatsTile(rx + tw + gap, ty, tw, th, b.peakChg, b.peakDis, now / 1000);
-    drawTempsTile(rx + 2 * (tw + gap), ty, tw, th, b.tMos, b.tp1, b.tp2);
+    const int ty = 40, th = 70, gap = 8;
+    const int vW = 78, sW = 102, tpW = rw - vW - sW - 2 * gap;  // stats wider, temps + voltage narrower
+    drawTile(rx, ty, vW, th, "VOLTAGE", vbuf, nullptr, C_TEXT);
+    drawStatsTile(rx + vW + gap, ty, sW, th, b.peakChg, b.peakDis, now / 1000);
+    drawTempsTile(rx + vW + gap + sW + gap, ty, tpW, th, b.tMos, b.tp1, b.tp2);
 
-    const int halfW = (rw - 8) / 2;
-    drawCells(rx, 120, halfW, 86, b);
-    blitCanvas(powCv, rx + halfW + 8, 120, POW_W, POW_H);
+    const int cellsW = rw - 8 - POW_W;          // ~1/3 cells, ~2/3 power graph
+    drawCells(rx, 120, cellsW, 86, b);
+    blitCanvas(powCv, rx + cellsW + 8, 120, POW_W, POW_H);
     blitCanvas(capCv, rx, 216, CAP_W, CAP_H);
 }
 
@@ -532,46 +548,43 @@ static void renderBmsTab() {
     srow(3, "Cell count", "4S", C_MUTED);
     srow(4, "Pack capacity", "100 Ah", C_MUTED);
 }
-static int netRowY(int i) { return 104 + i * 34; }
-static int rescanY() { return 104 + WIFI_MAXVIS * 34 + 2; }
-static int wifiMaxScroll() { return netCount > WIFI_MAXVIS ? netCount - WIFI_MAXVIS : 0; }
+// pixel-scrolled WiFi list (drag to scroll, fixed message + Rescan button)
+#define WROW_STEP 34
+#define WROW_H 30
+static int wListTop() { return 100; }
+static int wRescanY() { return Ht - 34; }
+static int wViewH() { return wRescanY() - 4 - wListTop(); }
+static int wContentH() { return netCount * WROW_STEP; }
+static int wMaxScroll() { int m = wContentH() - wViewH(); return m > 0 ? m : 0; }
 static void renderWifiTab() {
     bool conn = (WiFi.status() == WL_CONNECTED);
-    if (wifiScroll > wifiMaxScroll()) wifiScroll = wifiMaxScroll();
-    char msg[72];
-    if (netCount > WIFI_MAXVIS) snprintf(msg, sizeof(msg), "%s   (%d-%d/%d)", wifiMsg, wifiScroll + 1,
-                                         wifiScroll + WIFI_MAXVIS < netCount ? wifiScroll + WIFI_MAXVIS : netCount, netCount);
-    else snprintf(msg, sizeof(msg), "%s", wifiMsg);
-    lText(msg, 12, 82, F12, conn ? C_ACCENT : C_MUTED);
-    int vis = netCount - wifiScroll; if (vis > WIFI_MAXVIS) vis = WIFI_MAXVIS;
-    for (int i = 0; i < vis; i++) {
-        int idx = wifiScroll + i, y = netRowY(i), x = 8, w = Wd - 16, h = 30;
+    if (wifiScroll > wMaxScroll()) wifiScroll = wMaxScroll();
+    int top = wListTop(), vbot = wRescanY() - 4;
+    for (int i = 0; i < netCount; i++) {
+        int y = top + i * WROW_STEP - wifiScroll;
+        if (y + WROW_H < top || y > vbot) continue;
+        int x = 8, w = Wd - 16, h = WROW_H;
         fRect(x, y, w, h, 6, C_CARD); dRect(x, y, w, h, 6, C_BORDER);
-        lText(netSsid[idx], x + 12, y + 8, F12, C_TEXT);
-        int bars = netRssi[idx] > -55 ? 4 : netRssi[idx] > -65 ? 3 : netRssi[idx] > -75 ? 2 : 1;
+        lText(netSsid[i], x + 12, y + 8, F12, C_TEXT);
+        int bars = netRssi[i] > -55 ? 4 : netRssi[i] > -65 ? 3 : netRssi[i] > -75 ? 2 : 1;
         for (int b = 0; b < 4; b++) fRect(x + w - 64 + b * 7, y + h - 6 - b * 4, 5, 4 + b * 4, 0, b < bars ? C_ACCENT : C_BORDER);
-        if (netEnc[idx]) lText("L", x + w - 18, y + 8, F12, C_WARN);
+        if (netEnc[i]) lText("L", x + w - 18, y + 8, F12, C_WARN);
     }
-    if (wifiMaxScroll() > 0) {
-        int tX = Wd - 6, tY = netRowY(0), tH = netRowY(WIFI_MAXVIS - 1) + 30 - netRowY(0);
+    if (wMaxScroll() > 0) {                                 // scrollbar
+        int tX = Wd - 6, tY = top, tH = wViewH();
         fRect(tX, tY, 4, tH, 2, C_BORDER);
-        int thH = (int)(tH * (float)WIFI_MAXVIS / netCount); if (thH < 14) thH = 14;
-        int thY = tY + (int)((tH - thH) * (float)wifiScroll / wifiMaxScroll());
+        int thH = (int)(tH * (float)wViewH() / wContentH()); if (thH < 16) thH = 16;
+        int thY = tY + (int)((tH - thH) * (float)wifiScroll / wMaxScroll());
         fRect(tX, thY, 4, thH, 2, C_ACCENT);
     }
-    int ry = rescanY();
-    if (wifiMaxScroll() > 0) {
-        fRect(8, ry, 48, 28, 6, C_CARD); dRect(8, ry, 48, 28, 6, C_BORDER);
-        tri(32, ry + 8, 26, ry + 18, 38, ry + 18, wifiScroll > 0 ? C_CYAN : C_BORDER);
-        fRect(60, ry, 48, 28, 6, C_CARD); dRect(60, ry, 48, 28, 6, C_BORDER);
-        tri(84, ry + 20, 78, ry + 10, 90, ry + 10, wifiScroll < wifiMaxScroll() ? C_CYAN : C_BORDER);
-        int rx = 116, rw = Wd - 8 - rx;
-        fRect(rx, ry, rw, 28, 6, C_CARD); dRect(rx, ry, rw, 28, 6, C_BORDER);
-        cText("Rescan", rx + rw / 2, ry + 14, F16, C_CYAN);
-    } else {
-        fRect(8, ry, Wd - 16, 28, 6, C_CARD); dRect(8, ry, Wd - 16, 28, 6, C_BORDER);
-        cText(netCount ? "Rescan" : "Scan", Wd / 2, ry + 14, F16, C_CYAN);
-    }
+    // mask the strip above the list + draw the status message on top
+    fRect(0, 78, Wd, top - 78, 0, C_BG);
+    lText(wifiMsg, 12, 82, F12, conn ? C_ACCENT : C_MUTED);
+    // mask the strip below the list + draw the Rescan button on top
+    int ry = wRescanY();
+    fRect(0, ry - 2, Wd, Ht - (ry - 2), 0, C_BG);
+    fRect(8, ry, Wd - 16, 28, 6, C_CARD); dRect(8, ry, Wd - 16, 28, 6, C_BORDER);
+    cText(netCount ? "Rescan" : "Scan", Wd / 2, ry + 14, F16, C_CYAN);
 }
 // keyboard: draw (draw=true) or hit-test (draw=false -> returns key code)
 static int kbProcess(bool draw, int tx, int ty) {
@@ -739,22 +752,20 @@ static void handleTap(int x, int y) {
             if (y >= srowY(0) && y < srowY(0) + 40) { bmsCharge = !bmsCharge; markRow(0); }
             else if (y >= srowY(1) && y < srowY(1) + 40) { bmsDischarge = !bmsDischarge; markRow(1); }
             else if (y >= srowY(2) && y < srowY(2) + 40) { bmsBalancer = !bmsBalancer; markRow(2); }
-        } else {
-            int vis = netCount - wifiScroll; if (vis > WIFI_MAXVIS) vis = WIFI_MAXVIS;
-            for (int i = 0; i < vis; i++) if (y >= netRowY(i) && y < netRowY(i) + 30) {
-                wifiSel = wifiScroll + i;
-                if (netEnc[wifiSel]) { wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbActive = true; }
-                else wifiTryConnect();
+        } else {   // ST_WIFI
+            int top = wListTop(), vbot = wRescanY() - 4;
+            if (y >= top && y <= vbot) {
+                int idx = (y + wifiScroll - top) / WROW_STEP;
+                int ry2 = top + idx * WROW_STEP - wifiScroll;
+                if (idx >= 0 && idx < netCount && y >= ry2 && y < ry2 + WROW_H) {
+                    wifiSel = idx;
+                    if (netEnc[wifiSel]) { wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbActive = true; }
+                    else wifiTryConnect();
+                }
                 return;
             }
-            int ry = rescanY();
-            if (y >= ry && y < ry + 28) {
-                if (wifiMaxScroll() > 0) {
-                    if (x < 56) { if (wifiScroll > 0) wifiScroll--; }
-                    else if (x < 108) { if (wifiScroll < wifiMaxScroll()) wifiScroll++; }
-                    else wifiStartScan();
-                } else wifiStartScan();
-            }
+            int ry = wRescanY();
+            if (y >= ry && y < ry + 28) wifiStartScan();
         }
         return;
     }
@@ -850,6 +861,74 @@ static void playSleepAnimation() {
     standby = true;
 }
 
+// centred bitmap text straight on the canvas (used by the boot animation)
+static void ctc(const char *s, int cx, int cy, uint8_t size, uint16_t col) {
+    int16_t x1, y1; uint16_t w, h; gfx->setTextSize(size); gfx->getTextBounds(s, 0, 0, &x1, &y1, &w, &h);
+    gfx->setTextColor(col); gfx->setCursor(cx - w / 2 - x1, cy - h / 2 - y1); gfx->print(s);
+}
+// jagged lightning bolt from (x1,y1) to (x2,y2)
+static void drawBolt(int x1, int y1, int x2, int y2, uint16_t col, float seed) {
+    const int seg = 9; int px = x1, py = y1;
+    float dx = x2 - x1, dy = y2 - y1, len = sqrtf(dx * dx + dy * dy) + 0.01f;
+    for (int s = 1; s <= seg; s++) {
+        float f = (float)s / seg;
+        int mx = x1 + (int)(dx * f), my = y1 + (int)(dy * f);
+        float j = (s < seg) ? 22.0f * sinf(seed + s * 1.7f) * (1.0f - f) : 0;
+        int nx = mx + (int)(-dy / len * j), ny = my + (int)(dx / len * j);
+        gfx->drawLine(px, py, nx, ny, col); gfx->drawLine(px, py + 1, nx, ny + 1, col);
+        px = nx; py = ny;
+    }
+}
+// Terminator-style power-on: arcing energy core spins up, surge, then "ONLINE".
+static void playBootAnimation() {
+    const int cx = Wd / 2, cy = Ht / 2;
+    const float maxR = sqrtf((float)cx * cx + (float)cy * cy);
+    uint32_t t0 = millis(); const float DUR = 2800.0f;
+    for (;;) {
+        float t = (millis() - t0) / DUR; if (t >= 1.0f) break;
+        float ramp = t < 0.85f ? t / 0.85f : 1.0f;
+        setBrightness((int)(15 + 85 * (t < 0.9f ? t / 0.9f : 1.0f)));   // power fades on
+        gfx->fillScreen(gfx->color565(6, 2, 2));
+        for (int y = 0; y < Ht; y += 4) {                              // red scanlines
+            uint8_t a = (uint8_t)(18 + 14 * sinf(t * 22 + y * 0.32f));
+            gfx->drawFastHLine(0, y, Wd, dimC(0x80, 0x12, 0x06, a));
+        }
+        for (int r = 0; r < 3; r++) {                                  // expanding shock rings
+            float rp = fmodf(t * 1.6f + r * 0.33f, 1.0f); int rad = (int)(rp * maxR);
+            gfx->drawCircle(cx, cy, rad, dimC(0xff, 0x66, 0x14, (uint8_t)(170 * (1 - rp))));
+            gfx->drawCircle(cx, cy, rad + 1, dimC(0xff, 0x66, 0x14, (uint8_t)(120 * (1 - rp))));
+        }
+        int nb = (int)(2 + 5 * ramp);                                  // crackling bolts
+        for (int i = 0; i < nb; i++) {
+            if (((int)(t * 34) + i) % 3) continue;
+            float a = fmodf(i * 2.39996f + t * 3.0f, 6.2832f);
+            int ex = cx + (int)(cosf(a) * maxR * 0.95f), ey = cy + (int)(sinf(a) * maxR * 0.95f);
+            drawBolt(ex, ey, cx, cy, gfx->color565(255, 210, 130), t * 7 + i * 2.1f);
+        }
+        for (int g = 6; g >= 1; g--) {                                 // core glow
+            int rad = (int)((8 + g * 9) * (0.5f + 0.6f * ramp));
+            gfx->fillCircle(cx, cy, rad, dimC(0xff, 0x70, 0x18, (uint8_t)(12 + (6 - g) * 9)));
+        }
+        float scale = 9 + 34 * ramp;                                   // spinning 3D core (red/amber)
+        drawIco(cx, cy, scale, t * 8.2f, t * 6.1f, t * 4.3f, 0.02f + t * 0.06f);
+        int bw = Wd - 160, bx = 80, by = Ht - 28;                       // charge bar
+        gfx->drawRoundRect(bx, by, bw, 12, 4, gfx->color565(120, 50, 40));
+        gfx->fillRoundRect(bx + 1, by + 1, (int)((bw - 2) * ramp), 10, 4, gfx->color565(255, 150, 50));
+        ctc(ramp < 0.99f ? "POWERING UP" : "ONLINE", cx, by - 16, 1, gfx->color565(255, 170, 90));
+        if (t > 0.85f && t < 0.91f) gfx->fillScreen(gfx->color565(255, 255, 255));   // power-on flash
+        gfx->flush();
+    }
+    // settle: green core + title
+    gfx->fillScreen(c565(C_BG));
+    for (int g = 6; g >= 1; g--) gfx->fillCircle(cx, cy, 14 + g * 9, dimC(0x3d, 0xf0, 0xa8, (uint8_t)(10 + (6 - g) * 8)));
+    drawIco(cx, cy, 42, 1.1f, 0.7f, 0.35f, 0.40f);
+    ctc("JK BMS", cx, cy + 92, 3, c565(C_TEXT));
+    ctc("SYSTEM ONLINE", cx, cy + 116, 1, c565(C_ACCENT));
+    gfx->flush();
+    delay(650);
+    setBrightness(brightness);
+}
+
 // ============================================================================
 //  LVGL glue
 // ============================================================================
@@ -883,20 +962,24 @@ static void press_cb(lv_event_t *e) {
     if (standby) return;
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
-    gStartY = p.y; gBaseScroll = sysScroll; gMoved = false;
+    gStartY = p.y; gMoved = false;
+    gBaseScroll = (view == V_SETTINGS && subTab == ST_WIFI) ? wifiScroll : sysScroll;
     if (view == V_SETTINGS && kbActive) { handleTap(p.x, p.y); pressHandled = true; lv_obj_invalidate(scr); }
 }
 static void pressing_cb(lv_event_t *e) {
-    if (standby || pressHandled) return;
-    if (!(view == V_SETTINGS && subTab == ST_SYSTEM && !kbActive)) return;
+    if (standby || pressHandled || kbActive || view != V_SETTINGS) return;
+    int *scrollVar, maxS, top, bot;
+    if (subTab == ST_SYSTEM) { scrollVar = &sysScroll; maxS = sysMaxScroll(); top = LIST_TOP; bot = Ht; }
+    else if (subTab == ST_WIFI) { scrollVar = &wifiScroll; maxS = wMaxScroll(); top = wListTop(); bot = wRescanY() - 4; }
+    else return;
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
     int dy = p.y - gStartY;
     if (abs(dy) > 4) gMoved = true;
     if (!gMoved) return;
     int ns = gBaseScroll - dy;
-    if (ns < 0) ns = 0; if (ns > sysMaxScroll()) ns = sysMaxScroll();
-    if (ns != sysScroll) { sysScroll = ns; lastActivity = millis(); invArea(0, LIST_TOP, Wd - 1, Ht - 1); }
+    if (ns < 0) ns = 0; if (ns > maxS) ns = maxS;
+    if (ns != *scrollVar) { *scrollVar = ns; lastActivity = millis(); invArea(0, top, Wd - 1, bot); }
 }
 static void release_cb(lv_event_t *e) {
     lastActivity = millis();
@@ -920,6 +1003,7 @@ static void invArea(int x1, int y1, int x2, int y2) {
 }
 static void barTick_cb(lv_timer_t *t) {
     if (standby || view == V_SETTINGS) return;
+    if (!autoSwitch || millis() < manualUntil) return;   // paused/off → bar not moving, skip flush
     invArea(6, 4, TAB2_X + TAB_W, 36);
 }
 static void dataTick_cb(lv_timer_t *t) {
@@ -955,7 +1039,7 @@ void setup() {
     if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");
     gfx->fillScreen(0x0000);
     ledcAttach(TFT_BL, BL_CH_FREQ, BL_CH_RES);
-    setBrightness(brightness);
+    playBootAnimation();        // Terminator-style power-on (sets brightness)
 
     touch.begin(); touch.setRotation(TFT_rot);
     touch.enOffsetCorrection(true);
@@ -986,8 +1070,8 @@ void setup() {
     // offscreen canvases for the cached graphs
     powCv = lv_canvas_create(NULL);
     capCv = lv_canvas_create(NULL);
-    void *pb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(POW_W, POW_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    void *cb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(CAP_W, CAP_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    void *pb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(POW_W, POW_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    void *cb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(CAP_W, CAP_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     lv_canvas_set_buffer(powCv, pb, POW_W, POW_H, LV_COLOR_FORMAT_RGB565);
     lv_canvas_set_buffer(capCv, cb, CAP_W, CAP_H, LV_COLOR_FORMAT_RGB565);
 
