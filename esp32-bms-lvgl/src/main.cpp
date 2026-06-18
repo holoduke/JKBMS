@@ -89,10 +89,13 @@ struct Bms {
     bool bmsOk;                 // overall BMS status (no active protection)
 };
 static Bms bms[2];
-// Real graph history: one sample/hour per BMS, ring-buffered to NCAP (=168 = 7 days),
+// Real graph history: one sample / 5 min per BMS, ring-buffered to HIST_N (=2016 = 7 days),
 // persisted to NVS so the trends survive a reboot. Demo mode uses genCap() instead.
-#define HIST_INTERVAL_MS 3600000UL   // 1 hour between samples → NCAP samples span 7 days
-static float histCap[2][NCAP], histPwr[2][NCAP];   // SOC % and power (W) over time, oldest→newest
+// Compact storage: SOC fits a byte, pack power an int16 (W) → ~6 KB/BMS in NVS.
+#define HIST_INTERVAL_MS 300000UL    // 5 min between samples → HIST_N samples span 7 days
+#define HIST_N 2016                  // 5 min × 7 days
+static uint8_t  histCap[2][HIST_N];  // SOC %, oldest→newest
+static int16_t  histPwr[2][HIST_N];  // pack power (W), oldest→newest
 static uint16_t histCount[2] = {0, 0};
 static uint32_t histLastMs[2] = {0, 0};
 static bool histDirty = false; static uint32_t histDirtyAt = 0;
@@ -155,13 +158,15 @@ static void genCap(Bms &b, float span, int count) {
 static void simInit() { genCap(bms[0], 7, 168); genCap(bms[1], 1, 48); }
 // Append one real sample to BMS idx's history (ring-buffer, drops the oldest when full).
 static void histAppend(int idx, float soc, float watt) {
-    if (histCount[idx] >= NCAP) {
-        memmove(histCap[idx], histCap[idx] + 1, (NCAP - 1) * sizeof(float));
-        memmove(histPwr[idx], histPwr[idx] + 1, (NCAP - 1) * sizeof(float));
-        histCount[idx] = NCAP - 1;
+    if (histCount[idx] >= HIST_N) {
+        memmove(histCap[idx], histCap[idx] + 1, (HIST_N - 1) * sizeof(histCap[0][0]));
+        memmove(histPwr[idx], histPwr[idx] + 1, (HIST_N - 1) * sizeof(histPwr[0][0]));
+        histCount[idx] = HIST_N - 1;
     }
-    histCap[idx][histCount[idx]] = soc;
-    histPwr[idx][histCount[idx]] = watt;
+    int s = (int)(soc + 0.5f); s = s < 0 ? 0 : s > 100 ? 100 : s;
+    float w = watt < -32000 ? -32000 : watt > 32000 ? 32000 : watt;
+    histCap[idx][histCount[idx]] = (uint8_t)s;
+    histPwr[idx][histCount[idx]] = (int16_t)w;
     histCount[idx]++;
     histDirty = true; histDirtyAt = millis();
 }
@@ -549,10 +554,23 @@ static lv_obj_t *powCv = nullptr, *capCv = nullptr;
 static void prepGraphData(int v) {
     if (demoMode) return;
     Bms &b = bms[v];
-    int c = histCount[v]; if (c > NCAP) c = NCAP;
-    for (int i = 0; i < c; i++) { b.cap[i] = histCap[v][i]; b.pwr[i] = histPwr[v][i]; }
-    b.capCount = c;
-    b.capSpanDays = c > 1 ? (float)(c - 1) / 24.0f : 0.0f;   // 1 sample/hour
+    int n = histCount[v];
+    b.capSpanDays = n > 1 ? (float)(n - 1) / 288.0f : 0.0f;   // 288 samples/day (5 min)
+    if (n <= NCAP) {                                          // fits the display buffer 1:1
+        for (int i = 0; i < n; i++) { b.cap[i] = histCap[v][i]; b.pwr[i] = histPwr[v][i]; }
+        b.capCount = n;
+        return;
+    }
+    // more samples than display columns → average each bucket down to NCAP points
+    for (int j = 0; j < NCAP; j++) {
+        int lo = (int)((int64_t)j * n / NCAP), hi = (int)((int64_t)(j + 1) * n / NCAP);
+        if (hi <= lo) hi = lo + 1;
+        float sc = 0, sp = 0;
+        for (int i = lo; i < hi; i++) { sc += histCap[v][i]; sp += histPwr[v][i]; }
+        b.cap[j] = sc / (hi - lo);
+        b.pwr[j] = sp / (hi - lo);
+    }
+    b.capCount = NCAP;
 }
 static void renderGraphs() {
     if (!powCv || !capCv) return;
@@ -932,8 +950,8 @@ static void saveHistory() {
     for (int t = 0; t < 2; t++) {
         char k[8];
         snprintf(k, sizeof(k), "c%d", t); prefs.putUShort(k, histCount[t]);
-        snprintf(k, sizeof(k), "cap%d", t); prefs.putBytes(k, histCap[t], histCount[t] * sizeof(float));
-        snprintf(k, sizeof(k), "pwr%d", t); prefs.putBytes(k, histPwr[t], histCount[t] * sizeof(float));
+        snprintf(k, sizeof(k), "cap%d", t); prefs.putBytes(k, histCap[t], histCount[t] * sizeof(histCap[0][0]));
+        snprintf(k, sizeof(k), "pwr%d", t); prefs.putBytes(k, histPwr[t], histCount[t] * sizeof(histPwr[0][0]));
     }
     prefs.end();
 }
@@ -941,9 +959,9 @@ static void loadHistory() {
     prefs.begin("hist", true);
     for (int t = 0; t < 2; t++) {
         char k[8];
-        snprintf(k, sizeof(k), "c%d", t); int c = prefs.getUShort(k, 0); if (c > NCAP) c = NCAP;
-        snprintf(k, sizeof(k), "cap%d", t); prefs.getBytes(k, histCap[t], c * sizeof(float));
-        snprintf(k, sizeof(k), "pwr%d", t); prefs.getBytes(k, histPwr[t], c * sizeof(float));
+        snprintf(k, sizeof(k), "c%d", t); int c = prefs.getUShort(k, 0); if (c > HIST_N) c = HIST_N;
+        snprintf(k, sizeof(k), "cap%d", t); prefs.getBytes(k, histCap[t], c * sizeof(histCap[0][0]));
+        snprintf(k, sizeof(k), "pwr%d", t); prefs.getBytes(k, histPwr[t], c * sizeof(histPwr[0][0]));
         histCount[t] = c;
     }
     prefs.end();
