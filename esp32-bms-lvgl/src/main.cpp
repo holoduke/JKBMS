@@ -1275,6 +1275,44 @@ static void playBootAnimation() {
     gfx->fillScreen(c565(C_BG)); gfx->flush();                             // hand off to the app
     setBrightness(brightness);
 }
+// Robot-vision power-on: a single dot swells into a full-width scan line, flickers,
+// then blooms vertically into a fading flash — like an optical sensor coming online.
+static void playVisionOn() {
+    const uint16_t BG = gfx->color565(0x09, 0x03, 0x02);
+    const uint16_t AMBER = gfx->color565(0xff, 0xb0, 0x28), GLOW = gfx->color565(0x70, 0x40, 0x12);
+    const uint16_t WHITE = gfx->color565(0xff, 0xf0, 0xd0);
+    int cx = Wd / 2, cy = Ht / 2;
+    setBrightness(brightness);
+    uint32_t t0 = millis();                                   // dot → horizontal line
+    for (;;) {
+        uint32_t el = millis() - t0; float p = el / 420.0f; if (p > 1) p = 1;
+        int hw = (int)(p * p * (Wd / 2 - 2));                 // ease-in half-width
+        int gh = 3 + (int)(5 * (1 - p));                      // glow thicker early (the dot)
+        int core = hw < 6 ? hw : 6;
+        gfx->fillScreen(BG);
+        gfx->fillRect(cx - hw - 2, cy - gh, (hw + 2) * 2, gh * 2, GLOW);
+        gfx->fillRect(cx - hw, cy - 2, hw * 2 + 1, 4, AMBER);
+        gfx->fillRect(cx - core, cy - 1, core * 2 + 1, 2, WHITE);
+        gfx->flush();
+        if (p >= 1) break; delay(1);
+    }
+    for (int f = 0; f < 3; f++) {                             // quick flicker
+        gfx->fillScreen(BG);
+        gfx->fillRect(0, cy - 2, Wd, 4, (f & 1) ? WHITE : AMBER);
+        gfx->flush(); uint32_t b = millis(); while (millis() - b < 45) delay(1);
+    }
+    uint32_t t1 = millis();                                   // vertical bloom + fade to black
+    for (;;) {
+        uint32_t el = millis() - t1; float p = el / 260.0f; if (p > 1) p = 1;
+        int hh = (int)(p * cy);
+        uint8_t v = (uint8_t)(255 * (1 - p) + 8);
+        gfx->fillScreen(BG);
+        gfx->fillRect(0, cy - hh, Wd, hh * 2, gfx->color565(v, (uint8_t)(v * 0.85f), (uint8_t)(v * 0.5f)));
+        gfx->flush();
+        if (p >= 1) break; delay(1);
+    }
+    gfx->fillScreen(BG); gfx->flush();
+}
 // Second act: a retro tactical-HUD boot log (Terminator-style) — amber pixel text
 // on black with scanlines, status lines flipping to [ OK ], a progress bar and a
 // blinking cursor, ending on READY. Built-in GFX font = chunky monospace look.
@@ -1328,17 +1366,24 @@ static void playHudBoot() {
         if (el > END) break;
         delay(1);
     }
-    // READY: blink a few times, then hand off
-    for (int b = 0; b < 6; b++) {
+    // "READY" with dots building up one by one
+    uint32_t r0 = millis();
+    for (;;) {
+        uint32_t el = millis() - r0; if (el > 950) break;
         gfx->fillScreen(BG);
-        for (int y = 0; y < Ht; y += 3) gfx->drawFastHLine(0, y, Wd, DIM);
-        if (b & 1) {
-            gfx->setTextSize(5); gfx->setTextColor(RED);
-            const char *r = "READY"; int w = 5 * 6 * 5;          // size5 → 30px/char
-            gfx->setCursor((Wd - w) / 2, (Ht - 40) / 2); gfx->print(r);
-        }
+        for (int y = (el / 70) % 3; y < Ht; y += 3) gfx->drawFastHLine(0, y, Wd, DIM);
+        int dots = el / 150; if (dots > 5) dots = 5;
+        char buf[12] = "READY"; for (int i = 0; i < dots; i++) buf[5 + i] = '.'; buf[5 + dots] = 0;
+        gfx->setTextSize(4); gfx->setTextColor(RED);
+        gfx->setCursor((Wd - 5 * 24) / 2, (Ht - 32) / 2); gfx->print(buf);   // size4 → 24px/char
+        gfx->flush(); delay(1);
+    }
+    // confirm flash: bright inverted READY blink
+    for (int b = 0; b < 4; b++) {
+        gfx->fillScreen((b & 1) ? gfx->color565(0xff, 0xd0, 0x60) : BG);
+        if (b & 1) { gfx->setTextSize(5); gfx->setTextColor(gfx->color565(0x20, 0x08, 0x02)); gfx->setCursor((Wd - 5 * 30) / 2, (Ht - 40) / 2); gfx->print("READY"); }
         gfx->flush();
-        uint32_t b0 = millis(); while (millis() - b0 < 130) delay(1);
+        uint32_t b0 = millis(); while (millis() - b0 < 110) delay(1);
     }
     gfx->fillScreen(c565(C_BG)); gfx->flush();
 }
@@ -1529,7 +1574,8 @@ void setup() {
     gfx->fillScreen(0x0000);
     ledcAttach(TFT_BL, BL_CH_FREQ, BL_CH_RES);
     // playBootAnimation();     // (ninja intro disabled for now)
-    playHudBoot();              // tactical-HUD boot log → READY
+    playVisionOn();             // robot-vision power-on: dot → line → flash
+    playHudBoot();              // tactical-HUD boot log → READY.....
 
     touch.begin(); touch.setRotation(TFT_rot);
     touch.enOffsetCorrection(true);
