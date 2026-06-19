@@ -252,7 +252,28 @@ static void bmsWrite(uint8_t addr, uint16_t reg, uint32_t val) {
     uint16_t crc = mbCrc(f, 11); f[11] = crc & 0xFF; f[12] = crc >> 8;
     while (bmsSerial.available()) bmsSerial.read();
     bmsSerial.write(f, 13); bmsSerial.flush();
-    uint32_t t0 = millis(); while (millis() - t0 < 150) { while (bmsSerial.available()) bmsSerial.read(); }
+    uint32_t t0 = millis(); while (millis() - t0 < 40) { while (bmsSerial.available()) bmsSerial.read(); }   // drain the 8-byte echo
+}
+// Read one UINT32 control register back (function 0x03, 2 registers). false on no/bad reply.
+static bool bmsReadReg(uint8_t addr, uint16_t reg, uint32_t *out) {
+    uint8_t req[8] = {addr, 3, (uint8_t)(reg >> 8), (uint8_t)reg, 0, 2, 0, 0};
+    uint16_t crc = mbCrc(req, 6); req[6] = crc & 0xFF; req[7] = crc >> 8;
+    while (bmsSerial.available()) bmsSerial.read();
+    bmsSerial.write(req, 8); bmsSerial.flush();
+    uint8_t r[16]; int n = 0; uint32_t t0 = millis();
+    while (millis() - t0 < 70) { while (bmsSerial.available() && n < 16) r[n++] = bmsSerial.read(); if (n >= 9) break; }
+    if (n < 9 || r[0] != addr || r[1] != 3 || r[2] != 4) return false;
+    if ((r[7] | (r[8] << 8)) != mbCrc(r, 7)) return false;
+    *out = (uint32_t)r[3] << 24 | r[4] << 16 | r[5] << 8 | r[6];
+    return true;
+}
+// Write a control register, then read it back to confirm the BMS accepted the value.
+static bool bmsSet(uint8_t addr, uint16_t reg, uint32_t val) {
+    bmsWrite(addr, reg, val);
+    uint32_t rb;
+    if (!bmsReadReg(addr, reg, &rb)) { Serial.printf("[bms] verify failed: no readback for reg %04X\n", reg); return false; }
+    if (rb != val) { Serial.printf("[bms] verify failed: reg %04X wrote %lu, read %lu\n", reg, (unsigned long)val, (unsigned long)rb); return false; }
+    return true;
 }
 static uint32_t socColor(float soc) { return soc >= 60 ? C_ACCENT : soc >= 30 ? C_WARN : C_BAD; }
 static uint32_t tempColor(float t) { return t >= 55 ? C_BAD : t >= 45 ? C_WARN : C_ACCENT; }
@@ -960,9 +981,12 @@ static void saveHistory() {
     prefs.begin("hist", false);
     for (int t = 0; t < 2; t++) {
         char k[8];
+        size_t capN = histCount[t] * sizeof(histCap[0][0]), pwrN = histCount[t] * sizeof(histPwr[0][0]);
         snprintf(k, sizeof(k), "c%d", t); prefs.putUShort(k, histCount[t]);
-        snprintf(k, sizeof(k), "cap%d", t); prefs.putBytes(k, histCap[t], histCount[t] * sizeof(histCap[0][0]));
-        snprintf(k, sizeof(k), "pwr%d", t); prefs.putBytes(k, histPwr[t], histCount[t] * sizeof(histPwr[0][0]));
+        snprintf(k, sizeof(k), "cap%d", t); size_t wc = prefs.putBytes(k, histCap[t], capN);
+        snprintf(k, sizeof(k), "pwr%d", t); size_t wp = prefs.putBytes(k, histPwr[t], pwrN);
+        if (wc != capN || wp != pwrN) Serial.printf("[nvs] history save BMS%d failed (cap %u/%u, pwr %u/%u) — NVS full?\n",
+                                                     t + 1, (unsigned)wc, (unsigned)capN, (unsigned)wp, (unsigned)pwrN);
     }
     prefs.end();
 }
@@ -1021,9 +1045,9 @@ static void handleTap(int x, int y) {
             markCfg(); markRowAt(ry);
         } else if (subTab == ST_BMS) {
             if (y >= srowY(0) && y < srowY(0) + 40) { cfgBms ^= 1; return; }  // switch pack (full redraw)
-            else if (y >= srowY(1) && y < srowY(1) + 40) { bmsCharge[cfgBms] = !bmsCharge[cfgBms]; if (!demoMode && bmsLive[cfgBms]) bmsWrite(cfgBms + 1, 0x1070, bmsCharge[cfgBms] ? 1 : 0); markCfg(); markRow(1); }
-            else if (y >= srowY(2) && y < srowY(2) + 40) { bmsDischarge[cfgBms] = !bmsDischarge[cfgBms]; if (!demoMode && bmsLive[cfgBms]) bmsWrite(cfgBms + 1, 0x1074, bmsDischarge[cfgBms] ? 1 : 0); markCfg(); markRow(2); }
-            else if (y >= srowY(3) && y < srowY(3) + 40) { bmsBalancer[cfgBms] = !bmsBalancer[cfgBms]; if (!demoMode && bmsLive[cfgBms]) bmsWrite(cfgBms + 1, 0x1078, bmsBalancer[cfgBms] ? 1 : 0); markCfg(); markRow(3); }
+            else if (y >= srowY(1) && y < srowY(1) + 40) { bmsCharge[cfgBms] = !bmsCharge[cfgBms]; if (!demoMode && bmsLive[cfgBms] && !bmsSet(cfgBms + 1, 0x1070, bmsCharge[cfgBms] ? 1 : 0)) bmsCharge[cfgBms] = !bmsCharge[cfgBms]; markCfg(); markRow(1); }
+            else if (y >= srowY(2) && y < srowY(2) + 40) { bmsDischarge[cfgBms] = !bmsDischarge[cfgBms]; if (!demoMode && bmsLive[cfgBms] && !bmsSet(cfgBms + 1, 0x1074, bmsDischarge[cfgBms] ? 1 : 0)) bmsDischarge[cfgBms] = !bmsDischarge[cfgBms]; markCfg(); markRow(2); }
+            else if (y >= srowY(3) && y < srowY(3) + 40) { bmsBalancer[cfgBms] = !bmsBalancer[cfgBms]; if (!demoMode && bmsLive[cfgBms] && !bmsSet(cfgBms + 1, 0x1078, bmsBalancer[cfgBms] ? 1 : 0)) bmsBalancer[cfgBms] = !bmsBalancer[cfgBms]; markCfg(); markRow(3); }
         } else {   // ST_WIFI
             int top = wListTop(), vbot = wRescanY() - 4;
             if (y >= top && y <= vbot) {
@@ -1229,7 +1253,7 @@ static void playBootAnimation() {
         float t = (millis() - t0) / DUR; if (t >= 1.0f) break;
         setBrightness((int)(20 + 80 * (t < 0.7f ? t / 0.7f : 1.0f)));
         if (t < 0.82f) drawBootScene(t);                                   // scene + leap-out
-        else { int ph = (int)((t - 0.82f) / 0.045f); gfx->fillScreen((ph & 1) ? gfx->color565(255, 255, 255) : gfx->color565(0x40, 0, 0)); }  // flashes
+        else { float f = (t - 0.82f) / 0.18f; if (f > 1) f = 1; uint8_t w = (uint8_t)(255 * (1.0f - f) + 4); gfx->fillScreen(gfx->color565(w, w, w)); }  // one flash, fades to bg
         gfx->flush();
     }
     gfx->fillScreen(c565(C_BG)); gfx->flush();                             // hand off to the app
@@ -1380,7 +1404,7 @@ static void dataTick_cb(lv_timer_t *t) {
     if (eco != ecoActive) {                                          // low-fps when idle
         ecoActive = eco;
         if (dataTimer) lv_timer_set_period(dataTimer, eco ? 1000 : 300);
-        if (barTimer) lv_timer_set_period(barTimer, eco ? 1000 : 120);
+        if (barTimer) lv_timer_set_period(barTimer, eco ? 1000 : 160);
     }
     if (autoSleepMin > 0 && !standby && idle > (uint32_t)autoSleepMin * 60000UL) { pendingSleep = true; return; }
     if (standby || view == V_SETTINGS) return;
@@ -1484,7 +1508,7 @@ void setup() {
     // Refresh rates kept modest so the panel isn't flushed at max rate (each full
     // flush ~40ms blocks touch polling). Between ticks lv_task_handler runs every
     // ~1ms and polls touch → responsive input.
-    barTimer = lv_timer_create(barTick_cb, 120, NULL);    // auto-switch progress bar
+    barTimer = lv_timer_create(barTick_cb, 160, NULL);    // auto-switch progress bar (160ms: smooth, frees bus time)
     dataTimer = lv_timer_create(dataTick_cb, 300, NULL);  // live values (+ power-save supervisor)
     lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
     lv_timer_create(wifiTick_cb, 500, NULL);
