@@ -1172,43 +1172,51 @@ static void thickLine(int x1, int y1, int x2, int y2, int th, uint16_t c) {
     int r = th / 2; if (r < 1) r = 1;
     for (int i = 0; i <= n; i++) gfx->fillCircle(x1 + (x2 - x1) * i / n, y1 + (y2 - y1) * i / n, r, c);
 }
-// Red ninja: round hood + eye-slit + headband tails (the head you liked), a solid
-// tapered torso and thick capsule limbs in a clear run stride; air = leaping.
+// Red ninja in a leaning run: hooded head + eye-slit + headband tails, solid
+// tapered torso tilted forward, thick bent-knee legs (back leg kicks up behind),
+// swinging bent arms. air = mid-leap (knees tucked).
 static void drawNinja(int cx, int footY, float run, bool air, float sc) {
     uint16_t body = gfx->color565(0xcc, 0x22, 0x22), limb = gfx->color565(0x8c, 0x16, 0x16);
     uint16_t scarf = gfx->color565(0xff, 0x55, 0x55), blade = gfx->color565(0xcf, 0xd8, 0xe6);
     uint16_t skin = gfx->color565(0xe6, 0xc2, 0xa0);
-    int hipY = footY - (int)(26 * sc), shY = footY - (int)(46 * sc);
-    int headX = cx + (int)(1 * sc), headY = footY - (int)(54 * sc), hr = (int)(9 * sc);
-    int legTh = (int)(7 * sc), armTh = (int)(6 * sc);
+    int hipY = footY - (int)(24 * sc), shY = footY - (int)(44 * sc);
+    int lean = (int)(11 * sc), shCx = cx + lean;          // shoulders/head lean forward over the hips
+    int headX = shCx + (int)(2 * sc), headY = shY - (int)(9 * sc), hr = (int)(9 * sc);
+    int legTh = (int)(7 * sc), armTh = (int)(6 * sc), thigh = (int)(13 * sc), shin = (int)(13 * sc);
     float sw = sinf(run * 6.2832f);                       // stride phase (-1..1)
-    auto drawLeg = [&](float s, uint16_t col) {          // hip → knee → foot, thick, foot forward
-        int kx = cx + (int)(s * 9 * sc), ky = hipY + (int)(13 * sc);
-        int fx = kx + (int)(s * 5 * sc) + (int)(3 * sc);
+    // bent-knee leg. s>0 = leg reaching forward-down, s<0 = leg kicking up behind.
+    auto drawLeg = [&](float s, uint16_t col) {
+        float ta = s * 0.85f, bend = 0.55f + 0.85f * (0.5f - 0.5f * s);
+        int kx = cx + (int)(sinf(ta) * thigh), ky = hipY + (int)(cosf(ta) * thigh);
+        float sa = ta - bend;
+        int fx = kx + (int)(sinf(sa) * shin), fy = ky + (int)(cosf(sa) * shin);
         thickLine(cx, hipY, kx, ky, legTh, col);
-        thickLine(kx, ky, fx, footY, legTh, col);
-        gfx->fillRect(fx - (int)(3 * sc), footY - (int)(3 * sc), (int)(10 * sc), (int)(4 * sc), col);
+        thickLine(kx, ky, fx, fy, legTh, col);
+        gfx->fillRect(fx - (int)(2 * sc), fy - (int)(2 * sc), (int)(9 * sc), (int)(4 * sc), col);
     };
     auto drawLegTuck = [&](float s, uint16_t col) {      // knees pulled up while airborne
-        int kx = cx + (int)(s * 10 * sc), ky = hipY + (int)(2 * sc);
-        int fx = kx + (int)(s * 2 * sc), fy = ky - (int)(11 * sc);
+        int kx = cx + (int)(s * 11 * sc), ky = hipY + (int)(1 * sc);
+        int fx = kx + (int)(s * 3 * sc), fy = ky - (int)(11 * sc);
         thickLine(cx, hipY, kx, ky, legTh, col);
         thickLine(kx, ky, fx, fy, legTh, col);
     };
+    // bent arm swinging from the (leaning) shoulder.
     auto drawArm = [&](float s, uint16_t col) {
-        int ex = cx + (int)(s * 8 * sc), ey = shY + (int)(11 * sc);
-        int hx = ex + (int)(s * 6 * sc) + (int)(2 * sc), hy = ey + (int)(8 * sc);
-        thickLine(cx, shY + (int)(3 * sc), ex, ey, armTh, col);
+        float ua = s * 0.95f;
+        int ex = shCx + (int)(sinf(ua) * 9 * sc), ey = shY + (int)(7 * sc) + (int)(cosf(ua) * 4 * sc);
+        float fa = ua + 1.15f;
+        int hx = ex + (int)(sinf(fa) * 9 * sc), hy = ey + (int)(cosf(fa) * 7 * sc);
+        thickLine(shCx, shY + (int)(3 * sc), ex, ey, armTh, col);
         thickLine(ex, ey, hx, hy, armTh, col);
     };
-    // back limbs first (darker, behind torso)
+    // back limbs first (darker, behind torso); legs & arms swing opposite
     if (air) { drawLegTuck(-0.8f, limb); drawArm(-1.3f, limb); }
-    else { drawLeg(-0.7f * sw, limb); drawArm(0.9f * sw, limb); }
-    // katana across the back
-    thickLine(cx - (int)(4 * sc), shY + (int)(1 * sc), cx - (int)(13 * sc), shY + (int)(22 * sc), (int)(3 * sc), blade);
-    // solid tapered torso (shoulders wider than hips)
-    gfx->fillTriangle(cx - (int)(7 * sc), hipY, cx + (int)(7 * sc), hipY, cx + (int)(5 * sc), shY, body);
-    gfx->fillTriangle(cx - (int)(7 * sc), hipY, cx + (int)(5 * sc), shY, cx - (int)(5 * sc), shY, body);
+    else { drawLeg(-sw, limb); drawArm(sw, limb); }
+    // katana across the (leaning) back
+    thickLine(shCx - (int)(4 * sc), shY + (int)(1 * sc), shCx - (int)(13 * sc), shY + (int)(20 * sc), (int)(3 * sc), blade);
+    // solid tapered torso, tilted forward (hips at cx, shoulders at shCx)
+    gfx->fillTriangle(cx - (int)(7 * sc), hipY, cx + (int)(7 * sc), hipY, shCx + (int)(5 * sc), shY, body);
+    gfx->fillTriangle(cx - (int)(7 * sc), hipY, shCx + (int)(5 * sc), shY, shCx - (int)(5 * sc), shY, body);
     gfx->fillRect(cx - (int)(7 * sc), hipY - (int)(2 * sc), (int)(14 * sc), (int)(3 * sc), gfx->color565(0x40, 0x0a, 0x0a)); // belt
     // head (hood + eye-slit + headband + flowing tails)
     gfx->fillCircle(headX, headY, hr, body);
@@ -1217,7 +1225,7 @@ static void drawNinja(int cx, int footY, float run, bool air, float sc) {
     for (int k = 0; k < 3; k++) { int x1 = headX - hr - (int)((4 + k * 7) * sc), y1 = headY - (int)(2 * sc) + (int)(7 * sc * sinf(run * 6.2832f * 1.5f + k)); tl(headX - hr, headY - (int)(2 * sc), x1, y1, scarf); }
     // front limbs (brighter, in front of torso)
     if (air) { drawArm(1.3f, body); drawLegTuck(0.8f, body); }
-    else { drawArm(-0.9f * sw, body); drawLeg(0.7f * sw, body); }
+    else { drawArm(-sw, body); drawLeg(sw, body); }
 }
 // Draw the parallax city scene + ninja for boot time t (0..0.82 on-screen).
 static int bootSx[44], bootSy[44]; static bool bootInit = false;
