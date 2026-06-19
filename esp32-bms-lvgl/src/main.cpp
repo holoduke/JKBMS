@@ -1275,6 +1275,72 @@ static void playBootAnimation() {
     gfx->fillScreen(c565(C_BG)); gfx->flush();                             // hand off to the app
     setBrightness(brightness);
 }
+// Second act: a retro tactical-HUD boot log (Terminator-style) — amber pixel text
+// on black with scanlines, status lines flipping to [ OK ], a progress bar and a
+// blinking cursor, ending on READY. Built-in GFX font = chunky monospace look.
+static void playHudBoot() {
+    static const char *HUD[] = {
+        "POWER CORE",
+        "DISPLAY DRIVER",
+        "TOUCH INTERFACE",
+        "ESTABLISHING DATA LINK",
+        "SECURING DATA LINK",
+        "SCANNING BMS NODES",
+        "WAITING FOR DATA",
+        "SYSTEMS ONLINE",
+    };
+    const int N = sizeof(HUD) / sizeof(HUD[0]);
+    const uint32_t STEP = 230, TAIL = 650, END = N * STEP + TAIL;
+    const uint16_t AMBER = gfx->color565(0xff, 0xb0, 0x28), RED = gfx->color565(0xff, 0x38, 0x20);
+    const uint16_t DIM = gfx->color565(0x4a, 0x16, 0x0e), BG = gfx->color565(0x09, 0x03, 0x02);
+    setBrightness(brightness);
+    uint32_t t0 = millis();
+    for (;;) {
+        uint32_t el = millis() - t0;
+        gfx->fillScreen(BG);
+        for (int y = (el / 70) % 3; y < Ht; y += 3) gfx->drawFastHLine(0, y, Wd, DIM);   // scrolling scanlines
+        // header + rule
+        gfx->setTextSize(2); gfx->setTextColor(RED); gfx->setCursor(14, 12); gfx->print("JK-BMS TACTICAL MONITOR");
+        gfx->drawFastHLine(14, 36, Wd - 28, RED); gfx->drawFastHLine(14, 38, Wd - 28, DIM);
+        // targeting reticle, top-right
+        int rx = Wd - 34, ry = 70;
+        gfx->drawCircle(rx, ry, 15, AMBER); gfx->drawCircle(rx, ry, 5, RED);
+        gfx->drawFastHLine(rx - 24, ry, 48, AMBER); gfx->drawFastVLine(rx, ry - 24, 48, AMBER);
+        // log lines
+        int shown = el / STEP; if (shown > N) shown = N;
+        gfx->setTextSize(2);
+        for (int i = 0; i < shown; i++) {
+            int ly = 58 + i * 26;
+            bool ok = el > (i + 1) * STEP + 60;                  // [ .. ] then flips to [ OK ]
+            gfx->setTextColor(AMBER); gfx->setCursor(16, ly); gfx->print(HUD[i]);
+            gfx->setTextColor(ok ? AMBER : RED); gfx->setCursor(Wd - 16 - 72, ly); gfx->print(ok ? "[ OK ]" : "[ .. ]");
+        }
+        if (shown < N && ((el / 320) & 1)) { gfx->fillRect(16, 58 + shown * 26, 13, 17, AMBER); }   // cursor
+        // progress bar
+        int bx = 16, by = Ht - 24, bw = Wd - 32;
+        float p = (float)el / END; if (p > 1) p = 1;
+        gfx->drawRect(bx, by, bw, 14, RED);
+        gfx->fillRect(bx + 2, by + 2, (int)((bw - 4) * p), 10, AMBER);
+        gfx->setTextSize(1); gfx->setTextColor(AMBER); gfx->setCursor(bx, by - 12);
+        char pc[8]; snprintf(pc, sizeof(pc), "%d%%", (int)(p * 100)); gfx->print(pc);
+        gfx->flush();
+        if (el > END) break;
+        delay(1);
+    }
+    // READY: blink a few times, then hand off
+    for (int b = 0; b < 6; b++) {
+        gfx->fillScreen(BG);
+        for (int y = 0; y < Ht; y += 3) gfx->drawFastHLine(0, y, Wd, DIM);
+        if (b & 1) {
+            gfx->setTextSize(5); gfx->setTextColor(RED);
+            const char *r = "READY"; int w = 5 * 6 * 5;          // size5 → 30px/char
+            gfx->setCursor((Wd - w) / 2, (Ht - 40) / 2); gfx->print(r);
+        }
+        gfx->flush();
+        uint32_t b0 = millis(); while (millis() - b0 < 130) delay(1);
+    }
+    gfx->fillScreen(c565(C_BG)); gfx->flush();
+}
 
 // ============================================================================
 //  LVGL glue
@@ -1461,7 +1527,8 @@ void setup() {
     if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");
     gfx->fillScreen(0x0000);
     ledcAttach(TFT_BL, BL_CH_FREQ, BL_CH_RES);
-    playBootAnimation();        // Terminator-style power-on (sets brightness)
+    playBootAnimation();        // act 1: running ninja leaps off-screen
+    playHudBoot();              // act 2: tactical-HUD boot log → READY
 
     touch.begin(); touch.setRotation(TFT_rot);
     touch.enOffsetCorrection(true);
