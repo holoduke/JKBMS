@@ -1163,52 +1163,53 @@ static void ctc(const char *s, int cx, int cy, uint8_t size, uint16_t col) {
     gfx->setTextColor(col); gfx->setCursor(cx - w / 2 - x1, cy - h / 2 - y1); gfx->print(s);
 }
 // jagged lightning bolt from (x1,y1) to (x2,y2)
-// Original NES-style pixel-art ninja (hand-drawn, no copyrighted game sprites).
-// 14x17 cells, each painted as an `px`-sized block. Faces/runs right; hooded head
-// with an eye-slit and a trailing headband, katana on the back.
-//   frame 0/1 = run cycle (legs alternate), 2 = leaping (legs tucked up).
-#define NJ_W 14
-#define NJ_H 17
-static void drawNinjaPix(int cx, int footY, int frame, int px) {
-    if (px < 1) px = 1;
-    const uint16_t R = gfx->color565(0xcc, 0x22, 0x22);   // body red
-    const uint16_t D = gfx->color565(0x7a, 0x12, 0x12);   // shaded (back) limbs
-    const uint16_t S = gfx->color565(0xe9, 0xc6, 0xa2);   // eye-slit / skin
-    const uint16_t B = gfx->color565(0xd2, 0xda, 0xe8);   // blade
-    const uint16_t K = gfx->color565(0x35, 0x07, 0x07);   // belt
-    const uint16_t F = gfx->color565(0xff, 0x5a, 0x5a);   // headband highlight
-    static const char *UP[12] = {
-        ".....RRRR.....",
-        "....RRRRRR....",
-        "...RRRRRRRR...",
-        "..FFRRRRRRSS..",
-        "...RRRRRRRR...",
-        "....RRRRRR....",
-        "...DRRRRRRB...",
-        "..D.RRRRRR.B..",
-        "...RRRRRRRR...",
-        "...RRRRRRRRR..",
-        "...RKKKKKKR...",
-        "...RRRRRRRR...",
+static void tl(int x1, int y1, int x2, int y2, uint16_t c) {   // 2px line
+    gfx->drawLine(x1, y1, x2, y2, c); gfx->drawLine(x1, y1 + 1, x2, y2 + 1, c);
+}
+// Bigger jointed red ninja (knees + elbows + sword + headband tails). sc = scale.
+// run = run-cycle phase (0..1 loops); air = leaping (legs tucked, arms thrown).
+static void drawNinja(int cx, int footY, float run, bool air, float sc) {
+    uint16_t body = gfx->color565(0xcc, 0x22, 0x22), limb = gfx->color565(0x84, 0x16, 0x16);
+    uint16_t scarf = gfx->color565(0xff, 0x55, 0x55), blade = gfx->color565(0xcf, 0xd8, 0xe6);
+    uint16_t skin = gfx->color565(0xe6, 0xc2, 0xa0);
+    int hipY = footY - (int)(30 * sc), shY = footY - (int)(50 * sc);
+    int headX = cx + (int)(3 * sc), headY = footY - (int)(58 * sc), hr = (int)(8 * sc);
+    int thL = (int)(16 * sc), shL = (int)(16 * sc), uaL = (int)(13 * sc), laL = (int)(13 * sc);
+    float ph = run * 6.2832f;
+    auto leg = [&](float a, uint16_t col) {
+        float th = 0.7f * sinf(a), kb = 0.4f + 0.8f * (0.5f + 0.5f * sinf(a + 1.7f));
+        int kx = cx + (int)(sinf(th) * thL), ky = hipY + (int)(cosf(th) * thL);
+        int fx = kx + (int)(sinf(th - kb) * shL), fy = ky + (int)(cosf(th - kb) * shL);
+        tl(cx, hipY, kx, ky, col); tl(kx, ky, fx, fy, col); gfx->fillCircle(fx, fy, (int)(2 * sc), col);
     };
-    static const char *LEGS[3][5] = {
-        { "...RR...RR....", "..DD....RR....", ".DD.....RR....", ".D......RR....", "........RR...." },
-        { "...RR..RRR....", "...RR...RR....", "...RR....RR...", "...RR.........", "...RR........." },
-        { "...RRRRRR.....", "..RR.....RR...", ".RR.......RR..", "..............", ".............." },
+    auto legTuck = [&](float s, uint16_t col) {
+        int kx = cx + (int)(s * 11 * sc), ky = hipY - (int)(2 * sc);
+        int fx = kx - (int)(s * 5 * sc), fy = ky - (int)(11 * sc);
+        tl(cx, hipY, kx, ky, col); tl(kx, ky, fx, fy, col);
     };
-    int x0 = cx - NJ_W * px / 2, y0 = footY - NJ_H * px;
-    auto put = [&](int col, int row, char c) {
-        uint16_t k;
-        switch (c) {
-            case 'R': k = R; break; case 'D': k = D; break; case 'S': k = S; break;
-            case 'B': k = B; break; case 'K': k = K; break; case 'F': k = F; break;
-            default: return;   // '.' transparent
-        }
-        gfx->fillRect(x0 + col * px, y0 + row * px, px, px, k);
+    auto arm = [&](float a, uint16_t col) {
+        float ta = 0.9f * sinf(a);
+        int ex = cx + (int)(sinf(ta) * uaL), ey = shY + (int)(4 * sc) + (int)(cosf(ta) * uaL * 0.5f);
+        int hx = ex + (int)(sinf(ta + 1.0f) * laL), hy = ey + (int)(cosf(ta + 1.0f) * laL * 0.7f);
+        tl(cx, shY + (int)(3 * sc), ex, ey, col); tl(ex, ey, hx, hy, col);
     };
-    for (int r = 0; r < 12; r++) for (int c = 0; c < NJ_W; c++) put(c, r, UP[r][c]);
-    const char **lg = LEGS[frame];
-    for (int r = 0; r < 5; r++) for (int c = 0; c < NJ_W; c++) put(c, 12 + r, lg[r][c]);
+    // back limbs (darker, behind torso)
+    if (air) { legTuck(-0.7f, limb); arm(-1.3f, limb); }
+    else { leg(ph + 3.1416f, limb); arm(ph, limb); }
+    // sword across the back
+    tl(cx - (int)(3 * sc), shY + (int)(2 * sc), cx - (int)(11 * sc), shY + (int)(24 * sc), blade);
+    // torso
+    gfx->fillTriangle(cx - (int)(5 * sc), hipY, cx + (int)(5 * sc), hipY, headX, shY, body);
+    gfx->fillTriangle(cx - (int)(3 * sc), hipY, headX + (int)(5 * sc), shY, headX, headY + hr, body);
+    gfx->fillRect(cx - (int)(5 * sc), hipY - (int)(2 * sc), (int)(11 * sc), (int)(3 * sc), gfx->color565(0x40, 0x0a, 0x0a)); // belt
+    // head + mask + face + headband tails
+    gfx->fillCircle(headX, headY, hr, body);
+    gfx->fillRect(headX + (int)(2 * sc), headY - (int)(1 * sc), (int)(5 * sc), (int)(3 * sc), skin);  // eye strip
+    gfx->fillRect(headX - hr, headY - (int)(3 * sc), 2 * hr, (int)(3 * sc), scarf);                    // band
+    for (int k = 0; k < 3; k++) { int x1 = headX - hr - (int)((5 + k * 8) * sc), y1 = headY - (int)(2 * sc) + (int)(8 * sc * sinf(ph * 1.5f + k)); tl(headX - hr, headY - (int)(1 * sc), x1, y1, scarf); }
+    // front limbs (brighter, in front)
+    if (air) { arm(1.3f, body); legTuck(0.8f, body); }
+    else { arm(ph + 3.1416f, body); leg(ph, body); }
 }
 // Draw the parallax city scene + ninja for boot time t (0..0.82 on-screen).
 static int bootSx[44], bootSy[44]; static bool bootInit = false;
@@ -1243,8 +1244,7 @@ static void drawBootScene(float t) {
     int nx, ny; bool air;
     if (t < 0.60f) { nx = 150; ny = groundY; air = false; }
     else { float a = (t - 0.60f) / 0.22f; if (a > 1) a = 1; nx = 150 + (int)(a * (W - 60)); ny = groundY - (int)(a * (groundY + 120)); air = true; }
-    int frame = air ? 2 : (((int)(t * 16.0f)) & 1);   // alternate run frames; tucked while airborne
-    drawNinjaPix(nx, ny, frame, 4);                    // 4 px/cell → ~56x68 sprite
+    drawNinja(nx, ny, t * 8.0f, air, 1.7f);
 }
 // Power-on: fast parallax city, a running ninja leaps off-screen, then flashes.
 static void playBootAnimation() {
