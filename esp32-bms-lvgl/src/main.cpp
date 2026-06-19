@@ -1285,7 +1285,8 @@ static void playHudBoot() {
         "TOUCH INTERFACE",
         "ESTABLISHING DATA LINK",
         "SECURING DATA LINK",
-        "SCANNING BMS NODES",
+        "CONNECTING BATTERIES",
+        "RECEIVING INPUT DATA",
         "WAITING FOR DATA",
         "SYSTEMS ONLINE",
     };
@@ -1310,12 +1311,12 @@ static void playHudBoot() {
         int shown = el / STEP; if (shown > N) shown = N;
         gfx->setTextSize(2);
         for (int i = 0; i < shown; i++) {
-            int ly = 58 + i * 26;
+            int ly = 54 + i * 24;
             bool ok = el > (i + 1) * STEP + 60;                  // [ .. ] then flips to [ OK ]
             gfx->setTextColor(AMBER); gfx->setCursor(16, ly); gfx->print(HUD[i]);
             gfx->setTextColor(ok ? AMBER : RED); gfx->setCursor(Wd - 16 - 72, ly); gfx->print(ok ? "[ OK ]" : "[ .. ]");
         }
-        if (shown < N && ((el / 320) & 1)) { gfx->fillRect(16, 58 + shown * 26, 13, 17, AMBER); }   // cursor
+        if (shown < N && ((el / 320) & 1)) { gfx->fillRect(16, 54 + shown * 24, 13, 17, AMBER); }   // cursor
         // progress bar
         int bx = 16, by = Ht - 24, bw = Wd - 32;
         float p = (float)el / END; if (p > 1) p = 1;
@@ -1527,8 +1528,8 @@ void setup() {
     if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");
     gfx->fillScreen(0x0000);
     ledcAttach(TFT_BL, BL_CH_FREQ, BL_CH_RES);
-    playBootAnimation();        // act 1: running ninja leaps off-screen
-    playHudBoot();              // act 2: tactical-HUD boot log → READY
+    // playBootAnimation();     // (ninja intro disabled for now)
+    playHudBoot();              // tactical-HUD boot log → READY
 
     touch.begin(); touch.setRotation(TFT_rot);
     touch.enOffsetCorrection(true);
