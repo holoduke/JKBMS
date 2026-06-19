@@ -1378,14 +1378,7 @@ static void playHudBoot() {
         gfx->setCursor((Wd - 5 * 24) / 2, (Ht - 32) / 2); gfx->print(buf);   // size4 → 24px/char
         gfx->flush(); delay(1);
     }
-    // confirm flash: bright inverted READY blink
-    for (int b = 0; b < 4; b++) {
-        gfx->fillScreen((b & 1) ? gfx->color565(0xff, 0xd0, 0x60) : BG);
-        if (b & 1) { gfx->setTextSize(5); gfx->setTextColor(gfx->color565(0x20, 0x08, 0x02)); gfx->setCursor((Wd - 5 * 30) / 2, (Ht - 40) / 2); gfx->print("READY"); }
-        gfx->flush();
-        uint32_t b0 = millis(); while (millis() - b0 < 110) delay(1);
-    }
-    gfx->fillScreen(c565(C_BG)); gfx->flush();
+    gfx->fillScreen(c565(C_BG)); gfx->flush();   // hand off to the app
 }
 
 // ============================================================================
