@@ -87,6 +87,8 @@ struct Bms {
     int capCount; float capSpanDays;
     float peakChg, peakDis;
     bool bmsOk;                 // overall BMS status (no active protection)
+    uint32_t uptime;            // BMS-reported total runtime (seconds); 0 = unknown
+    bool uptimeOk;              // device-info read succeeded
 };
 static Bms bms[2];
 // Real graph history: one sample / 5 min per BMS, ring-buffered to HIST_N (=2016 = 7 days),
@@ -232,6 +234,22 @@ static void bmsReadAddr(uint8_t addr, int idx) {
     float w = b.v * b.i; if (w > b.peakChg) b.peakChg = w; if (-w > b.peakDis) b.peakDis = -w;
     b.bmsOk = true; bmsLive[idx] = true;
 }
+// Read the device-info block (Modbus reg 0x1400) for the BMS total runtime.
+// Layout mirrors the JK device-info frame (web index.html: uptime at frame
+// offset 38, u32) minus its 6-byte header → byte 32 of the Modbus payload.
+static void bmsReadInfo(uint8_t addr, int idx) {
+    uint8_t req[8] = {addr, 3, 0x14, 0x00, 0x00, 0x20, 0, 0};
+    uint16_t crc = mbCrc(req, 6); req[6] = crc & 0xFF; req[7] = crc >> 8;
+    while (bmsSerial.available()) bmsSerial.read();
+    bmsSerial.write(req, 8); bmsSerial.flush();
+    static uint8_t r[80]; int n = 0; uint32_t t0 = millis();
+    while (millis() - t0 < 70) { while (bmsSerial.available() && n < 80) r[n++] = bmsSerial.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
+    if (n < 5 || r[0] != addr || r[1] != 3) return;
+    int bc = r[2]; if (n < 3 + bc + 2 || bc < 36 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) return;
+    uint8_t *p = r + 3;
+    uint32_t up = (uint32_t)p[32] << 24 | p[33] << 16 | p[34] << 8 | p[35];   // big-endian, like the realtime block
+    bms[idx].uptime = up; bms[idx].uptimeOk = true;
+}
 // Poll both real BMSes (addr 1 → BMS 1, addr 2 → BMS 2). Skipped in demo mode.
 // A pack that's offline is retried only every BMS_RETRY polls, not every poll, so
 // a missing pack doesn't stall the UI with a timeout every second.
@@ -239,10 +257,13 @@ static void bmsReadAddr(uint8_t addr, int idx) {
 static void bmsRead() {
     if (demoMode) { bmsLive[0] = bmsLive[1] = false; return; }
     static uint8_t skip[2] = {0, 0};
+    static uint8_t infoTick = 0;
+    bool wantInfo = (infoTick++ % 10) == 0;        // refresh slow-changing uptime every ~10 polls
     for (int t = 0; t < 2; t++) {
         if (!bmsLive[t] && skip[t] > 0) { skip[t]--; continue; }   // back off from a silent pack
         bmsReadAddr(t + 1, t);
         skip[t] = bmsLive[t] ? 0 : BMS_RETRY;                      // online → poll every cycle
+        if (bmsLive[t] && (wantInfo || !bms[t].uptimeOk)) bmsReadInfo(t + 1, t);
     }
 }
 // Write a UINT32 control register (function 0x10, 2 registers) to one BMS (Modbus addr).
@@ -472,7 +493,9 @@ static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, 
     char val[4][10];
     snprintf(val[0], sizeof(val[0]), "%.0fW", pkChg);
     snprintf(val[1], sizeof(val[1]), "%.0fW", pkDis);
-    uint32_t m = upSec / 60; snprintf(val[2], sizeof(val[2]), "%luh%02lu", (unsigned long)(m / 60), (unsigned long)(m % 60));
+    uint32_t m = upSec / 60;
+    if (m >= 6000) snprintf(val[2], sizeof(val[2]), "%lud%luh", (unsigned long)(m / 1440), (unsigned long)((m % 1440) / 60));   // ≥100h → days
+    else snprintf(val[2], sizeof(val[2]), "%luh%02lu", (unsigned long)(m / 60), (unsigned long)(m % 60));
     snprintf(val[3], sizeof(val[3]), "%s", rt);
     uint32_t vc[4] = {C_ACCENT, C_WARN, C_TEXT, rtCol};
     if (stale) { for (int r = 0; r < 4; r++) { if (r != 2) { snprintf(val[r], sizeof(val[r]), "--"); vc[r] = C_MUTED; } } }  // uptime still real
@@ -672,7 +695,8 @@ static void renderBms() {
     char rt[10]; uint32_t rtCol;
     float fullAh = (!demoMode && bmsLive[view]) ? packFullAh[view] : PACK_AH;
     runtimeStr(b.soc, b.i, fullAh, rt, sizeof(rt), &rtCol);
-    drawStatsTile(rx + vW + gap, ty, sW, th, b.peakChg, b.peakDis, now / 1000, rt, rtCol, stale);
+    uint32_t upSec = (!demoMode && bmsLive[view] && b.uptimeOk) ? b.uptime : now / 1000;   // BMS runtime if live, else device uptime
+    drawStatsTile(rx + vW + gap, ty, sW, th, b.peakChg, b.peakDis, upSec, rt, rtCol, stale);
     drawTempsTile(rx + vW + gap + sW + gap, ty, tpW, th, b.tMos, b.tp1, b.tp2, stale);
 
     const int cellsW = rw - 8 - POW_W;          // ~1/3 cells, ~2/3 power graph
