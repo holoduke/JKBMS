@@ -1126,34 +1126,47 @@ static void drawIco(int cx, int cy, float scale, float ax, float ay, float az, f
     uint16_t ec = dimC(0xff, 0xff, 0xff, 70);
     for (int i = 0; i < n; i++) { int f = order[i], a = F[f][0], b = F[f][1], c = F[f][2]; gfx->drawTriangle(px[a], py[a], px[b], py[b], px[c], py[c], ec); }
 }
+// Robot-vision power-OFF: the image collapses vertically into a bright scan line,
+// flickers, retracts horizontally to a dot, then blinks out — the reverse of
+// playVisionOn(). Ends with the backlight at its lowest (restored on wake).
 static void playSleepAnimation() {
-    const int cx = Wd / 2, cy = Ht / 2; const int NS = 56;
-    float ang[NS], spd[NS], ph[NS];
-    for (int i = 0; i < NS; i++) { ang[i] = fmodf(i * 2.39996f, 6.2832f); spd[i] = 0.7f + 0.6f * fabsf(sinf(i * 1.7f)); ph[i] = fmodf(i * 0.137f, 1.0f); }
-    float maxR = sqrtf((float)cx * cx + (float)cy * cy);
-    uint32_t t0 = millis(); const float DUR = 2600.0f;
-    uint16_t bg = c565(C_BG);
+    const uint16_t BG = gfx->color565(0x09, 0x03, 0x02);
+    const uint16_t AMBER = gfx->color565(0xff, 0xb0, 0x28), GLOW = gfx->color565(0x70, 0x40, 0x12);
+    const uint16_t WHITE = gfx->color565(0xff, 0xf0, 0xd0);
+    int cx = Wd / 2, cy = Ht / 2;
+    uint32_t t0 = millis();                                   // vertical collapse → horizontal line
     for (;;) {
-        float t = (millis() - t0) / DUR; if (t >= 1.0f) break;
-        float endT = t > 0.66f ? (t - 0.66f) / 0.34f : 0.0f;
-        gfx->fillScreen(bg);
-        float warp = t * t * 2.4f + endT * endT * 7.0f;
-        for (int i = 0; i < NS; i++) {
-            float r = fmodf(ph[i] + warp * spd[i], 1.0f), rr = r * r * maxR;
-            float streak = 6.0f + r * 44.0f + endT * 140.0f;
-            float rl = rr - streak; if (rl < 0) rl = 0;
-            float c = cosf(ang[i]), s = sinf(ang[i]); uint8_t br = (uint8_t)(60 + 180 * r);
-            gfx->drawLine(cx + (int)(c * rl), cy + (int)(s * rl), cx + (int)(c * rr), cy + (int)(s * rr), dimC(0x6b, 0x86, 0xff, br));
-        }
-        float pulse = 0.5f + 0.5f * sinf(t * PI * 4.0f), glowF = 1.0f - endT;
-        for (int gg = 4; gg >= 1; gg--) { int rad = (int)((24 + gg * 18 * (0.8f + 0.4f * pulse)) * glowF); if (rad > 1) gfx->fillCircle(cx, cy, rad, dimC(0x3d, 0xf0, 0xa8, (uint8_t)(8 + (4 - gg) * 7))); }
-        float scale = 40.0f * (0.78f + 0.42f * sinf(t * PI));
-        if (endT > 0) scale *= (1.0f - endT) * (1.0f - endT);
-        drawIco(cx, cy, scale, t * 7.8f, t * 5.9f, t * 4.0f, t * 2.4f);
+        uint32_t el = millis() - t0; float p = el / 300.0f; if (p > 1) p = 1;
+        int hh = (int)((1 - p) * cy);                         // half-height shrinks to 0
+        uint8_t v = (uint8_t)(60 + 195 * p);                  // brightens as it concentrates
+        gfx->fillScreen(BG);
+        gfx->fillRect(0, cy - hh, Wd, hh * 2 + 2, gfx->color565(v, (uint8_t)(v * 0.85f), (uint8_t)(v * 0.5f)));
         gfx->flush();
+        if (p >= 1) break; delay(1);
     }
-    gfx->fillScreen(gfx->color565(255, 255, 255)); gfx->flush();
-    gfx->fillScreen(bg); gfx->flush();
+    for (int f = 0; f < 3; f++) {                             // flicker
+        gfx->fillScreen(BG);
+        gfx->fillRect(0, cy - 2, Wd, 4, (f & 1) ? AMBER : WHITE);
+        gfx->flush(); uint32_t b = millis(); while (millis() - b < 45) delay(1);
+    }
+    uint32_t t1 = millis();                                   // line retracts to a dot
+    for (;;) {
+        uint32_t el = millis() - t1; float p = el / 360.0f; if (p > 1) p = 1;
+        int hw = (int)((1 - p) * (1 - p) * (Wd / 2));         // ease-out retract
+        int gh = 3 + (int)(5 * p), core = hw < 6 ? hw : 6;
+        gfx->fillScreen(BG);
+        gfx->fillRect(cx - hw - 2, cy - gh, (hw + 2) * 2, gh * 2, GLOW);
+        gfx->fillRect(cx - hw, cy - 2, hw * 2 + 1, 4, AMBER);
+        gfx->fillRect(cx - core, cy - 1, core * 2 + 1, 2, WHITE);
+        gfx->flush();
+        if (p >= 1) break; delay(1);
+    }
+    for (int f = 0; f < 2; f++) {                             // dot blinks out
+        gfx->fillScreen(BG); int r = 4 - f * 2; if (r > 0) gfx->fillCircle(cx, cy, r, WHITE);
+        gfx->flush(); uint32_t b = millis(); while (millis() - b < 55) delay(1);
+    }
+    gfx->fillScreen(BG); gfx->flush();
+    ledcWrite(TFT_BL, 0); appliedB = 0;                       // backlight off (lowest) until a touch wakes us
     standby = true;
 }
 
@@ -1519,8 +1532,10 @@ static void dataTick_cb(lv_timer_t *t) {
     if (histDirty && now - histDirtyAt > 2000) { histDirty = false; saveHistory(); } // persist graph history
     // ---- power saving (escalates with idle time; any touch resets it) ----
     uint32_t idle = now - lastActivity;
-    int tB = (dimAfterSec && !standby && idle > (uint32_t)dimAfterSec * 1000UL) ? DIM_LEVEL : brightness;
-    if (tB != appliedB) { setBrightness(tB); appliedB = tB; }       // auto-dim
+    if (!standby) {                                                 // (sleep keeps the backlight off)
+        int tB = (dimAfterSec && idle > (uint32_t)dimAfterSec * 1000UL) ? DIM_LEVEL : brightness;
+        if (tB != appliedB) { setBrightness(tB); appliedB = tB; }   // auto-dim
+    }
     bool eco = ecoMode && !standby && idle > ECO_IDLE_MS;
     if (eco != ecoActive) {                                          // low-fps when idle
         ecoActive = eco;
