@@ -1690,12 +1690,13 @@ static void renderInitIdle(uint32_t ms) {
         float hi = (i < 7) ? (i + 1) * 85.0f / 7.0f : 100.0f;
         if (prog < lo) break;                                  // reveal one row at a time
         float fill = (prog - lo) / (hi - lo); if (fill > 1) fill = 1; if (fill < 0) fill = 0;
-        int y = 34 + i * 20, bx = 180, bw = 150, bh = 8;
+        // centered block: label | bar | status
+        int y = 34 + i * 20, lblX = 66, bx = 216, bw = 150, bh = 8;
         bool isBat = (i == 7);
-        idleText(16, y, NM[i], 1, TX);
+        idleText(lblX, y, NM[i], 1, TX);
         gfx->drawRect(bx, y - 1, bw, bh, BL);
         gfx->fillRect(bx + 1, y, (int)((bw - 2) * fill), bh - 2, (isBat && failed) ? RD : CY);
-        int stx = bx + bw + 8;
+        int stx = bx + bw + 10;
         if (isBat && failed) idleText(stx, y, "FAIL", 1, RD);
         else if (fill >= 1.0f) idleText(stx, y, "OK", 1, OK);
         else { char d[4] = "   "; int nd = (ms / 200) % 4; for (int k = 0; k < nd && k < 3; k++) d[k] = '.'; idleText(stx, y, d, 1, CY); }
