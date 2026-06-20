@@ -282,14 +282,18 @@ static void bmsReadSettings(uint8_t addr, int idx) {
 static void bmsRead() {
     if (demoMode) { bmsLive[0] = bmsLive[1] = false; return; }
     static uint8_t skip[2] = {0, 0};
+    static bool wasLive[2] = {false, false};
     static uint8_t setTick = 0;
     bool wantSet = (setTick++ % 10) == 0;          // refresh the settings block every ~10 polls
     for (int t = 0; t < 2; t++) {
         if (!bmsLive[t] && skip[t] > 0) { skip[t]--; continue; }   // back off from a silent pack
         bmsReadAddr(t + 1, t);
         skip[t] = bmsLive[t] ? 0 : BMS_RETRY;                      // online → poll every cycle
-        if (bmsLive[t] && (wantSet || !setOk[t])) bmsReadSettings(t + 1, t);
-        if (!bmsLive[t]) setOk[t] = false;
+        // settings: read once on first contact, then only every ~10 polls (never hammer a silent block)
+        bool firstContact = bmsLive[t] && !wasLive[t];
+        if (bmsLive[t] && (wantSet || firstContact)) bmsReadSettings(t + 1, t);
+        wasLive[t] = bmsLive[t];
+        if (!bmsLive[t]) { setOk[t] = false; setOk2[t] = false; }
     }
 }
 // Write a UINT32 control register (function 0x10, 2 registers) to one BMS (Modbus addr).
@@ -1207,8 +1211,8 @@ static void handleTap(int x, int y) {
                 int len = strlen(editStr);
                 if (k == 14) { editIdx = -1; }                                   // Cancel
                 else if (k == 15) {                                             // Save → clamp, write, verify
-                    float v = atof(editStr);
-                    if (setPut(editBms, d, v)) markCfg();
+                    bool hasNum = editStr[0] && !(editStr[0] == '-' && editStr[1] == 0);   // ignore empty / lone "-"
+                    if (hasNum && setPut(editBms, d, atof(editStr))) markCfg();
                     editIdx = -1;
                 } else if (k == 3) { if (len) editStr[len - 1] = 0; }           // DEL
                 else if (k == 7) { editStr[0] = 0; }                            // CLR
@@ -1271,13 +1275,11 @@ static void handleTap(int x, int y) {
             bool avail = (!demoMode && bmsLive[b] && setOk[b]);
             if (avail) {
                 int si = idx - 4;
-                if (si >= 0 && si < numCount(b)) { editIdx = si; editBms = b; editStr[0] = 0; }   // open keypad (full redraw)
-                else if (si >= numCount(b)) {                                                     // bitmask toggle (read-modify-write)
-                    const BitDef &f = BITDEFS[si - numCount(b)];
-                    uint16_t nv = bitWord(b) ^ f.mask;
-                    if (bmsSet(b + 1, 0x1114, nv)) { setRaw[b][276] = nv >> 8; setRaw[b][277] = nv & 0xFF; }
-                    markCfg(); markRowAt(ry);
-                }
+                // Only the main 4-byte (UINT32) settings are writable. The tail fields
+                // (bitmask flags @282, heating @284, sleep-hours @286) are packed 2-byte
+                // values; a 4-byte write would clobber their neighbours, so they are
+                // display-only until the correct write width is verified on hardware.
+                if (si >= 0 && si < NSET) { editIdx = si; editBms = b; editStr[0] = 0; }   // open keypad (full redraw)
             }
         } else {   // ST_WIFI
             int top = wListTop(), vbot = wRescanY() - 4;
