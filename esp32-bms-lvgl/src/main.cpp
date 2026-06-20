@@ -1587,10 +1587,10 @@ static void playHudBoot() {
         // header + rule
         gfx->setTextSize(2); gfx->setTextColor(RED); gfx->setCursor(14, 12); gfx->print("JK-BMS TACTICAL MONITOR");
         gfx->drawFastHLine(14, 36, Wd - 28, RED); gfx->drawFastHLine(14, 38, Wd - 28, DIM);
-        // targeting reticle, top-right
-        int rx = Wd - 34, ry = 70;
-        gfx->drawCircle(rx, ry, 15, AMBER); gfx->drawCircle(rx, ry, 5, RED);
-        gfx->drawFastHLine(rx - 24, ry, 48, AMBER); gfx->drawFastVLine(rx, ry - 24, 48, AMBER);
+        // targeting reticle, tucked in the top-right corner (clear of the status tags)
+        int rx = Wd - 26, ry = 18;
+        gfx->drawCircle(rx, ry, 12, AMBER); gfx->drawCircle(rx, ry, 4, RED);
+        gfx->drawFastHLine(rx - 12, ry, 24, AMBER); gfx->drawFastVLine(rx, ry - 12, 24, AMBER);
         // log lines
         int shown = el / STEP; if (shown > N) shown = N;
         gfx->setTextSize(2);
