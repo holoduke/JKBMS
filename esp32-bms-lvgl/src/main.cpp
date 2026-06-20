@@ -1673,40 +1673,46 @@ static void renderHudIdle(uint32_t ms) {
 static void renderInitIdle(uint32_t ms) {
     const uint16_t BG = gfx->color565(0x03, 0x05, 0x0c), CY = gfx->color565(0x3d, 0xf0, 0xa8);
     const uint16_t BL = gfx->color565(0x12, 0x2a, 0x40), TX = gfx->color565(0xcf, 0xe6, 0xff);
+    const uint16_t OK = gfx->color565(0x46, 0xff, 0x6a), RD = gfx->color565(0xff, 0x3a, 0x2a);
     gfx->fillScreen(BG);
     for (int x = 0; x < Wd; x += 30) gfx->drawFastVLine(x, 0, Ht, BL);      // grid
     for (int y = 0; y < Ht; y += 30) gfx->drawFastHLine(0, y, Wd, BL);
-    idleText(14, 12, "BATTERY LINK INITIALISATION", 2, CY);
-    int cx = 86, cy = 178, r = 56;                              // big progress ring + %
-    gfx->drawCircle(cx, cy, r, BL);
-    int seg = (ms / 12) % 360;
-    for (int d = 0; d < seg; d += 6) { float a = (d - 90) * 0.01745f; gfx->fillCircle(cx + (int)(r * cosf(a)), cy + (int)(r * sinf(a)), 2, CY); }
-    char pc[6]; snprintf(pc, sizeof(pc), "%d%%", (seg * 100) / 360);
-    idleText(cx - (strlen(pc) * 18) / 2, cy - 14, pc, 3, TX);
-    // each cycle "completes" then keeps waiting for the real battery feed
-    const char *msg = (seg >= 348) ? "BATTERY INIT COMPLETE" : "WAITING FOR BATTERY DATA";
-    idleText(cx - (strlen(msg) * 6) / 2, cy + r + 8, msg, 1, (seg >= 348) ? CY : TX);
-    static const char *NM[4] = {"BMS UART", "CELL DATA", "SENSORS", "PROTECTION"};
-    for (int i = 0; i < 4; i++) {                              // four loaders at different rates
-        int by = 60 + i * 42, bx = 200, bw = Wd - bx - 16;
-        idleText(bx, by, NM[i], 1, TX);
-        float p = ((ms / (6 + i * 3)) % 100) / 100.0f;
-        gfx->drawRect(bx, by + 14, bw, 14, BL);
-        gfx->fillRect(bx + 2, by + 16, (int)((bw - 4) * p), 10, CY);
+    idleText(14, 8, "BATTERY LINK INITIALISATION", 2, CY);
+    // 7 fake init steps complete, then the battery connect stalls and fails at 95%
+    static const char *NM[8] = {"BOOT VECTOR", "KERNEL MODULES", "SECURE ENCLAVE", "AES-256 KEYRING",
+                                "PACKET INSPECTOR", "TELEMETRY DECODER", "BUS ARBITRATION", "CONNECTING TO BATTERY"};
+    const int N = 8;
+    uint32_t CYCLE = 13000, t = ms % CYCLE, LOAD = 9000;
+    bool failed = (t >= LOAD);
+    float prog = failed ? 95.0f : 95.0f * t / LOAD;            // climbs 0→95, then halts
+    for (int i = 0; i < N; i++) {
+        float lo = (i < 7) ? i * 85.0f / 7.0f : 85.0f;         // first 7 share 0..85%, battery is 85..100%
+        float hi = (i < 7) ? (i + 1) * 85.0f / 7.0f : 100.0f;
+        if (prog < lo) break;                                  // reveal one row at a time
+        float fill = (prog - lo) / (hi - lo); if (fill > 1) fill = 1; if (fill < 0) fill = 0;
+        int y = 34 + i * 20, bx = 180, bw = 150, bh = 8;
+        bool isBat = (i == 7);
+        idleText(16, y, NM[i], 1, TX);
+        gfx->drawRect(bx, y - 1, bw, bh, BL);
+        gfx->fillRect(bx + 1, y, (int)((bw - 2) * fill), bh - 2, (isBat && failed) ? RD : CY);
+        int stx = bx + bw + 8;
+        if (isBat && failed) idleText(stx, y, "FAIL", 1, RD);
+        else if (fill >= 1.0f) idleText(stx, y, "OK", 1, OK);
+        else { char d[4] = "   "; int nd = (ms / 200) % 4; for (int k = 0; k < nd && k < 3; k++) d[k] = '.'; idleText(stx, y, d, 1, CY); }
     }
-    for (int i = 0; i < 12; i++) {                             // scrolling hex stream
-        int hy = (int)(((ms / 40) + i * 22) % (Ht + 20)) - 10;
-        char h[4]; snprintf(h, sizeof(h), "%02X", (int)((ms / 50 + i * 37) & 0xFF));
-        idleText(Wd - 24, hy, h, 1, BL);
+    char pc[6]; snprintf(pc, sizeof(pc), "%d%%", (int)(prog + 0.5f));   // big % centered below loaders
+    idleText((Wd - (int)strlen(pc) * 18) / 2, 208, pc, 3, failed ? RD : TX);
+    if (failed && ((ms / 400) & 1)) {                          // fail banner, centered below the %
+        const char *f = "FAILED TO INITIALIZE";
+        idleText((Wd - (int)strlen(f) * 12) / 2, 250, f, 2, RD);
     }
-    idleText(14, Ht - 14, "waiting for battery data", 1, CY);
-    if (((ms / 500) & 1)) idleText(Wd - 80, Ht - 14, "tap for menu", 1, BL);
+    if (((ms / 500) & 1)) idleText(Wd - 78, Ht - 14, "tap for menu", 1, BL);
 }
 // 3) Sensor radar / scope standby — rotating sweep, blips, scrolling waveform.
 static void renderRadarIdle(uint32_t ms) {
     const uint16_t BG = gfx->color565(0x02, 0x08, 0x05), GR = gfx->color565(0x12, 0x3a, 0x22);
     const uint16_t GRN = gfx->color565(0x3d, 0xf0, 0x90), TX = gfx->color565(0xbf, 0xe6, 0xcf);
-    const uint16_t OK = gfx->color565(0x46, 0xff, 0x6a), AMB = gfx->color565(0xff, 0xb0, 0x28);
+    const uint16_t OK = gfx->color565(0x46, 0xff, 0x6a);
     gfx->fillScreen(BG);
     idleText(14, 12, "BATTERY SENSOR ARRAY", 2, GRN);
     // --- radar, confined to the left half so it never overlaps the log ---
@@ -1729,17 +1735,24 @@ static void renderRadarIdle(uint32_t ms) {
         if (px >= 0) gfx->drawLine(px, py, wx, wy, GRN); px = wx; py = wy;
     }
     static const char *L[] = {"SERIAL LINK 115200", "AES-256 ENCRYPTION", "BMS HANDSHAKE 0x90EB",
-                              "DECRYPTING TELEMETRY", "CRC16 VALIDATION", "AWAITING BATTERY DATA"};
+                              "DECRYPTING TELEMETRY", "CRC16 VALIDATION", "CONNECTING TO BATTERY"};
     const int N = 6;
-    int shown = (ms / 600) % (N + 3) + 1; if (shown > N) shown = N;
+    const uint16_t RD = gfx->color565(0xff, 0x3a, 0x2a);
+    uint32_t CYCLE = 9000, t = ms % CYCLE, LOAD = 6000;          // load ~6s, then fail held ~3s, loop
+    bool failed = (t >= LOAD);
+    int shown = failed ? N : (int)(t / (LOAD / N)) + 1; if (shown > N) shown = N;
     int rxs = Wd - 10;
     for (int i = 0; i < shown; i++) {
-        int ly = 96 + i * 22; bool isLast = (i == N - 1);
+        int ly = 96 + i * 20; bool isLast = (i == N - 1);
         idleText(lx, ly, L[i], 1, TX);
-        char dots[4] = "   "; int nd = (ms / (isLast ? 300 : 200)) % 4; for (int d = 0; d < nd && d < 3; d++) dots[d] = '.';
-        if (isLast) idleText(rxs - 18, ly, dots, 1, AMB);        // never finishes — still waiting
-        else if (i < shown - 1) idleText(rxs - 12, ly, "OK", 1, OK);   // done → green
-        else idleText(rxs - 18, ly, dots, 1, GRN);               // in progress
+        char dots[4] = "   "; int nd = (ms / 200) % 4; for (int d = 0; d < nd && d < 3; d++) dots[d] = '.';
+        if (isLast && failed) idleText(rxs - 24, ly, "FAIL", 1, RD);
+        else if (i < shown - 1) idleText(rxs - 12, ly, "OK", 1, OK);  // done → green
+        else idleText(rxs - 18, ly, dots, 1, GRN);                    // in progress
+    }
+    if (failed && ((ms / 400) & 1)) {                           // red FAILED below the list (~3s window)
+        const char *f = "FAILED";
+        idleText(lx + ((Wd - lx) - (int)strlen(f) * 12) / 2, 96 + N * 20 + 10, f, 2, RD);
     }
     idleText(14, Ht - 14, "no battery signal", 1, GR);
     if (((ms / 500) & 1)) idleText(Wd - 78, Ht - 14, "tap for menu", 1, GR);
