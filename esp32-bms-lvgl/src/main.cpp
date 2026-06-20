@@ -1645,9 +1645,9 @@ static void renderHudIdle(uint32_t ms) {
     for (int y = (ms / 70) % 3; y < Ht; y += 3) gfx->drawFastHLine(0, y, Wd, DIM);
     idleText(14, 12, "SECURITY INTERFACE MONITOR", 2, RED);
     gfx->drawFastHLine(14, 36, Wd - 28, RED); gfx->drawFastHLine(14, 38, Wd - 28, DIM);
-    int rx = Wd - 34, ry = 70; float a = ms * 0.004f;            // sweeping reticle
-    gfx->drawCircle(rx, ry, 15, AMBER); gfx->drawCircle(rx, ry, 5, RED);
-    gfx->drawLine(rx, ry, rx + (int)(15 * cosf(a)), ry + (int)(15 * sinf(a)), AMBER);
+    int rx = Wd - 26, ry = 18; float a = ms * 0.004f;            // sweeping reticle, tucked in the top-right corner
+    gfx->drawCircle(rx, ry, 12, AMBER); gfx->drawCircle(rx, ry, 4, RED);
+    gfx->drawLine(rx, ry, rx + (int)(12 * cosf(a)), ry + (int)(12 * sinf(a)), AMBER);
     static const char *L[] = {"SCANNING BATTERY BUS", "PROBING BMS NODES", "NO BATTERY DETECTED"};
     int shown = ((ms / 700) % 5) + 1; if (shown > 3) shown = 3;
     for (int i = 0; i < shown; i++) {
