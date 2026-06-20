@@ -122,7 +122,13 @@ static int cfgBms = 0;              // which BMS the BMS-settings tab configures
 static bool tempF = false, fmt12 = false, wifiAuto = true;
 static int simSpeed = 1;            // demo data speed (1/2/5x)
 static int sysScroll = 0;           // System-tab scroll offset (px)
+static int bmsScroll = 0;           // BMS-tab scroll offset (px)
 static bool infoPopup = false;
+// raw settings block (Modbus reg 0x1000) per BMS — byte k == web frame offset k+6
+static uint8_t setRaw[2][256];
+static bool setOk[2] = {false, false};
+static int editIdx = -1;            // index into SETDEFS being edited (-1 = none)
+static int editBms = 0; static float editVal = 0;
 static bool pendingSleep = false, standby = false;
 static uint32_t lastActivity = 0;
 // power saving
@@ -239,14 +245,32 @@ static void bmsReadAddr(uint8_t addr, int idx) {
 // Poll both real BMSes (addr 1 → BMS 1, addr 2 → BMS 2). Skipped in demo mode.
 // A pack that's offline is retried only every BMS_RETRY polls, not every poll, so
 // a missing pack doesn't stall the UI with a timeout every second.
+// Read the settings/parameter block (Modbus reg 0x1000, 125 regs = 250 bytes) into
+// setRaw[idx]. byte k == web settings-frame offset k+6, big-endian like realtime.
+static void bmsReadSettings(uint8_t addr, int idx) {
+    uint8_t req[8] = {addr, 3, 0x10, 0x00, 0x00, 0x7D, 0, 0};
+    uint16_t crc = mbCrc(req, 6); req[6] = crc & 0xFF; req[7] = crc >> 8;
+    while (bmsSerial.available()) bmsSerial.read();
+    bmsSerial.write(req, 8); bmsSerial.flush();
+    static uint8_t r[300]; int n = 0; uint32_t t0 = millis();
+    while (millis() - t0 < 90) { while (bmsSerial.available() && n < 300) r[n++] = bmsSerial.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
+    if (n < 5 || r[0] != addr || r[1] != 3) { setOk[idx] = false; return; }
+    int bc = r[2]; if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) { setOk[idx] = false; return; }
+    int cp = bc < 250 ? bc : 250; memcpy(setRaw[idx], r + 3, cp);
+    setOk[idx] = true;
+}
 #define BMS_RETRY 4
 static void bmsRead() {
     if (demoMode) { bmsLive[0] = bmsLive[1] = false; return; }
     static uint8_t skip[2] = {0, 0};
+    static uint8_t setTick = 0;
+    bool wantSet = (setTick++ % 10) == 0;          // refresh the settings block every ~10 polls
     for (int t = 0; t < 2; t++) {
         if (!bmsLive[t] && skip[t] > 0) { skip[t]--; continue; }   // back off from a silent pack
         bmsReadAddr(t + 1, t);
         skip[t] = bmsLive[t] ? 0 : BMS_RETRY;                      // online → poll every cycle
+        if (bmsLive[t] && (wantSet || !setOk[t])) bmsReadSettings(t + 1, t);
+        if (!bmsLive[t]) setOk[t] = false;
     }
 }
 // Write a UINT32 control register (function 0x10, 2 registers) to one BMS (Modbus addr).
@@ -783,14 +807,113 @@ static void renderSysTab() {
         fRect(tX, thY, 4, thH, 2, C_ACCENT);
     }
 }
+// ---- editable BMS settings (derived from the web 0x01 settings frame) ----
+// Modbus register = 0x1000 + (frame offset - 6). Values decode big-endian like the
+// realtime block. All offsets here are < 250 so one 125-register read covers them.
+enum FType { FT_U32, FT_U16, FT_I32, FT_I16, FT_U8 };
+struct SetDef { const char *label; uint16_t off; uint8_t type; float scale; const char *unit; float vmin, vmax, vstep; };
+static const SetDef SETDEFS[] = {
+    {"Cell OVP",          18, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
+    {"Cell OVP recover",  22, FT_U32, 0.001f, "V",  2.4f, 4.20f, 0.01f},
+    {"Cell UVP",          10, FT_U32, 0.001f, "V",  1.5f, 3.50f, 0.01f},
+    {"Cell UVP recover",  14, FT_U32, 0.001f, "V",  1.6f, 3.60f, 0.01f},
+    {"Balance trig dV",   26, FT_U32, 0.001f, "V",  0.005f, 0.50f, 0.005f},
+    {"Balance start V",  138, FT_U32, 0.001f, "V",  2.5f, 4.20f, 0.01f},
+    {"Max balance A",     78, FT_U32, 0.001f, "A",  0.1f, 2.0f, 0.1f},
+    {"Max charge A",      50, FT_U32, 0.001f, "A",  1, 200, 1},
+    {"Charge OCP delay",  54, FT_U32, 1.0f,   "s",  1, 320, 1},
+    {"Charge OCP recov",  58, FT_U32, 1.0f,   "s",  1, 320, 1},
+    {"Max discharge A",   62, FT_U32, 0.001f, "A",  1, 200, 1},
+    {"Dischg OCP delay",  66, FT_U32, 1.0f,   "s",  1, 320, 1},
+    {"Dischg OCP recov",  70, FT_U32, 1.0f,   "s",  1, 320, 1},
+    {"Charge OTP",        82, FT_U16, 0.1f,   "C",  20, 100, 1},
+    {"Charge OTP recov",  86, FT_U16, 0.1f,   "C",  15, 95, 1},
+    {"Dischg OTP",        90, FT_U16, 0.1f,   "C",  20, 100, 1},
+    {"Dischg OTP recov",  94, FT_U16, 0.1f,   "C",  15, 95, 1},
+    {"Charge UTP",        98, FT_I32, 0.1f,   "C",  -30, 20, 1},
+    {"Charge UTP recov", 102, FT_I32, 0.1f,   "C",  -25, 25, 1},
+    {"MOS OTP",          106, FT_I32, 0.1f,   "C",  50, 120, 1},
+    {"MOS OTP recover",  110, FT_I32, 0.1f,   "C",  40, 110, 1},
+    {"SOC 100% volt",     30, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
+    {"SOC 0% volt",       34, FT_U32, 0.001f, "V",  1.5f, 3.50f, 0.01f},
+    {"Req charge volt",   38, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
+    {"Req float volt",    42, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
+    {"Power off volt",    46, FT_U32, 0.001f, "V",  1.5f, 3.20f, 0.01f},
+    {"Nominal cap",      130, FT_U32, 0.001f, "Ah", 1, 1000, 1},
+};
+#define NSET ((int)(sizeof(SETDEFS) / sizeof(SETDEFS[0])))
+static int setWidth(uint8_t t) { return t == FT_U8 ? 1 : (t == FT_U16 || t == FT_I16) ? 2 : 4; }
+static float setGet(int b, const SetDef &d) {
+    const uint8_t *p = setRaw[b]; int o = d.off - 6; uint32_t raw = 0;
+    switch (setWidth(d.type)) {
+        case 1: raw = p[o]; break;
+        case 2: raw = (uint16_t)(p[o] << 8 | p[o + 1]); break;
+        default: raw = (uint32_t)p[o] << 24 | p[o + 1] << 16 | p[o + 2] << 8 | p[o + 3]; break;
+    }
+    if (d.type == FT_I32) return (int32_t)raw * d.scale;
+    if (d.type == FT_I16) return (int16_t)raw * d.scale;
+    return raw * d.scale;
+}
+static int setDec(const SetDef &d) { return d.vstep < 0.1f ? (d.vstep < 0.01f ? 3 : 2) : (d.vstep < 1.0f ? 1 : 0); }
+static void fmtSetting(char *o, size_t n, const SetDef &d, float v) { snprintf(o, n, "%.*f%s", setDec(d), v, d.unit); }
+// Write a setting (register from the frame offset) and verify by read-back.
+static bool setPut(int b, const SetDef &d, float v) {
+    if (v < d.vmin) v = d.vmin; if (v > d.vmax) v = d.vmax;
+    long raw = lroundf(v / d.scale);
+    uint16_t reg = 0x1000 + (d.off - 6);
+    if (!bmsSet(b + 1, reg, (uint32_t)(int32_t)raw)) return false;
+    int o = d.off - 6;                                       // mirror into local buffer so the row updates
+    switch (setWidth(d.type)) {
+        case 1: setRaw[b][o] = raw & 0xFF; break;
+        case 2: setRaw[b][o] = (raw >> 8) & 0xFF; setRaw[b][o + 1] = raw & 0xFF; break;
+        default: setRaw[b][o] = (raw >> 24) & 0xFF; setRaw[b][o + 1] = (raw >> 16) & 0xFF; setRaw[b][o + 2] = (raw >> 8) & 0xFF; setRaw[b][o + 3] = raw & 0xFF; break;
+    }
+    return true;
+}
+// Modal stepper editor for one numeric setting.
+static void renderEditor() {
+    const SetDef &d = SETDEFS[editIdx];
+    int w = Wd - 80, h = 168, x = (Wd - w) / 2, y = (Ht - h) / 2;
+    fRect(0, 0, Wd, Ht, 0, C_BG);                            // clean modal backdrop
+    fRect(x, y, w, h, 12, C_CARD); dRect(x, y, w, h, 12, C_ACCENT);
+    cText(d.label, Wd / 2, y + 22, F16, C_TEXT);
+    char v[16]; fmtSetting(v, sizeof(v), d, editVal);
+    cText(v, Wd / 2, y + 64, F28, C_ACCENT);
+    int bw = 56, bh = 44, by = y + 46;
+    fRect(x + 18, by, bw, bh, 8, C_BG); dRect(x + 18, by, bw, bh, 8, C_BORDER); cText("-", x + 18 + bw / 2, by + bh / 2, F28, C_TEXT);
+    fRect(x + w - 18 - bw, by, bw, bh, 8, C_BG); dRect(x + w - 18 - bw, by, bw, bh, 8, C_BORDER); cText("+", x + w - 18 - bw / 2, by + bh / 2, F28, C_TEXT);
+    int sy = y + h - 42, sw = (w - 36 - 12) / 2;
+    fRect(x + 18, sy, sw, 32, 8, C_CARD); dRect(x + 18, sy, sw, 32, 8, C_BORDER); cText("Cancel", x + 18 + sw / 2, sy + 16, F16, C_MUTED);
+    fRect(x + w - 18 - sw, sy, sw, 32, 8, C_ACCENT); cText("Save", x + w - 18 - sw / 2, sy + 16, F16, C_BG);
+}
+static int bmsRowCount() {
+    int b = cfgBms; bool avail = (!demoMode && bmsLive[b] && setOk[b]);
+    return 4 + (avail ? NSET : 1);                           // 0:battery 1-3:switches, then settings or 1 notice
+}
+static int bmsViewH() { return Ht - LIST_TOP - 2; }
+static int bmsContentH() { return bmsRowCount() * SROW_STEP + SROW_STEP; }
+static int bmsMaxScroll() { int m = bmsContentH() - bmsViewH(); return m > 0 ? m : 0; }
 static void renderBmsTab() {
-    int b = cfgBms;
-    srow(0, "Battery", cfgBms ? "BMS 2  >" : "BMS 1  >", C_CYAN);   // tap to switch which pack
-    srowToggle(srowY(1), "Charge MOSFET", bmsCharge[b]);
-    srowToggle(srowY(2), "Discharge MOSFET", bmsDischarge[b]);
-    srowToggle(srowY(3), "Balancer", bmsBalancer[b]);
-    char cap[12]; snprintf(cap, sizeof(cap), "%.0f Ah", (!demoMode && bmsLive[b]) ? packFullAh[b] : 100.0f);
-    srow(4, "Pack capacity", cap, C_MUTED);
+    int b = cfgBms; bool avail = (!demoMode && bmsLive[b] && setOk[b]);
+    int rows = bmsRowCount();
+    if (bmsScroll > bmsMaxScroll()) bmsScroll = bmsMaxScroll();
+    for (int i = 0; i < rows; i++) {
+        int y = LIST_TOP + i * SROW_STEP - bmsScroll;
+        if (y + SROW_H < LIST_TOP || y > Ht) continue;
+        if (i == 0) srowAt(y, "Battery", cfgBms ? "BMS 2  >" : "BMS 1  >", C_CYAN);
+        else if (i == 1) srowToggle(y, "Charge MOSFET", bmsCharge[b]);
+        else if (i == 2) srowToggle(y, "Discharge MOSFET", bmsDischarge[b]);
+        else if (i == 3) srowToggle(y, "Balancer", bmsBalancer[b]);
+        else if (!avail) srowAt(y, "Parameters", demoMode ? "live BMS only" : (bmsLive[b] ? "reading..." : "offline"), C_MUTED);
+        else { const SetDef &d = SETDEFS[i - 4]; char v[16]; fmtSetting(v, sizeof(v), d, setGet(b, d)); srowAt(y, d.label, v, C_TEXT); }
+    }
+    if (bmsMaxScroll() > 0) {                                // scrollbar
+        int tX = Wd - 6, tY = LIST_TOP, tH = bmsViewH();
+        fRect(tX, tY, 4, tH, 2, C_BORDER);
+        int thH = (int)(tH * (float)bmsViewH() / bmsContentH()); if (thH < 16) thH = 16;
+        int thY = tY + (int)((tH - thH) * (float)bmsScroll / bmsMaxScroll());
+        fRect(tX, thY, 4, thH, 2, C_ACCENT);
+    }
 }
 // pixel-scrolled WiFi list (drag to scroll, fixed message + Rescan button)
 #define WROW_STEP 34
@@ -889,6 +1012,7 @@ static void renderInfoPopup() {
 }
 static void renderSettings() {
     if (kbActive) { renderKeyboard(); return; }
+    if (editIdx >= 0) { renderEditor(); return; }   // full-screen modal stepper
     // content first, then mask the header strip so overscrolled rows don't bleed
     // over the title/sub-tabs, then draw the chrome on top.
     if (subTab == ST_BMS) renderBmsTab();
@@ -1014,6 +1138,20 @@ static void handleTap(int x, int y) {
     dirtyFull = true;   // most taps change the whole screen unless noted below
     if (view == V_SETTINGS) {
         if (infoPopup) { infoPopup = false; return; }
+        if (editIdx >= 0) {                                  // numeric stepper modal
+            const SetDef &d = SETDEFS[editIdx];
+            int w = Wd - 80, ex = (Wd - w) / 2, ey = (Ht - 168) / 2;
+            int by = ey + 46, bh = 44, bw = 56, sy = ey + 168 - 42, sw = (w - 48) / 2;
+            if (y >= by && y < by + bh && x >= ex + 18 && x < ex + 18 + bw) { editVal -= d.vstep; if (editVal < d.vmin) editVal = d.vmin; return; }
+            if (y >= by && y < by + bh && x >= ex + w - 18 - bw && x < ex + w - 18) { editVal += d.vstep; if (editVal > d.vmax) editVal = d.vmax; return; }
+            if (y >= sy && y < sy + 32) {
+                if (x >= ex + w - 18 - sw) {                  // Save → write + verify
+                    if (setPut(editBms, d, editVal)) markCfg();
+                }
+                editIdx = -1;                                // Cancel or after Save → close
+            }
+            return;
+        }
         if (kbActive) {
             if (x >= CLOSE_X - 12 && y <= 44) { kbActive = false; return; }
             int code = kbProcess(false, x, y);
@@ -1051,10 +1189,17 @@ static void handleTap(int x, int y) {
             }
             markCfg(); markRowAt(ry);
         } else if (subTab == ST_BMS) {
-            if (y >= srowY(0) && y < srowY(0) + 40) { cfgBms ^= 1; return; }  // switch pack (full redraw)
-            else if (y >= srowY(1) && y < srowY(1) + 40) { bmsCharge[cfgBms] = !bmsCharge[cfgBms]; if (!demoMode && bmsLive[cfgBms] && !bmsSet(cfgBms + 1, 0x1070, bmsCharge[cfgBms] ? 1 : 0)) bmsCharge[cfgBms] = !bmsCharge[cfgBms]; markCfg(); markRow(1); }
-            else if (y >= srowY(2) && y < srowY(2) + 40) { bmsDischarge[cfgBms] = !bmsDischarge[cfgBms]; if (!demoMode && bmsLive[cfgBms] && !bmsSet(cfgBms + 1, 0x1074, bmsDischarge[cfgBms] ? 1 : 0)) bmsDischarge[cfgBms] = !bmsDischarge[cfgBms]; markCfg(); markRow(2); }
-            else if (y >= srowY(3) && y < srowY(3) + 40) { bmsBalancer[cfgBms] = !bmsBalancer[cfgBms]; if (!demoMode && bmsLive[cfgBms] && !bmsSet(cfgBms + 1, 0x1078, bmsBalancer[cfgBms] ? 1 : 0)) bmsBalancer[cfgBms] = !bmsBalancer[cfgBms]; markCfg(); markRow(3); }
+            if (y < LIST_TOP) return;
+            int idx = (y + bmsScroll - LIST_TOP) / SROW_STEP;
+            int ry = LIST_TOP + idx * SROW_STEP - bmsScroll;
+            if (idx < 0 || idx >= bmsRowCount() || y < ry || y >= ry + SROW_H) return;
+            int b = cfgBms;
+            if (idx == 0) { cfgBms ^= 1; bmsScroll = 0; return; }                 // switch pack (full redraw)
+            if (idx == 1) { bmsCharge[b] = !bmsCharge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b + 1, 0x1070, bmsCharge[b] ? 1 : 0)) bmsCharge[b] = !bmsCharge[b]; markCfg(); markRowAt(ry); return; }
+            if (idx == 2) { bmsDischarge[b] = !bmsDischarge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b + 1, 0x1074, bmsDischarge[b] ? 1 : 0)) bmsDischarge[b] = !bmsDischarge[b]; markCfg(); markRowAt(ry); return; }
+            if (idx == 3) { bmsBalancer[b] = !bmsBalancer[b]; if (!demoMode && bmsLive[b] && !bmsSet(b + 1, 0x1078, bmsBalancer[b] ? 1 : 0)) bmsBalancer[b] = !bmsBalancer[b]; markCfg(); markRowAt(ry); return; }
+            bool avail = (!demoMode && bmsLive[b] && setOk[b]);
+            if (avail && idx - 4 < NSET) { editIdx = idx - 4; editBms = b; editVal = setGet(b, SETDEFS[editIdx]); }   // open editor (full redraw)
         } else {   // ST_WIFI
             int top = wListTop(), vbot = wRescanY() - 4;
             if (y >= top && y <= vbot) {
@@ -1434,6 +1579,7 @@ static int *flingVar = nullptr, flingMax = 0, flingTop = 0, flingBot = 0;
 // scroll context for the current tab (nullptr = nothing scrolls here)
 static int *scrollCtx(int *maxS, int *top, int *bot) {
     if (view == V_SETTINGS && subTab == ST_SYSTEM) { *maxS = sysMaxScroll(); *top = LIST_TOP; *bot = Ht; return &sysScroll; }
+    if (view == V_SETTINGS && subTab == ST_BMS && editIdx < 0) { *maxS = bmsMaxScroll(); *top = LIST_TOP; *bot = Ht; return &bmsScroll; }
     if (view == V_SETTINGS && subTab == ST_WIFI) { *maxS = wMaxScroll(); *top = wListTop(); *bot = wRescanY() - 4; return &wifiScroll; }
     return nullptr;
 }
