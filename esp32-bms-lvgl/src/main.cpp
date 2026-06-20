@@ -440,7 +440,7 @@ static void drawTabs(bool autoActive, float prog) {
         uint32_t bg = on ? (offline ? C_BAD : C_ACCENT) : C_CARD;
         fRect(x, y, TAB_W, h, 8, bg);
         if (!on) dRect(x, y, TAB_W, h, 8, offline ? C_BAD : C_BORDER);
-        char lbl[8]; snprintf(lbl, sizeof(lbl), "BMS %d", t + 1);
+        char lbl[8]; snprintf(lbl, sizeof(lbl), "BAT %d", t + 1);
         cText(lbl, x + TAB_W / 2, y + h / 2, F16, on ? C_BG : (offline ? C_BAD : C_MUTED));
         if (on && autoActive) fRect(x + 6, y + h - 3, (int)((TAB_W - 12) * prog), 2, 0, C_BG);
     }
@@ -781,7 +781,7 @@ static void drawCloseBtn() {
     for (int o = -1; o <= 1; o++) { line(cx - 6, cy - 6 + o, cx + 6, cy + 6 + o, C_BAD); line(cx - 6, cy + 6 + o, cx + 6, cy - 6 + o, C_BAD); }
 }
 static void drawSubTabs() {
-    const char *nm[3] = {cfgBms ? "BMS 2" : "BMS 1", "WiFi", "System"};
+    const char *nm[3] = {cfgBms ? "BAT 2" : "BAT 1", "WiFi", "System"};
     for (int i = 0; i < 3; i++) {
         int x, w; subTabGeom(i, &x, &w); bool on = (subTab == i);
         fRect(x, 44, w, 30, 8, on ? C_ACCENT : C_CARD); if (!on) dRect(x, 44, w, 30, 8, C_BORDER);
@@ -839,6 +839,9 @@ static const SetDef SETDEFS[] = {
     {"Req charge volt",   38, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
     {"Req float volt",    42, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
     {"Power off volt",    46, FT_U32, 0.001f, "V",  1.5f, 3.20f, 0.01f},
+    {"Smart sleep V",      6, FT_U32, 0.001f, "V",  2.0f, 3.60f, 0.01f},
+    {"Short-circ recov",  74, FT_U32, 1.0f,   "s",  1, 256, 1},
+    {"Short-circ delay", 134, FT_U32, 1.0f,   "us", 0, 1000, 1},
     {"Nominal cap",      130, FT_U32, 0.001f, "Ah", 1, 1000, 1},
 };
 #define NSET ((int)(sizeof(SETDEFS) / sizeof(SETDEFS[0])))
@@ -900,7 +903,7 @@ static void renderBmsTab() {
     for (int i = 0; i < rows; i++) {
         int y = LIST_TOP + i * SROW_STEP - bmsScroll;
         if (y + SROW_H < LIST_TOP || y > Ht) continue;
-        if (i == 0) srowAt(y, "Battery", cfgBms ? "BMS 2  >" : "BMS 1  >", C_CYAN);
+        if (i == 0) srowAt(y, "Battery", cfgBms ? "BAT 2  >" : "BAT 1  >", C_CYAN);
         else if (i == 1) srowToggle(y, "Charge MOSFET", bmsCharge[b]);
         else if (i == 2) srowToggle(y, "Discharge MOSFET", bmsDischarge[b]);
         else if (i == 3) srowToggle(y, "Balancer", bmsBalancer[b]);
