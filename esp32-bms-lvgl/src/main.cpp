@@ -140,6 +140,8 @@ static int appliedB = 90;           // currently applied backlight %
 static bool ecoActive = false;      // eco (low-fps) state active
 #define DIM_LEVEL 12                 // backlight % when dimmed
 #define ECO_IDLE_MS 20000UL          // idle before low-fps kicks in
+static int idleScreen = 0;           // no-data screen: 0=Dashboard 1=HUD 2=Init 3=Radar
+#define IDLE_DELAY 8000UL            // offline + no touch this long → show the idle screen
 static lv_timer_t *barTimer = nullptr, *dataTimer = nullptr;
 static bool cfgDirty = false; static uint32_t cfgDirtyAt = 0;   // debounced settings save
 // wifi
@@ -763,7 +765,7 @@ static void srowToggle(int y, const char *label, bool on) {
 // ---- scrollable System list ----
 static const char *SYS_LABEL[] = {
     "Auto-switch", "Switch interval", "Brightness   - / +", "Auto-sleep", "Eco mode", "Dim after",
-    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode"};
+    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode", "No-data screen"};
 #define SYS_ROWS ((int)(sizeof(SYS_LABEL) / sizeof(SYS_LABEL[0])))
 static void dimStr(char *o, size_t n) {
     if (dimAfterSec == 0) snprintf(o, n, "Off");
@@ -783,6 +785,7 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 8: snprintf(o, n, "%s", wifiAuto ? "ON" : "OFF"); *vc = wifiAuto ? C_ACCENT : C_MUTED; break;
         case 9: snprintf(o, n, "%dx", simSpeed); *vc = C_CYAN; break;
         case 10: snprintf(o, n, "view"); *vc = C_CYAN; break;
+        case 13: { static const char *IN[4] = {"Dashboard", "HUD", "Init", "Radar"}; snprintf(o, n, "%s", IN[idleScreen & 3]); *vc = C_CYAN; break; }
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
@@ -1147,6 +1150,7 @@ static void saveSettings() {
     prefs.putBool("bd0", bmsDischarge[0]); prefs.putBool("bd1", bmsDischarge[1]);
     prefs.putBool("bb0", bmsBalancer[0]); prefs.putBool("bb1", bmsBalancer[1]);
     prefs.putBool("demo", demoMode);
+    prefs.putInt("idle", idleScreen);
     prefs.end();
 }
 static void loadSettings() {
@@ -1160,6 +1164,7 @@ static void loadSettings() {
     bmsDischarge[0] = prefs.getBool("bd0", true); bmsDischarge[1] = prefs.getBool("bd1", true);
     bmsBalancer[0] = prefs.getBool("bb0", false); bmsBalancer[1] = prefs.getBool("bb1", false);
     demoMode = prefs.getBool("demo", demoMode);
+    idleScreen = prefs.getInt("idle", idleScreen);
     prefs.end();
     appliedB = brightness;
 }
@@ -1249,6 +1254,7 @@ static void handleTap(int x, int y) {
                 case 9: simSpeed = simSpeed == 1 ? 2 : simSpeed == 2 ? 5 : 1; break;
                 case 10: infoPopup = true; return;   // full redraw for the popup
                 case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
+                case 13: idleScreen = (idleScreen + 1) % 4; break;   // cycle no-data screen
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
@@ -1620,6 +1626,110 @@ static void playHudBoot() {
 }
 
 // ============================================================================
+//  Idle / "no battery detected" screens (gfx-direct, animated; chosen in Settings)
+// ============================================================================
+static bool idleActiveNow() {
+    if (idleScreen == 0 || standby || demoMode || kbActive) return false;
+    if (view != V_BMS1 && view != V_BMS2) return false;          // only over a dashboard view
+    if (bmsLive[view]) return false;                             // a pack is answering → real UI
+    return (millis() - lastActivity) > IDLE_DELAY;               // settle after the last touch
+}
+static void idleText(int x, int y, const char *s, uint8_t sz, uint16_t c) {
+    gfx->setTextSize(sz); gfx->setTextColor(c); gfx->setCursor(x, y); gfx->print(s);
+}
+// 1) Looping tactical HUD — scanlines, cycling status lines, link bar, reticle.
+static void renderHudIdle(uint32_t ms) {
+    const uint16_t BG = gfx->color565(0x09, 0x03, 0x02), AMBER = gfx->color565(0xff, 0xb0, 0x28);
+    const uint16_t RED = gfx->color565(0xff, 0x38, 0x20), DIM = gfx->color565(0x4a, 0x16, 0x0e);
+    gfx->fillScreen(BG);
+    for (int y = (ms / 70) % 3; y < Ht; y += 3) gfx->drawFastHLine(0, y, Wd, DIM);
+    idleText(14, 12, "JK-BMS TACTICAL MONITOR", 2, RED);
+    gfx->drawFastHLine(14, 36, Wd - 28, RED); gfx->drawFastHLine(14, 38, Wd - 28, DIM);
+    int rx = Wd - 34, ry = 70; float a = ms * 0.004f;            // sweeping reticle
+    gfx->drawCircle(rx, ry, 15, AMBER); gfx->drawCircle(rx, ry, 5, RED);
+    gfx->drawLine(rx, ry, rx + (int)(15 * cosf(a)), ry + (int)(15 * sinf(a)), AMBER);
+    static const char *L[] = {"SCANNING DATA LINK", "AWAITING BMS HANDSHAKE", "NO NODES DETECTED", "RETRYING"};
+    int shown = ((ms / 700) % 6) + 1; if (shown > 4) shown = 4;
+    for (int i = 0; i < shown; i++) {
+        int ly = 58 + i * 26; bool last = (i == shown - 1);
+        idleText(16, ly, L[i], 2, AMBER);
+        char dots[4] = "   "; int nd = (ms / 300) % 4; for (int d = 0; d < nd && d < 3; d++) dots[d] = '.';
+        idleText(Wd - 16 - 72, ly, last ? dots : "[ -- ]", 2, last ? RED : AMBER);
+    }
+    int bx = 16, by = Ht - 24, bw = Wd - 32;                     // looping link bar
+    gfx->drawRect(bx, by, bw, 14, RED);
+    float p = (ms % 1800) / 1800.0f;
+    gfx->fillRect(bx + 2, by + 2, (int)((bw - 4) * p), 10, AMBER);
+    if (((ms / 500) & 1)) idleText(Wd / 2 - 78, Ht - 46, "tap for menu", 1, DIM);
+}
+// 2) System-initialisation screen — grid, ring %, four loaders, hex stream.
+static void renderInitIdle(uint32_t ms) {
+    const uint16_t BG = gfx->color565(0x03, 0x05, 0x0c), CY = gfx->color565(0x3d, 0xf0, 0xa8);
+    const uint16_t BL = gfx->color565(0x12, 0x2a, 0x40), TX = gfx->color565(0xcf, 0xe6, 0xff);
+    gfx->fillScreen(BG);
+    for (int x = 0; x < Wd; x += 30) gfx->drawFastVLine(x, 0, Ht, BL);      // grid
+    for (int y = 0; y < Ht; y += 30) gfx->drawFastHLine(0, y, Wd, BL);
+    idleText(14, 12, "SYSTEM INITIALISATION", 2, CY);
+    int cx = 86, cy = 178, r = 56;                              // big progress ring + %
+    gfx->drawCircle(cx, cy, r, BL);
+    int seg = (ms / 12) % 360;
+    for (int d = 0; d < seg; d += 6) { float a = (d - 90) * 0.01745f; gfx->fillCircle(cx + (int)(r * cosf(a)), cy + (int)(r * sinf(a)), 2, CY); }
+    char pc[6]; snprintf(pc, sizeof(pc), "%d%%", (seg * 100) / 360);
+    idleText(cx - (strlen(pc) * 18) / 2, cy - 14, pc, 3, TX);
+    static const char *NM[4] = {"CORE", "DATA LINK", "SENSORS", "CALIBRATION"};
+    for (int i = 0; i < 4; i++) {                              // four loaders at different rates
+        int by = 60 + i * 42, bx = 200, bw = Wd - bx - 16;
+        idleText(bx, by, NM[i], 1, TX);
+        float p = ((ms / (6 + i * 3)) % 100) / 100.0f;
+        gfx->drawRect(bx, by + 14, bw, 14, BL);
+        gfx->fillRect(bx + 2, by + 16, (int)((bw - 4) * p), 10, CY);
+    }
+    for (int i = 0; i < 12; i++) {                             // scrolling hex stream
+        int hy = (int)(((ms / 40) + i * 22) % (Ht + 20)) - 10;
+        char h[4]; snprintf(h, sizeof(h), "%02X", (int)((ms / 50 + i * 37) & 0xFF));
+        idleText(Wd - 24, hy, h, 1, BL);
+    }
+    if (((ms / 500) & 1)) idleText(14, Ht - 14, "awaiting battery link  -  tap for menu", 1, BL);
+}
+// 3) Sensor radar / scope standby — rotating sweep, blips, scrolling waveform.
+static void renderRadarIdle(uint32_t ms) {
+    const uint16_t BG = gfx->color565(0x02, 0x08, 0x05), GR = gfx->color565(0x12, 0x3a, 0x22);
+    const uint16_t GRN = gfx->color565(0x3d, 0xf0, 0x90), TX = gfx->color565(0xbf, 0xe6, 0xcf);
+    gfx->fillScreen(BG);
+    idleText(14, 12, "SENSOR ARRAY // STANDBY", 2, GRN);
+    int cx = 120, cy = 180, R = 110; float a = ms * 0.003f;
+    for (int r = R / 4; r <= R; r += R / 4) gfx->drawCircle(cx, cy, r, GR);  // rings
+    gfx->drawLine(cx - R, cy, cx + R, cy, GR); gfx->drawLine(cx, cy - R, cx, cy + R, GR);
+    for (int k = 0; k < R; k += 3) gfx->drawLine(cx, cy, cx + (int)(k * cosf(a)), cy + (int)(k * sinf(a)), GRN);  // sweep
+    for (int i = 0; i < 4; i++) {                               // fading blips
+        float ba = i * 1.9f, br = 30 + (i * 23) % (R - 20);
+        float age = fmodf(a - ba, 6.2832f); if (age < 0) age += 6.2832f;
+        if (age < 1.2f) gfx->fillCircle(cx + (int)(br * cosf(ba)), cy + (int)(br * sinf(ba)), 3, GRN);
+    }
+    int gx = 246, gw = Wd - gx - 10, gy = 70, gh = 90;          // scrolling waveform
+    gfx->drawRect(gx, gy, gw, gh, GR);
+    int px = -1, py = -1;
+    for (int i = 0; i < gw - 4; i++) {
+        float v = sinf((i + ms * 0.08f) * 0.15f) * 0.5f + sinf((i + ms * 0.05f) * 0.4f) * 0.2f;
+        int sx = gx + 2 + i, sy = gy + gh / 2 - (int)(v * (gh / 2 - 4));
+        if (px >= 0) gfx->drawLine(px, py, sx, sy, GRN); px = sx; py = sy;
+    }
+    const char *RL[3] = {"SIG", "FREQ", "PWR"};                 // fake readouts
+    for (int i = 0; i < 3; i++) {
+        char v[16]; snprintf(v, sizeof(v), "%s %3d%%", RL[i], (int)((ms / (7 + i * 5)) % 100));
+        idleText(246, 174 + i * 18, v, 1, TX);
+    }
+    idleText(246, 174 + 3 * 18 + 6, "no battery signal", 1, GR);
+    if (((ms / 500) & 1)) idleText(Wd - 78, Ht - 14, "tap for menu", 1, GR);
+}
+static void renderIdleFrame() {
+    uint32_t ms = millis();
+    if (idleScreen == 1) renderHudIdle(ms);
+    else if (idleScreen == 2) renderInitIdle(ms);
+    else renderRadarIdle(ms);
+}
+
+// ============================================================================
 //  LVGL glue
 // ============================================================================
 static uint32_t millis_cb(void) { return millis(); }
@@ -1747,7 +1857,7 @@ static void bmsPoll_cb(lv_timer_t *t) {
     }
 }
 static void barTick_cb(lv_timer_t *t) {
-    if (standby || view == V_SETTINGS) return;
+    if (standby || view == V_SETTINGS || idleActiveNow()) return;
     if (!autoSwitch || millis() < manualUntil) return;   // paused/off → bar not moving, skip flush
     invArea(6, 4, TAB2_X + TAB_W, 36);
 }
@@ -1769,7 +1879,7 @@ static void dataTick_cb(lv_timer_t *t) {
         if (barTimer) lv_timer_set_period(barTimer, eco ? 1000 : 160);
     }
     if (autoSleepMin > 0 && !standby && idle > (uint32_t)autoSleepMin * 60000UL) { pendingSleep = true; return; }
-    if (standby || view == V_SETTINGS) return;
+    if (standby || view == V_SETTINGS || idleActiveNow()) return;   // idle screen owns the canvas
     if (autoSwitch && now >= manualUntil && now - lastSwitch >= intervalMs) {
         int other = view ^ 1;
         // only flip to the other pack if it's available (demo mode shows both;
@@ -1887,6 +1997,16 @@ void loop() {
         playSleepAnimation();   // blocking, draws + flushes itself; sets standby
         gfxDirty = false;
         return;
+    }
+    // animated "no battery" idle screen (chosen in Settings) — owns the canvas directly
+    static bool wasIdle = false;
+    bool idle = idleActiveNow();
+    if (!idle && wasIdle) lv_obj_invalidate(scr);   // leaving idle → repaint the real UI
+    wasIdle = idle;
+    if (idle) {
+        static uint32_t lastFrame = 0; uint32_t now = millis();
+        if (now - lastFrame >= 80) { lastFrame = now; renderIdleFrame(); gfx->flush(); gfxDirty = false; }   // ~12 fps
+        delay(1); return;
     }
     if (gfxDirty) { gfx->flush(); gfxDirty = false; }
     delay(1);
