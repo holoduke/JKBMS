@@ -1648,19 +1648,26 @@ static void renderHudIdle(uint32_t ms) {
     int rx = Wd - 34, ry = 70; float a = ms * 0.004f;            // sweeping reticle
     gfx->drawCircle(rx, ry, 15, AMBER); gfx->drawCircle(rx, ry, 5, RED);
     gfx->drawLine(rx, ry, rx + (int)(15 * cosf(a)), ry + (int)(15 * sinf(a)), AMBER);
-    static const char *L[] = {"SCANNING DATA LINK", "AWAITING BMS HANDSHAKE", "NO NODES DETECTED", "RETRYING"};
-    int shown = ((ms / 700) % 6) + 1; if (shown > 4) shown = 4;
+    static const char *L[] = {"SCANNING BATTERY BUS", "PROBING BMS NODES", "NO BATTERY DETECTED"};
+    int shown = ((ms / 700) % 5) + 1; if (shown > 3) shown = 3;
     for (int i = 0; i < shown; i++) {
-        int ly = 58 + i * 26; bool last = (i == shown - 1);
+        int ly = 56 + i * 24; bool last = (i == shown - 1);
         idleText(16, ly, L[i], 2, AMBER);
         char dots[4] = "   "; int nd = (ms / 300) % 4; for (int d = 0; d < nd && d < 3; d++) dots[d] = '.';
         idleText(Wd - 16 - 72, ly, last ? dots : "[ -- ]", 2, last ? RED : AMBER);
+    }
+    // prominent waiting banner (pulsing)
+    if (((ms / 450) & 1)) {
+        char wd[24] = "WAITING FOR DATA"; int nd = (ms / 300) % 4; int l = strlen(wd);
+        for (int d = 0; d < nd && d < 3; d++) wd[l + d] = '.';
+        idleText(Wd / 2 - (strlen(wd) * 18) / 2, 160, wd, 3, RED);
     }
     int bx = 16, by = Ht - 24, bw = Wd - 32;                     // looping link bar
     gfx->drawRect(bx, by, bw, 14, RED);
     float p = (ms % 1800) / 1800.0f;
     gfx->fillRect(bx + 2, by + 2, (int)((bw - 4) * p), 10, AMBER);
-    if (((ms / 500) & 1)) idleText(Wd / 2 - 78, Ht - 46, "tap for menu", 1, DIM);
+    idleText(bx, by - 14, "BATTERY DATA LINK", 1, AMBER);
+    if (((ms / 500) & 1)) idleText(Wd - 80, by - 14, "tap for menu", 1, DIM);
 }
 // 2) System-initialisation screen — grid, ring %, four loaders, hex stream.
 static void renderInitIdle(uint32_t ms) {
@@ -1669,14 +1676,17 @@ static void renderInitIdle(uint32_t ms) {
     gfx->fillScreen(BG);
     for (int x = 0; x < Wd; x += 30) gfx->drawFastVLine(x, 0, Ht, BL);      // grid
     for (int y = 0; y < Ht; y += 30) gfx->drawFastHLine(0, y, Wd, BL);
-    idleText(14, 12, "SYSTEM INITIALISATION", 2, CY);
+    idleText(14, 12, "BATTERY LINK INITIALISATION", 2, CY);
     int cx = 86, cy = 178, r = 56;                              // big progress ring + %
     gfx->drawCircle(cx, cy, r, BL);
     int seg = (ms / 12) % 360;
     for (int d = 0; d < seg; d += 6) { float a = (d - 90) * 0.01745f; gfx->fillCircle(cx + (int)(r * cosf(a)), cy + (int)(r * sinf(a)), 2, CY); }
     char pc[6]; snprintf(pc, sizeof(pc), "%d%%", (seg * 100) / 360);
     idleText(cx - (strlen(pc) * 18) / 2, cy - 14, pc, 3, TX);
-    static const char *NM[4] = {"CORE", "DATA LINK", "SENSORS", "CALIBRATION"};
+    // each cycle "completes" then keeps waiting for the real battery feed
+    const char *msg = (seg >= 348) ? "BATTERY INIT COMPLETE" : "WAITING FOR BATTERY DATA";
+    idleText(cx - (strlen(msg) * 6) / 2, cy + r + 8, msg, 1, (seg >= 348) ? CY : TX);
+    static const char *NM[4] = {"BMS UART", "CELL DATA", "SENSORS", "PROTECTION"};
     for (int i = 0; i < 4; i++) {                              // four loaders at different rates
         int by = 60 + i * 42, bx = 200, bw = Wd - bx - 16;
         idleText(bx, by, NM[i], 1, TX);
@@ -1689,14 +1699,15 @@ static void renderInitIdle(uint32_t ms) {
         char h[4]; snprintf(h, sizeof(h), "%02X", (int)((ms / 50 + i * 37) & 0xFF));
         idleText(Wd - 24, hy, h, 1, BL);
     }
-    if (((ms / 500) & 1)) idleText(14, Ht - 14, "awaiting battery link  -  tap for menu", 1, BL);
+    idleText(14, Ht - 14, "waiting for battery data", 1, CY);
+    if (((ms / 500) & 1)) idleText(Wd - 80, Ht - 14, "tap for menu", 1, BL);
 }
 // 3) Sensor radar / scope standby — rotating sweep, blips, scrolling waveform.
 static void renderRadarIdle(uint32_t ms) {
     const uint16_t BG = gfx->color565(0x02, 0x08, 0x05), GR = gfx->color565(0x12, 0x3a, 0x22);
     const uint16_t GRN = gfx->color565(0x3d, 0xf0, 0x90), TX = gfx->color565(0xbf, 0xe6, 0xcf);
     gfx->fillScreen(BG);
-    idleText(14, 12, "SENSOR ARRAY // STANDBY", 2, GRN);
+    idleText(14, 12, "BATTERY SENSOR ARRAY", 2, GRN);
     int cx = 120, cy = 180, R = 110; float a = ms * 0.003f;
     for (int r = R / 4; r <= R; r += R / 4) gfx->drawCircle(cx, cy, r, GR);  // rings
     gfx->drawLine(cx - R, cy, cx + R, cy, GR); gfx->drawLine(cx, cy - R, cx, cy + R, GR);
@@ -1719,7 +1730,10 @@ static void renderRadarIdle(uint32_t ms) {
         char v[16]; snprintf(v, sizeof(v), "%s %3d%%", RL[i], (int)((ms / (7 + i * 5)) % 100));
         idleText(246, 174 + i * 18, v, 1, TX);
     }
-    idleText(246, 174 + 3 * 18 + 6, "no battery signal", 1, GR);
+    char wd[24] = "WAITING FOR DATA"; int nd = (ms / 300) % 4; int wl = strlen(wd);
+    for (int d = 0; d < nd && d < 3; d++) wd[wl + d] = '.';
+    if (((ms / 450) & 1)) idleText(246, 174 + 3 * 18 + 8, wd, 1, GRN);
+    idleText(14, Ht - 14, "no battery signal", 1, GR);
     if (((ms / 500) & 1)) idleText(Wd - 78, Ht - 14, "tap for menu", 1, GR);
 }
 static void renderIdleFrame() {
