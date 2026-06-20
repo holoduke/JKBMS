@@ -124,11 +124,13 @@ static int simSpeed = 1;            // demo data speed (1/2/5x)
 static int sysScroll = 0;           // System-tab scroll offset (px)
 static int bmsScroll = 0;           // BMS-tab scroll offset (px)
 static bool infoPopup = false;
-// raw settings block (Modbus reg 0x1000) per BMS — byte k == web frame offset k+6
-static uint8_t setRaw[2][256];
-static bool setOk[2] = {false, false};
+// raw settings block (Modbus reg 0x1000) per BMS — byte k == web frame offset k+6.
+// Filled by two reads: 0x1000 (bytes 0..249) + a tail read for the bitmask region.
+static uint8_t setRaw[2][300];
+static bool setOk[2] = {false, false};      // main block read ok
+static bool setOk2[2] = {false, false};     // tail (bitmask/heating/sleep) read ok
 static int editIdx = -1;            // index into SETDEFS being edited (-1 = none)
-static int editBms = 0; static float editVal = 0;
+static int editBms = 0; static char editStr[12] = "";   // keypad entry buffer
 static bool pendingSleep = false, standby = false;
 static uint32_t lastActivity = 0;
 // power saving
@@ -258,6 +260,21 @@ static void bmsReadSettings(uint8_t addr, int idx) {
     int bc = r[2]; if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) { setOk[idx] = false; return; }
     int cp = bc < 250 ? bc : 250; memcpy(setRaw[idx], r + 3, cp);
     setOk[idx] = true;
+    // tail read: reg 0x10FA (frame offset 256) covers the bitmask/heating/sleep fields
+    uint8_t q[8] = {addr, 3, 0x10, 0xFA, 0x00, 0x14, 0, 0};
+    uint16_t c2 = mbCrc(q, 6); q[6] = c2 & 0xFF; q[7] = c2 >> 8;
+    while (bmsSerial.available()) bmsSerial.read();
+    bmsSerial.write(q, 8); bmsSerial.flush();
+    n = 0; t0 = millis();
+    while (millis() - t0 < 70) { while (bmsSerial.available() && n < 300) r[n++] = bmsSerial.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
+    setOk2[idx] = false;
+    if (n >= 5 && r[0] == addr && r[1] == 3) {
+        int bc2 = r[2];
+        if (n >= 3 + bc2 + 2 && (r[3 + bc2] | (r[4 + bc2] << 8)) == mbCrc(r, 3 + bc2)) {
+            int cp2 = bc2 < 50 ? bc2 : 50; memcpy(setRaw[idx] + 250, r + 3, cp2);   // offset 256 → index 250
+            setOk2[idx] = true;
+        }
+    }
 }
 #define BMS_RETRY 4
 static void bmsRead() {
@@ -810,7 +827,7 @@ static void renderSysTab() {
 // ---- editable BMS settings (derived from the web 0x01 settings frame) ----
 // Modbus register = 0x1000 + (frame offset - 6). Values decode big-endian like the
 // realtime block. All offsets here are < 250 so one 125-register read covers them.
-enum FType { FT_U32, FT_U16, FT_I32, FT_I16, FT_U8 };
+enum FType { FT_U32, FT_U16, FT_I32, FT_I16, FT_U8, FT_I8 };
 struct SetDef { const char *label; uint16_t off; uint8_t type; float scale; const char *unit; float vmin, vmax, vstep; };
 static const SetDef SETDEFS[] = {
     {"Cell OVP",          18, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
@@ -842,10 +859,27 @@ static const SetDef SETDEFS[] = {
     {"Smart sleep V",      6, FT_U32, 0.001f, "V",  2.0f, 3.60f, 0.01f},
     {"Short-circ recov",  74, FT_U32, 1.0f,   "s",  1, 256, 1},
     {"Short-circ delay", 134, FT_U32, 1.0f,   "us", 0, 1000, 1},
-    {"Nominal cap",      130, FT_U32, 0.001f, "Ah", 1, 1000, 1},
+    {"Nominal cap",      130, FT_U32, 0.001f, "Ah", 1, 2000, 1},
+    {"Cell count",       114, FT_U8,  1.0f,   "",   3, 32, 1},
 };
 #define NSET ((int)(sizeof(SETDEFS) / sizeof(SETDEFS[0])))
-static int setWidth(uint8_t t) { return t == FT_U8 ? 1 : (t == FT_U16 || t == FT_I16) ? 2 : 4; }
+// settings that live in the tail region (need the 2nd read; setOk2)
+static const SetDef TAILDEFS[] = {
+    {"Heating start T",  284, FT_I8, 1.0f, "C", -30, 20, 1},
+    {"Smart sleep hrs",  286, FT_U8, 1.0f, "h", 0, 240, 1},
+};
+#define NTAIL ((int)(sizeof(TAILDEFS) / sizeof(TAILDEFS[0])))
+// on/off flags packed in the u16 control word at frame offset 282 (reg 0x1114)
+struct BitDef { const char *label; uint16_t mask; };
+static const BitDef BITDEFS[] = {
+    {"Heating",            0x0001}, {"Disable temp sens", 0x0002},
+    {"Display always on",  0x0010}, {"Smart sleep",       0x0040},
+    {"Disable PCL",        0x0080}, {"Timed stored data", 0x0100},
+    {"Charging float",     0x0200}, {"Emergency button",  0x0400},
+    {"Dry-contact intmt",  0x0800}, {"Discharge OCP2",    0x1000},
+};
+#define NBIT ((int)(sizeof(BITDEFS) / sizeof(BITDEFS[0])))
+static int setWidth(uint8_t t) { return (t == FT_U8 || t == FT_I8) ? 1 : (t == FT_U16 || t == FT_I16) ? 2 : 4; }
 static float setGet(int b, const SetDef &d) {
     const uint8_t *p = setRaw[b]; int o = d.off - 6; uint32_t raw = 0;
     switch (setWidth(d.type)) {
@@ -855,8 +889,13 @@ static float setGet(int b, const SetDef &d) {
     }
     if (d.type == FT_I32) return (int32_t)raw * d.scale;
     if (d.type == FT_I16) return (int16_t)raw * d.scale;
+    if (d.type == FT_I8) return (int8_t)raw * d.scale;
     return raw * d.scale;
 }
+// numeric rows = main settings, plus tail settings when the tail read succeeded
+static int numCount(int b) { return NSET + (setOk2[b] ? NTAIL : 0); }
+static const SetDef &numDef(int i) { return i < NSET ? SETDEFS[i] : TAILDEFS[i - NSET]; }
+static uint16_t bitWord(int b) { return (uint16_t)(setRaw[b][276] << 8 | setRaw[b][277]); }   // offset 282
 static int setDec(const SetDef &d) { return d.vstep < 0.1f ? (d.vstep < 0.01f ? 3 : 2) : (d.vstep < 1.0f ? 1 : 0); }
 static void fmtSetting(char *o, size_t n, const SetDef &d, float v) { snprintf(o, n, "%.*f%s", setDec(d), v, d.unit); }
 // Write a setting (register from the frame offset) and verify by read-back.
@@ -873,25 +912,35 @@ static bool setPut(int b, const SetDef &d, float v) {
     }
     return true;
 }
-// Modal stepper editor for one numeric setting.
+// Full-screen numeric keypad editor (4x4): 7 8 9 DEL / 4 5 6 CLR / 1 2 3 +/- / . 0 Cancel Save
+static const char *KEYLBL[16] = {"7", "8", "9", "DEL", "4", "5", "6", "CLR", "1", "2", "3", "+/-", ".", "0", "Cancel", "Save"};
+static void keyRect(int k, int *kx, int *ky, int *kw, int *kh) {
+    int x0 = 12, y0 = 96, gap = 8, gw = Wd - 24, gh = Ht - 96 - 10;
+    int cw = (gw - 3 * gap) / 4, ch = (gh - 3 * gap) / 4;
+    *kx = x0 + (k % 4) * (cw + gap); *ky = y0 + (k / 4) * (ch + gap); *kw = cw; *kh = ch;
+}
 static void renderEditor() {
-    const SetDef &d = SETDEFS[editIdx];
-    int w = Wd - 80, h = 168, x = (Wd - w) / 2, y = (Ht - h) / 2;
-    fRect(0, 0, Wd, Ht, 0, C_BG);                            // clean modal backdrop
-    fRect(x, y, w, h, 12, C_CARD); dRect(x, y, w, h, 12, C_ACCENT);
-    cText(d.label, Wd / 2, y + 22, F16, C_TEXT);
-    char v[16]; fmtSetting(v, sizeof(v), d, editVal);
-    cText(v, Wd / 2, y + 64, F28, C_ACCENT);
-    int bw = 56, bh = 44, by = y + 46;
-    fRect(x + 18, by, bw, bh, 8, C_BG); dRect(x + 18, by, bw, bh, 8, C_BORDER); cText("-", x + 18 + bw / 2, by + bh / 2, F28, C_TEXT);
-    fRect(x + w - 18 - bw, by, bw, bh, 8, C_BG); dRect(x + w - 18 - bw, by, bw, bh, 8, C_BORDER); cText("+", x + w - 18 - bw / 2, by + bh / 2, F28, C_TEXT);
-    int sy = y + h - 42, sw = (w - 36 - 12) / 2;
-    fRect(x + 18, sy, sw, 32, 8, C_CARD); dRect(x + 18, sy, sw, 32, 8, C_BORDER); cText("Cancel", x + 18 + sw / 2, sy + 16, F16, C_MUTED);
-    fRect(x + w - 18 - sw, sy, sw, 32, 8, C_ACCENT); cText("Save", x + w - 18 - sw / 2, sy + 16, F16, C_BG);
+    const SetDef &d = numDef(editIdx);
+    fRect(0, 0, Wd, Ht, 0, C_BG);
+    lText(d.label, 14, 10, F16, C_TEXT);
+    int dec = setDec(d);
+    char rng[44]; snprintf(rng, sizeof(rng), "range %.*f to %.*f %s", dec, d.vmin, dec, d.vmax, d.unit);
+    lText(rng, 14, 70, F12, C_MUTED);
+    fRect(14, 32, Wd - 28, 34, 8, C_CARD); dRect(14, 32, Wd - 28, 34, 8, C_ACCENT);
+    char shown[24]; snprintf(shown, sizeof(shown), "%s %s", editStr[0] ? editStr : "0", d.unit);
+    lText(shown, Wd - 22 - textW(shown, F20), 38, F20, C_TEXT);
+    for (int k = 0; k < 16; k++) {
+        int kx, ky, kw, kh; keyRect(k, &kx, &ky, &kw, &kh);
+        bool save = (k == 15), cancel = (k == 14);
+        fRect(kx, ky, kw, kh, 8, save ? C_ACCENT : C_CARD);
+        if (!save) dRect(kx, ky, kw, kh, 8, cancel ? C_BAD : C_BORDER);
+        cText(KEYLBL[k], kx + kw / 2, ky + kh / 2 - 9, F20, save ? C_BG : (cancel ? C_BAD : C_TEXT));
+    }
 }
 static int bmsRowCount() {
     int b = cfgBms; bool avail = (!demoMode && bmsLive[b] && setOk[b]);
-    return 4 + (avail ? NSET : 1);                           // 0:battery 1-3:switches, then settings or 1 notice
+    if (!avail) return 5;                                    // 0:battery 1-3:switches 4:notice
+    return 4 + numCount(b) + (setOk2[b] ? NBIT : 0);         // numerics + bitmask toggles
 }
 static int bmsViewH() { return Ht - LIST_TOP - 2; }
 static int bmsContentH() { return bmsRowCount() * SROW_STEP + SROW_STEP; }
@@ -908,7 +957,11 @@ static void renderBmsTab() {
         else if (i == 2) srowToggle(y, "Discharge MOSFET", bmsDischarge[b]);
         else if (i == 3) srowToggle(y, "Balancer", bmsBalancer[b]);
         else if (!avail) srowAt(y, "Parameters", demoMode ? "live BMS only" : (bmsLive[b] ? "reading..." : "offline"), C_MUTED);
-        else { const SetDef &d = SETDEFS[i - 4]; char v[16]; fmtSetting(v, sizeof(v), d, setGet(b, d)); srowAt(y, d.label, v, C_TEXT); }
+        else {
+            int si = i - 4;
+            if (si < numCount(b)) { const SetDef &d = numDef(si); char v[16]; fmtSetting(v, sizeof(v), d, setGet(b, d)); srowAt(y, d.label, v, C_TEXT); }
+            else { const BitDef &f = BITDEFS[si - numCount(b)]; srowToggle(y, f.label, bitWord(b) & f.mask); }
+        }
     }
     if (bmsMaxScroll() > 0) {                                // scrollbar
         int tX = Wd - 6, tY = LIST_TOP, tH = bmsViewH();
@@ -1141,17 +1194,25 @@ static void handleTap(int x, int y) {
     dirtyFull = true;   // most taps change the whole screen unless noted below
     if (view == V_SETTINGS) {
         if (infoPopup) { infoPopup = false; return; }
-        if (editIdx >= 0) {                                  // numeric stepper modal
-            const SetDef &d = SETDEFS[editIdx];
-            int w = Wd - 80, ex = (Wd - w) / 2, ey = (Ht - 168) / 2;
-            int by = ey + 46, bh = 44, bw = 56, sy = ey + 168 - 42, sw = (w - 48) / 2;
-            if (y >= by && y < by + bh && x >= ex + 18 && x < ex + 18 + bw) { editVal -= d.vstep; if (editVal < d.vmin) editVal = d.vmin; return; }
-            if (y >= by && y < by + bh && x >= ex + w - 18 - bw && x < ex + w - 18) { editVal += d.vstep; if (editVal > d.vmax) editVal = d.vmax; return; }
-            if (y >= sy && y < sy + 32) {
-                if (x >= ex + w - 18 - sw) {                  // Save → write + verify
-                    if (setPut(editBms, d, editVal)) markCfg();
-                }
-                editIdx = -1;                                // Cancel or after Save → close
+        if (editIdx >= 0) {                                  // numeric keypad modal
+            const SetDef &d = numDef(editIdx);
+            for (int k = 0; k < 16; k++) {
+                int kx, ky, kw, kh; keyRect(k, &kx, &ky, &kw, &kh);
+                if (x < kx || x >= kx + kw || y < ky || y >= ky + kh) continue;
+                int len = strlen(editStr);
+                if (k == 14) { editIdx = -1; }                                   // Cancel
+                else if (k == 15) {                                             // Save → clamp, write, verify
+                    float v = atof(editStr);
+                    if (setPut(editBms, d, v)) markCfg();
+                    editIdx = -1;
+                } else if (k == 3) { if (len) editStr[len - 1] = 0; }           // DEL
+                else if (k == 7) { editStr[0] = 0; }                            // CLR
+                else if (k == 11) {                                            // +/-
+                    if (editStr[0] == '-') memmove(editStr, editStr + 1, len);
+                    else if (len < 10) { memmove(editStr + 1, editStr, len + 1); editStr[0] = '-'; }
+                } else if (k == 12) { if (!strchr(editStr, '.') && len < 10) { editStr[len] = '.'; editStr[len + 1] = 0; } }  // '.'
+                else if (len < 10) { editStr[len] = KEYLBL[k][0]; editStr[len + 1] = 0; }   // digit
+                return;
             }
             return;
         }
@@ -1202,7 +1263,16 @@ static void handleTap(int x, int y) {
             if (idx == 2) { bmsDischarge[b] = !bmsDischarge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b + 1, 0x1074, bmsDischarge[b] ? 1 : 0)) bmsDischarge[b] = !bmsDischarge[b]; markCfg(); markRowAt(ry); return; }
             if (idx == 3) { bmsBalancer[b] = !bmsBalancer[b]; if (!demoMode && bmsLive[b] && !bmsSet(b + 1, 0x1078, bmsBalancer[b] ? 1 : 0)) bmsBalancer[b] = !bmsBalancer[b]; markCfg(); markRowAt(ry); return; }
             bool avail = (!demoMode && bmsLive[b] && setOk[b]);
-            if (avail && idx - 4 < NSET) { editIdx = idx - 4; editBms = b; editVal = setGet(b, SETDEFS[editIdx]); }   // open editor (full redraw)
+            if (avail) {
+                int si = idx - 4;
+                if (si >= 0 && si < numCount(b)) { editIdx = si; editBms = b; editStr[0] = 0; }   // open keypad (full redraw)
+                else if (si >= numCount(b)) {                                                     // bitmask toggle (read-modify-write)
+                    const BitDef &f = BITDEFS[si - numCount(b)];
+                    uint16_t nv = bitWord(b) ^ f.mask;
+                    if (bmsSet(b + 1, 0x1114, nv)) { setRaw[b][276] = nv >> 8; setRaw[b][277] = nv & 0xFF; }
+                    markCfg(); markRowAt(ry);
+                }
+            }
         } else {   // ST_WIFI
             int top = wListTop(), vbot = wRescanY() - 4;
             if (y >= top && y <= vbot) {
