@@ -785,7 +785,7 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 8: snprintf(o, n, "%s", wifiAuto ? "ON" : "OFF"); *vc = wifiAuto ? C_ACCENT : C_MUTED; break;
         case 9: snprintf(o, n, "%dx", simSpeed); *vc = C_CYAN; break;
         case 10: snprintf(o, n, "view"); *vc = C_CYAN; break;
-        case 13: { static const char *IN[4] = {"Dashboard", "HUD", "Init", "Radar"}; snprintf(o, n, "%s", IN[idleScreen & 3]); *vc = C_CYAN; break; }
+        case 13: { static const char *IN[6] = {"Dashboard", "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = C_CYAN; break; }
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
@@ -1254,7 +1254,7 @@ static void handleTap(int x, int y) {
                 case 9: simSpeed = simSpeed == 1 ? 2 : simSpeed == 2 ? 5 : 1; break;
                 case 10: infoPopup = true; return;   // full redraw for the popup
                 case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
-                case 13: idleScreen = (idleScreen + 1) % 4; break;   // cycle no-data screen
+                case 13: idleScreen = (idleScreen + 1) % 6; break;   // cycle no-data screen
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
@@ -1758,11 +1758,94 @@ static void renderRadarIdle(uint32_t ms) {
     idleText(14, Ht - 14, "no battery signal", 1, GR);
     if (((ms / 500) & 1)) idleText(Wd - 78, Ht - 14, "tap for menu", 1, GR);
 }
+// 4) Retro arcade GAME OVER — dead-battery sprite, blinking INSERT COIN, jokes.
+static void renderArcadeIdle(uint32_t ms) {
+    const uint16_t BG = gfx->color565(0, 0, 0), RED = gfx->color565(0xff, 0x30, 0x28);
+    const uint16_t WHT = gfx->color565(0xf0, 0xf0, 0xf0), YEL = gfx->color565(0xff, 0xd0, 0x30);
+    const uint16_t GRY = gfx->color565(0x66, 0x6c, 0x78), DIM = gfx->color565(0x1c, 0x1c, 0x1c);
+    gfx->fillScreen(BG);
+    for (int y = 0; y < Ht; y += 3) gfx->drawFastHLine(0, y, Wd, DIM);     // scanlines
+    idleText(10, 8, "1UP", 1, RED); idleText(40, 8, "00000000", 1, WHT);
+    idleText(Wd - 96, 8, "HI 00009999", 1, WHT);
+    const char *go = "GAME OVER"; int sh = (ms / 120) % 2;                 // tiny shake
+    idleText((Wd - (int)strlen(go) * 30) / 2, 64 + sh, go, 5, RED);
+    // dead battery sprite (X eyes + flat mouth)
+    int cx = Wd / 2, bw = 80, bh = 42, bx = cx - bw / 2, by = 132;
+    gfx->drawRect(bx, by, bw, bh, GRY); gfx->drawRect(bx + 1, by + 1, bw - 2, bh - 2, GRY);
+    gfx->fillRect(bx + bw, by + bh / 2 - 7, 6, 14, GRY);
+    int e1 = bx + 24, e2 = bx + bw - 24, ey = by + 16;
+    for (int o = 0; o < 2; o++) {
+        gfx->drawLine(e1 - 6, ey - 6 + o, e1 + 6, ey + 6 + o, WHT); gfx->drawLine(e1 - 6, ey + 6 + o, e1 + 6, ey - 6 + o, WHT);
+        gfx->drawLine(e2 - 6, ey - 6 + o, e2 + 6, ey + 6 + o, WHT); gfx->drawLine(e2 - 6, ey + 6 + o, e2 + 6, ey - 6 + o, WHT);
+    }
+    gfx->drawLine(cx - 9, by + bh - 9, cx + 9, by + bh - 9, WHT);          // flat mouth
+    if (((ms / 450) & 1)) { const char *ic = "INSERT COIN TO CONTINUE"; idleText((Wd - (int)strlen(ic) * 12) / 2, 210, ic, 2, YEL); }
+    static const char *J[] = {"NO BATTERY DETECTED", "PLAYER 1 (BMS) HAS LEFT", "HAVE YOU TRIED PLUGGING IT IN?",
+                              "DATA: NONE   VIBES: OK", "GIT GUD - CONNECT A BATTERY"};
+    const char *j = J[(ms / 2200) % 5];
+    idleText((Wd - (int)strlen(j) * 6) / 2, 244, j, 1, GRY);
+    idleText(10, Ht - 14, "CREDIT 00", 1, YEL);
+    if (((ms / 500) & 1)) idleText(Wd - 78, Ht - 14, "tap for menu", 1, DIM);
+}
+// 5) Maximum-security control room — dial gauges, bar meters, threat graph, status.
+static void renderSecurityIdle(uint32_t ms) {
+    const uint16_t BG = gfx->color565(0x02, 0x06, 0x0c), GRID = gfx->color565(0x0b, 0x18, 0x26);
+    const uint16_t CY = gfx->color565(0x32, 0xd8, 0xff), GN = gfx->color565(0x3d, 0xf0, 0x8a);
+    const uint16_t AM = gfx->color565(0xff, 0xc0, 0x30), RD = gfx->color565(0xff, 0x44, 0x3a);
+    const uint16_t TX = gfx->color565(0xbf, 0xd8, 0xe6), DIM = gfx->color565(0x16, 0x2a, 0x3a);
+    gfx->fillScreen(BG);
+    for (int x = 0; x < Wd; x += 24) gfx->drawFastVLine(x, 0, Ht, GRID);
+    for (int y = 0; y < Ht; y += 24) gfx->drawFastHLine(0, y, Wd, GRID);
+    idleText(14, 6, "MAXIMUM SECURITY MONITOR", 2, CY);
+    idleText(Wd - 92, 8, "ARMED", 1, RD);
+    if (((ms / 500) & 1)) gfx->fillCircle(Wd - 16, 13, 5, RD);
+    // --- three dial gauges ---
+    const char *GL[3] = {"CPU", "ENCRYPT", "UPLINK"}; uint16_t GC[3] = {CY, GN, AM}; float GP[3] = {0, 1.3f, 2.6f};
+    for (int i = 0; i < 3; i++) {
+        int cx = 80 + i * 160, cy = 92, r = 38;
+        float v = 0.5f + 0.45f * sinf(ms * 0.001f + GP[i]);
+        int fillTo = 180 + (int)(v * 180);
+        for (int d = 180; d <= 360; d += 6) { float a = d * 0.01745f; gfx->fillCircle(cx + (int)(r * cosf(a)), cy + (int)(r * sinf(a)), 2, (d <= fillTo) ? GC[i] : DIM); }
+        float na = (180 + v * 180) * 0.01745f;
+        gfx->drawLine(cx, cy, cx + (int)((r - 6) * cosf(na)), cy + (int)((r - 6) * sinf(na)), GC[i]);
+        gfx->fillCircle(cx, cy, 3, GC[i]);
+        char val[6]; snprintf(val, sizeof(val), "%d%%", (int)(v * 100));
+        idleText(cx - (int)strlen(val) * 3, cy + 8, val, 1, GC[i]);
+        idleText(cx - (int)strlen(GL[i]) * 3, cy + 20, GL[i], 1, TX);
+    }
+    // --- threat-analysis scrolling graph ---
+    int gx = 14, gy = 138, gw = 212, gh = 88;
+    gfx->drawRect(gx, gy, gw, gh, DIM); idleText(gx + 6, gy + 4, "THREAT ANALYSIS", 1, TX);
+    int px = -1, py = -1;
+    for (int i = 0; i < gw - 4; i++) {
+        float v = sinf((i + ms * 0.09f) * 0.13f) * 0.4f + sinf((i + ms * 0.05f) * 0.5f) * 0.18f;
+        int sx = gx + 2 + i, sy = gy + gh / 2 + 6 - (int)(v * (gh / 2 - 10));
+        if (px >= 0) gfx->drawLine(px, py, sx, sy, GN); px = sx; py = sy;
+    }
+    // --- vertical bar meters ---
+    for (int i = 0; i < 6; i++) {
+        int bx = 240 + i * 38, base = 226, h = 18 + (int)(58 * (0.5f + 0.5f * sinf(ms * 0.0022f + i * 0.9f)));
+        uint16_t c = h > 64 ? RD : h > 42 ? AM : GN;
+        gfx->drawRect(bx, base - 78, 22, 78, DIM);
+        gfx->fillRect(bx + 2, base - h, 18, h, c);
+    }
+    idleText(240, 138, "SECTOR INTEGRITY", 1, TX);
+    // --- status strip ---
+    idleText(14, 240, "FIREWALL: ACTIVE", 1, GN);
+    idleText(168, 240, "INTRUSION: NONE", 1, GN);
+    idleText(320, 240, "CIPHER: AES-256", 1, CY);
+    if (((ms / 400) & 1)) idleText(14, 258, "LOCKDOWN ENGAGED", 1, RD);
+    idleText(180, 258, "BIOMETRIC LOCK OK", 1, GN);
+    idleText(14, Ht - 14, "MAXIMUM SECURITY // ALL SYSTEMS NOMINAL", 1, DIM);
+    if (((ms / 500) & 1)) idleText(Wd - 78, Ht - 14, "tap for menu", 1, DIM);
+}
 static void renderIdleFrame() {
     uint32_t ms = millis();
     if (idleScreen == 1) renderHudIdle(ms);
     else if (idleScreen == 2) renderInitIdle(ms);
-    else renderRadarIdle(ms);
+    else if (idleScreen == 3) renderRadarIdle(ms);
+    else if (idleScreen == 4) renderArcadeIdle(ms);
+    else renderSecurityIdle(ms);
 }
 
 // ============================================================================
