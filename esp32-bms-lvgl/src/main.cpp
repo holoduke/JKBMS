@@ -1770,7 +1770,8 @@ static void renderArcadeIdle(uint32_t ms) {
     idleText(10, 8, "1UP", 1, RED); idleText(40, 8, "00000000", 1, WHT);
     idleText(Wd - 96, 8, "HI 00009999", 1, WHT);
     const char *go = "GAME OVER"; int sh = (ms / 120) % 2;                 // tiny shake
-    idleText((Wd - (int)strlen(go) * 30) / 2, 64 + sh, go, 5, RED);
+    uint16_t goCol = wheel((ms % 60000) / 60000.0f);                       // slow full-hue cycle (~60s)
+    idleText((Wd - (int)strlen(go) * 30) / 2, 64 + sh, go, 5, goCol);
     // dead battery sprite (X eyes + flat mouth)
     int cx = Wd / 2, bw = 80, bh = 42, bx = cx - bw / 2, by = 132;
     gfx->drawRect(bx, by, bw, bh, GRY); gfx->drawRect(bx + 1, by + 1, bw - 2, bh - 2, GRY);
