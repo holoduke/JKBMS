@@ -1643,7 +1643,7 @@ static void renderHudIdle(uint32_t ms) {
     const uint16_t RED = gfx->color565(0xff, 0x38, 0x20), DIM = gfx->color565(0x4a, 0x16, 0x0e);
     gfx->fillScreen(BG);
     for (int y = (ms / 70) % 3; y < Ht; y += 3) gfx->drawFastHLine(0, y, Wd, DIM);
-    idleText(14, 12, "JK-BMS TACTICAL MONITOR", 2, RED);
+    idleText(14, 12, "SECURITY INTERFACE MONITOR", 2, RED);
     gfx->drawFastHLine(14, 36, Wd - 28, RED); gfx->drawFastHLine(14, 38, Wd - 28, DIM);
     int rx = Wd - 34, ry = 70; float a = ms * 0.004f;            // sweeping reticle
     gfx->drawCircle(rx, ry, 15, AMBER); gfx->drawCircle(rx, ry, 5, RED);
@@ -1706,33 +1706,41 @@ static void renderInitIdle(uint32_t ms) {
 static void renderRadarIdle(uint32_t ms) {
     const uint16_t BG = gfx->color565(0x02, 0x08, 0x05), GR = gfx->color565(0x12, 0x3a, 0x22);
     const uint16_t GRN = gfx->color565(0x3d, 0xf0, 0x90), TX = gfx->color565(0xbf, 0xe6, 0xcf);
+    const uint16_t OK = gfx->color565(0x46, 0xff, 0x6a), AMB = gfx->color565(0xff, 0xb0, 0x28);
     gfx->fillScreen(BG);
     idleText(14, 12, "BATTERY SENSOR ARRAY", 2, GRN);
-    int cx = 120, cy = 180, R = 110; float a = ms * 0.003f;
-    for (int r = R / 4; r <= R; r += R / 4) gfx->drawCircle(cx, cy, r, GR);  // rings
+    // --- radar, confined to the left half so it never overlaps the log ---
+    int cx = 98, cy = 192, R = 90; float a = ms * 0.003f;
+    for (int r = R / 3; r <= R; r += R / 3) gfx->drawCircle(cx, cy, r, GR);  // rings
     gfx->drawLine(cx - R, cy, cx + R, cy, GR); gfx->drawLine(cx, cy - R, cx, cy + R, GR);
     for (int k = 0; k < R; k += 3) gfx->drawLine(cx, cy, cx + (int)(k * cosf(a)), cy + (int)(k * sinf(a)), GRN);  // sweep
     for (int i = 0; i < 4; i++) {                               // fading blips
-        float ba = i * 1.9f, br = 30 + (i * 23) % (R - 20);
+        float ba = i * 1.9f, br = 26 + (i * 21) % (R - 18);
         float age = fmodf(a - ba, 6.2832f); if (age < 0) age += 6.2832f;
         if (age < 1.2f) gfx->fillCircle(cx + (int)(br * cosf(ba)), cy + (int)(br * sinf(ba)), 3, GRN);
     }
-    int gx = 246, gw = Wd - gx - 10, gy = 70, gh = 90;          // scrolling waveform
+    // --- right column: mini scope + secure-link log ---
+    int lx = 200, gx = lx, gw = Wd - lx - 10, gy = 40, gh = 44;
     gfx->drawRect(gx, gy, gw, gh, GR);
     int px = -1, py = -1;
     for (int i = 0; i < gw - 4; i++) {
-        float v = sinf((i + ms * 0.08f) * 0.15f) * 0.5f + sinf((i + ms * 0.05f) * 0.4f) * 0.2f;
-        int sx = gx + 2 + i, sy = gy + gh / 2 - (int)(v * (gh / 2 - 4));
-        if (px >= 0) gfx->drawLine(px, py, sx, sy, GRN); px = sx; py = sy;
+        float v = sinf((i + ms * 0.08f) * 0.16f) * 0.5f + sinf((i + ms * 0.05f) * 0.4f) * 0.2f;
+        int wx = gx + 2 + i, wy = gy + gh / 2 - (int)(v * (gh / 2 - 4));
+        if (px >= 0) gfx->drawLine(px, py, wx, wy, GRN); px = wx; py = wy;
     }
-    const char *RL[3] = {"SIG", "FREQ", "PWR"};                 // fake readouts
-    for (int i = 0; i < 3; i++) {
-        char v[16]; snprintf(v, sizeof(v), "%s %3d%%", RL[i], (int)((ms / (7 + i * 5)) % 100));
-        idleText(246, 174 + i * 18, v, 1, TX);
+    static const char *L[] = {"SERIAL LINK 115200", "AES-256 ENCRYPTION", "BMS HANDSHAKE 0x90EB",
+                              "DECRYPTING TELEMETRY", "CRC16 VALIDATION", "AWAITING BATTERY DATA"};
+    const int N = 6;
+    int shown = (ms / 600) % (N + 3) + 1; if (shown > N) shown = N;
+    int rxs = Wd - 10;
+    for (int i = 0; i < shown; i++) {
+        int ly = 96 + i * 22; bool isLast = (i == N - 1);
+        idleText(lx, ly, L[i], 1, TX);
+        char dots[4] = "   "; int nd = (ms / (isLast ? 300 : 200)) % 4; for (int d = 0; d < nd && d < 3; d++) dots[d] = '.';
+        if (isLast) idleText(rxs - 18, ly, dots, 1, AMB);        // never finishes — still waiting
+        else if (i < shown - 1) idleText(rxs - 12, ly, "OK", 1, OK);   // done → green
+        else idleText(rxs - 18, ly, dots, 1, GRN);               // in progress
     }
-    char wd[24] = "WAITING FOR DATA"; int nd = (ms / 300) % 4; int wl = strlen(wd);
-    for (int d = 0; d < nd && d < 3; d++) wd[wl + d] = '.';
-    if (((ms / 450) & 1)) idleText(246, 174 + 3 * 18 + 8, wd, 1, GRN);
     idleText(14, Ht - 14, "no battery signal", 1, GR);
     if (((ms / 500) & 1)) idleText(Wd - 78, Ht - 14, "tap for menu", 1, GR);
 }
