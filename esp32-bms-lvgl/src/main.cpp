@@ -87,6 +87,7 @@ struct Bms {
     float cell[NCELLS];
     float cap[NCAP], pwr[NCAP];
     int capCount; float capSpanDays;
+    int pwrCount; float pwrSpanMin;   // power graph: short rolling window (minutes)
     float peakChg, peakDis;
     bool bmsOk;                 // overall BMS status (no active protection)
     uint32_t uptime;            // BMS-reported total runtime (seconds); 0 = unknown
@@ -103,6 +104,12 @@ static int16_t  histPwr[2][HIST_N];  // pack power (W), oldest→newest
 static uint16_t histCount[2] = {0, 0};
 static uint32_t histLastMs[2] = {0, 0};
 static bool histDirty = false; static uint32_t histDirtyAt = 0;
+// Power graph: fast rolling 10-minute window, one sample per refresh (~1 s), per BMS.
+#define PWR_DT 1000UL                // sample interval (ms) ≈ one per data refresh
+#define PWR_WIN 600                  // 600 samples × 1 s = 10 minutes
+static int16_t pwrWin[2][PWR_WIN];   // pack power (W), oldest→newest
+static uint16_t pwrWinN[2] = {0, 0};
+static uint32_t pwrWinLast[2] = {0, 0};
 static bool bmsLive[2] = {false, false};   // per-BMS: real device responded over Modbus this poll
 static bool demoMode = false;              // ON = both BMSes simulated; OFF = poll real BMS 1 (addr 1) & 2 (addr 2)
 static float packFullAh[2] = {100.0f, 100.0f};   // full-charge capacity from each BMS (Ah)
@@ -206,6 +213,23 @@ static void histSample() {
             histLastMs[t] = now;
         }
     }
+}
+// Append the current power to each pack's 10-min window (once per PWR_DT). Samples
+// whenever there's data to plot (live, or demo sim). Returns true if a sample landed.
+static bool pwrSample() {
+    uint32_t now = millis(); bool added = false;
+    for (int t = 0; t < 2; t++) {
+        if (!demoMode && !bmsLive[t]) continue;             // nothing to sample
+        if (pwrWinN[t] != 0 && (now - pwrWinLast[t]) < PWR_DT) continue;
+        float w = bms[t].v * bms[t].i; if (w < -32000) w = -32000; if (w > 32000) w = 32000;
+        if (pwrWinN[t] >= PWR_WIN) {                        // ring: drop oldest
+            memmove(pwrWin[t], pwrWin[t] + 1, (PWR_WIN - 1) * sizeof(pwrWin[0][0]));
+            pwrWinN[t] = PWR_WIN - 1;
+        }
+        pwrWin[t][pwrWinN[t]++] = (int16_t)w;
+        pwrWinLast[t] = now; added = true;
+    }
+    return added;
 }
 static void simStep(uint32_t nowMs) {
     float s = nowMs / 1000.0f * simSpeed;
@@ -579,9 +603,9 @@ static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = fal
 static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     lText("POWER  W", x + 8, y + 6, F10, C_MUTED);
-    if (b.capCount < 2) { cText("collecting data", x + w / 2, y + h / 2, F12, C_MUTED); return; }
+    if (b.pwrCount < 2) { cText("collecting data", x + w / 2, y + h / 2, F12, C_MUTED); return; }
     const int lblW = 24, gx = x + 8 + lblW, gy = y + 22, gw = w - 14 - lblW, gh = h - 38, base = gy + gh;
-    int cnt = (b.capCount < 2) ? 2 : (b.capCount > NCAP ? NCAP : b.capCount);
+    int cnt = b.pwrCount > NCAP ? NCAP : b.pwrCount;
     float lo = 1e9f, hi = -1e9f;
     for (int i = 0; i < cnt; i++) { float v = b.pwr[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
     if (lo > 0) lo = 0; if (hi < 0) hi = 0; if (hi - lo < 1) hi = lo + 1;
@@ -603,7 +627,11 @@ static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     }
     for (int k = 0; k < 5; k++) {
         int fx = gx + (int)((float)k / 4 * gw);
-        char lbl[8]; timeLabel(lbl, sizeof(lbl), b.capSpanDays * (1.0f - k / 4.0f), b.capSpanDays);
+        float minsAgo = b.pwrSpanMin * (1.0f - k / 4.0f);
+        char lbl[8];
+        if (minsAgo < 0.05f) snprintf(lbl, sizeof(lbl), "now");
+        else if (b.pwrSpanMin < 2.0f) snprintf(lbl, sizeof(lbl), "%.0fs", minsAgo * 60.0f);   // <2 min → seconds
+        else snprintf(lbl, sizeof(lbl), "%.0fm", minsAgo);
         if (k == 0) lText(lbl, fx, base + 6, F10, C_MUTED);
         else if (k == 4) lText(lbl, fx - textW(lbl, F10), base + 6, F10, C_MUTED);
         else cText(lbl, fx, base + 11, F10, C_MUTED);
@@ -650,28 +678,38 @@ static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
 #define CAP_W 272
 #define CAP_H 96
 static lv_obj_t *powCv = nullptr, *capCv = nullptr;
-// In live mode the graphs are driven by the persisted real history; copy it into
-// the active BMS's display buffer. Demo mode keeps the genCap() synthetic curves.
+// Capacity graph: persisted 7-day SOC history (live) or genCap() curve (demo).
+// Power graph: the fast 10-minute rolling window (always), decimated to fit.
+#define POW_PTS 160                  // display columns for the power window
 static void prepGraphData(int v) {
-    if (demoMode) return;
     Bms &b = bms[v];
-    int n = histCount[v];
-    b.capSpanDays = n > 1 ? (float)(n - 1) / 288.0f : 0.0f;   // 288 samples/day (5 min)
-    if (n <= NCAP) {                                          // fits the display buffer 1:1
-        for (int i = 0; i < n; i++) { b.cap[i] = histCap[v][i]; b.pwr[i] = histPwr[v][i]; }
-        b.capCount = n;
-        return;
+    if (!demoMode) {                                         // capacity from history
+        int n = histCount[v];
+        b.capSpanDays = n > 1 ? (float)(n - 1) / 288.0f : 0.0f;   // 288 samples/day (5 min)
+        if (n <= NCAP) { for (int i = 0; i < n; i++) b.cap[i] = histCap[v][i]; b.capCount = n; }
+        else {
+            for (int j = 0; j < NCAP; j++) {
+                int lo = (int)((int64_t)j * n / NCAP), hi = (int)((int64_t)(j + 1) * n / NCAP);
+                if (hi <= lo) hi = lo + 1;
+                float sc = 0; for (int i = lo; i < hi; i++) sc += histCap[v][i];
+                b.cap[j] = sc / (hi - lo);
+            }
+            b.capCount = NCAP;
+        }
+    }   // demo: b.cap stays the genCap() curve
+    // power = 10-minute window, newest-on-right
+    int pn = pwrWinN[v];
+    b.pwrSpanMin = pn * (PWR_DT / 1000.0f) / 60.0f;
+    if (pn <= POW_PTS) { for (int i = 0; i < pn; i++) b.pwr[i] = pwrWin[v][i]; b.pwrCount = pn; }
+    else {
+        for (int j = 0; j < POW_PTS; j++) {
+            int lo = (int)((int64_t)j * pn / POW_PTS), hi = (int)((int64_t)(j + 1) * pn / POW_PTS);
+            if (hi <= lo) hi = lo + 1;
+            float sp = 0; for (int i = lo; i < hi; i++) sp += pwrWin[v][i];
+            b.pwr[j] = sp / (hi - lo);
+        }
+        b.pwrCount = POW_PTS;
     }
-    // more samples than display columns → average each bucket down to NCAP points
-    for (int j = 0; j < NCAP; j++) {
-        int lo = (int)((int64_t)j * n / NCAP), hi = (int)((int64_t)(j + 1) * n / NCAP);
-        if (hi <= lo) hi = lo + 1;
-        float sc = 0, sp = 0;
-        for (int i = lo; i < hi; i++) { sc += histCap[v][i]; sp += histPwr[v][i]; }
-        b.cap[j] = sc / (hi - lo);
-        b.pwr[j] = sp / (hi - lo);
-    }
-    b.capCount = NCAP;
 }
 static void renderGraphs() {
     if (!powCv || !capCv) return;
@@ -2022,6 +2060,9 @@ static void barTick_cb(lv_timer_t *t) {
 static void dataTick_cb(lv_timer_t *t) {
     uint32_t now = millis();
     simStep(now);
+    if (pwrSample() && !standby && view != V_SETTINGS && !idleActiveNow()) {   // new power point → refresh graphs
+        renderGraphs(); invArea(196, 118, Wd - 1, 313);
+    }
     if (cfgDirty && now - cfgDirtyAt > 1500) { cfgDirty = false; saveSettings(); }   // persist settings
     if (histDirty && now - histDirtyAt > 2000) { histDirty = false; saveHistory(); } // persist graph history
     // ---- power saving (escalates with idle time; any touch resets it) ----
@@ -2136,6 +2177,7 @@ void setup() {
     bmsBegin();                 // open both BMS UARTs with the saved pin assignment
     bmsRead();
     histSample();               // continue the persisted history with a fresh point
+    pwrSample();                // seed the 10-min power window
     renderGraphs();
     lastActivity = millis();
     lv_obj_invalidate(scr);                     // first full paint
