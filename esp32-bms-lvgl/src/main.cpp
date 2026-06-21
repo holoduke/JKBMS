@@ -620,7 +620,8 @@ static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     int cnt = b.pwrCount > NCAP ? NCAP : b.pwrCount;
     float lo = 1e9f, hi = -1e9f;
     for (int i = 0; i < cnt; i++) { float v = b.pwr[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
-    if (lo > 0) lo = 0; if (hi < 0) hi = 0; if (hi - lo < 1) hi = lo + 1;
+    if (lo > 0) lo = 0; if (hi < 0) hi = 0;
+    if (hi - lo < 50) { float g = (50 - (hi - lo)) * 0.5f; hi += g; lo -= g; }   // min 50W span → no sawtooth on idle noise
     int zeroY = base - (int)((0 - lo) / (hi - lo) * gh);
     for (int k = 0; k < 5; k++) line(gx + (int)((float)k / 4 * gw), gy, gx + (int)((float)k / 4 * gw), gy + gh, C_BORDER, 170);
     line(gx, zeroY, gx + gw, zeroY, C_BORDER, 170);
