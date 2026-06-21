@@ -787,8 +787,7 @@ static void srowToggle(int y, const char *label, bool on) {
 // ---- scrollable System list ----
 static const char *SYS_LABEL[] = {
     "Auto-switch", "Switch interval", "Brightness   - / +", "Auto-sleep", "Eco mode", "Dim after",
-    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode", "No-data screen",
-    "BMS1 TX pin", "BMS1 RX pin", "BMS2 TX pin", "BMS2 RX pin"};
+    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode", "No-data screen"};
 #define SYS_ROWS ((int)(sizeof(SYS_LABEL) / sizeof(SYS_LABEL[0])))
 static void dimStr(char *o, size_t n) {
     if (dimAfterSec == 0) snprintf(o, n, "Off");
@@ -809,7 +808,6 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 9: snprintf(o, n, "%dx", simSpeed); *vc = C_CYAN; break;
         case 10: snprintf(o, n, "view"); *vc = C_CYAN; break;
         case 13: { static const char *IN[6] = {"Dashboard", "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = C_CYAN; break; }
-        case 14: case 15: case 16: case 17: snprintf(o, n, "IO%d", bmsPin[i - 14]); *vc = C_CYAN; break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
@@ -964,10 +962,12 @@ static void renderEditor() {
         cText(KEYLBL[k], kx + kw / 2, ky + kh / 2 - 9, F20, save ? C_BG : (cancel ? C_BAD : C_TEXT));
     }
 }
+// fixed rows: 0 battery, 1-3 switches, 4 TX pin, 5 RX pin
+#define BMS_FIXED 6
 static int bmsRowCount() {
     int b = cfgBms; bool avail = (!demoMode && bmsLive[b] && setOk[b]);
-    if (!avail) return 5;                                    // 0:battery 1-3:switches 4:notice
-    return 4 + numCount(b) + (setOk2[b] ? NBIT : 0);         // numerics + bitmask toggles
+    if (!avail) return BMS_FIXED + 1;                        // + a "params" notice
+    return BMS_FIXED + numCount(b) + (setOk2[b] ? NBIT : 0); // numerics + bitmask toggles
 }
 static int bmsViewH() { return Ht - LIST_TOP - 2; }
 static int bmsContentH() { return bmsRowCount() * SROW_STEP + SROW_STEP; }
@@ -983,9 +983,11 @@ static void renderBmsTab() {
         else if (i == 1) srowToggle(y, "Charge MOSFET", bmsCharge[b]);
         else if (i == 2) srowToggle(y, "Discharge MOSFET", bmsDischarge[b]);
         else if (i == 3) srowToggle(y, "Balancer", bmsBalancer[b]);
+        else if (i == 4) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2]);     srowAt(y, "UART TX pin", v, C_CYAN); }
+        else if (i == 5) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2 + 1]); srowAt(y, "UART RX pin", v, C_CYAN); }
         else if (!avail) srowAt(y, "Parameters", demoMode ? "live BMS only" : (bmsLive[b] ? "reading..." : "offline"), C_MUTED);
         else {
-            int si = i - 4;
+            int si = i - BMS_FIXED;
             if (si < numCount(b)) { const SetDef &d = numDef(si); char v[16]; fmtSetting(v, sizeof(v), d, setGet(b, d)); srowAt(y, d.label, v, C_TEXT); }
             else { const BitDef &f = BITDEFS[si - numCount(b)]; srowToggle(y, f.label, bitWord(b) & f.mask); }
         }
@@ -1281,7 +1283,6 @@ static void handleTap(int x, int y) {
                 case 10: infoPopup = true; return;   // full redraw for the popup
                 case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
                 case 13: idleScreen = (idleScreen + 1) % 6; break;   // cycle no-data screen
-                case 14: case 15: case 16: case 17: bmsPin[idx - 14] = nextPin(bmsPin[idx - 14]); bmsBegin(); break;   // cycle UART pin, re-open
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
@@ -1295,9 +1296,11 @@ static void handleTap(int x, int y) {
             if (idx == 1) { bmsCharge[b] = !bmsCharge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b, 0x1070, bmsCharge[b] ? 1 : 0)) bmsCharge[b] = !bmsCharge[b]; markCfg(); markRowAt(ry); return; }
             if (idx == 2) { bmsDischarge[b] = !bmsDischarge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b, 0x1074, bmsDischarge[b] ? 1 : 0)) bmsDischarge[b] = !bmsDischarge[b]; markCfg(); markRowAt(ry); return; }
             if (idx == 3) { bmsBalancer[b] = !bmsBalancer[b]; if (!demoMode && bmsLive[b] && !bmsSet(b, 0x1078, bmsBalancer[b] ? 1 : 0)) bmsBalancer[b] = !bmsBalancer[b]; markCfg(); markRowAt(ry); return; }
+            if (idx == 4) { bmsPin[b * 2] = nextPin(bmsPin[b * 2]); bmsBegin(); markCfg(); markRowAt(ry); return; }       // UART TX pin
+            if (idx == 5) { bmsPin[b * 2 + 1] = nextPin(bmsPin[b * 2 + 1]); bmsBegin(); markCfg(); markRowAt(ry); return; } // UART RX pin
             bool avail = (!demoMode && bmsLive[b] && setOk[b]);
             if (avail) {
-                int si = idx - 4;
+                int si = idx - BMS_FIXED;
                 // Only the main 4-byte (UINT32) settings are writable. The tail fields
                 // (bitmask flags @282, heating @284, sleep-hours @286) are packed 2-byte
                 // values; a 4-byte write would clobber their neighbours, so they are
