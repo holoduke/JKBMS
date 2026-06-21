@@ -109,6 +109,16 @@ static float packFullAh[2] = {100.0f, 100.0f};   // full-charge capacity from ea
 HardwareSerial bmsSerial(1);           // BMS1 UART: RX=IO18, TX=IO17, 115200
 HardwareSerial bmsSerial2(2);          // BMS2 UART: RX=IO15, TX=IO16, 115200
 static HardwareSerial &bmsPort(int idx) { return idx == 0 ? bmsSerial : bmsSerial2; }   // each pack on its own bus
+// configurable UART pins (defaults match the connectors): B1TX, B1RX, B2TX, B2RX
+static int bmsPin[4] = {BMS_TX_PIN, BMS_RX_PIN, BMS2_TX_PIN, BMS2_RX_PIN};
+// GPIOs broken out on the 4P + 8P connectors (safe to assign; avoids display/touch/USB pins)
+static const uint8_t VALIDPINS[] = {5, 6, 7, 9, 14, 15, 16, 17, 18, 46};
+#define NVALID ((int)(sizeof(VALIDPINS) / sizeof(VALIDPINS[0])))
+static int nextPin(int cur) { for (int i = 0; i < NVALID; i++) if (VALIDPINS[i] == cur) return VALIDPINS[(i + 1) % NVALID]; return VALIDPINS[0]; }
+static void bmsBegin() {                // (re)open both UARTs with the current pin assignment
+    bmsSerial.end();  bmsSerial.begin(115200, SERIAL_8N1, bmsPin[1], bmsPin[0]);   // (rx, tx)
+    bmsSerial2.end(); bmsSerial2.begin(115200, SERIAL_8N1, bmsPin[3], bmsPin[2]);
+}
 enum View { V_BMS1 = 0, V_BMS2 = 1, V_SETTINGS = 2 };
 static int view = V_BMS1;
 static uint32_t lastSwitch = 0, manualUntil = 0;
@@ -777,7 +787,8 @@ static void srowToggle(int y, const char *label, bool on) {
 // ---- scrollable System list ----
 static const char *SYS_LABEL[] = {
     "Auto-switch", "Switch interval", "Brightness   - / +", "Auto-sleep", "Eco mode", "Dim after",
-    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode", "No-data screen"};
+    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode", "No-data screen",
+    "BMS1 TX pin", "BMS1 RX pin", "BMS2 TX pin", "BMS2 RX pin"};
 #define SYS_ROWS ((int)(sizeof(SYS_LABEL) / sizeof(SYS_LABEL[0])))
 static void dimStr(char *o, size_t n) {
     if (dimAfterSec == 0) snprintf(o, n, "Off");
@@ -798,6 +809,7 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 9: snprintf(o, n, "%dx", simSpeed); *vc = C_CYAN; break;
         case 10: snprintf(o, n, "view"); *vc = C_CYAN; break;
         case 13: { static const char *IN[6] = {"Dashboard", "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = C_CYAN; break; }
+        case 14: case 15: case 16: case 17: snprintf(o, n, "IO%d", bmsPin[i - 14]); *vc = C_CYAN; break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
@@ -1163,6 +1175,7 @@ static void saveSettings() {
     prefs.putBool("bb0", bmsBalancer[0]); prefs.putBool("bb1", bmsBalancer[1]);
     prefs.putBool("demo", demoMode);
     prefs.putInt("idle", idleScreen);
+    prefs.putBytes("pins", bmsPin, sizeof(bmsPin));
     prefs.end();
 }
 static void loadSettings() {
@@ -1177,6 +1190,7 @@ static void loadSettings() {
     bmsBalancer[0] = prefs.getBool("bb0", false); bmsBalancer[1] = prefs.getBool("bb1", false);
     demoMode = prefs.getBool("demo", demoMode);
     idleScreen = prefs.getInt("idle", idleScreen);
+    if (prefs.isKey("pins")) prefs.getBytes("pins", bmsPin, sizeof(bmsPin));
     prefs.end();
     appliedB = brightness;
 }
@@ -1267,6 +1281,7 @@ static void handleTap(int x, int y) {
                 case 10: infoPopup = true; return;   // full redraw for the popup
                 case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
                 case 13: idleScreen = (idleScreen + 1) % 6; break;   // cycle no-data screen
+                case 14: case 15: case 16: case 17: bmsPin[idx - 14] = nextPin(bmsPin[idx - 14]); bmsBegin(); break;   // cycle UART pin, re-open
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
@@ -2104,8 +2119,7 @@ void setup() {
     //   BMS1 = UART1 (RX=IO18, TX=IO17), BMS2 = UART2 (RX=IO15, TX=IO16).
     // bmsRead() flips bmsLive[] per a valid reply; a silent pack shows a red tab +
     // "Offline". Skipped entirely in demo mode.
-    bmsSerial.begin(115200, SERIAL_8N1, BMS_RX_PIN, BMS_TX_PIN);
-    bmsSerial2.begin(115200, SERIAL_8N1, BMS2_RX_PIN, BMS2_TX_PIN);
+    bmsBegin();                 // open both BMS UARTs with the saved pin assignment
     bmsRead();
     histSample();               // continue the persisted history with a fresh point
     renderGraphs();
