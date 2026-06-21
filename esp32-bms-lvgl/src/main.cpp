@@ -208,6 +208,7 @@ static void histSample() {
     uint32_t now = millis();
     for (int t = 0; t < 2; t++) {
         if (!bmsLive[t]) continue;
+        if (bms[t].soc < 1) continue;                  // skip implausible 0% (BMS not settled / bad read)
         if (histCount[t] == 0 || (now - histLastMs[t]) >= HIST_INTERVAL_MS) {
             histAppend(t, bms[t].soc, bms[t].v * bms[t].i);
             histLastMs[t] = now;
@@ -1274,7 +1275,12 @@ static void saveHistory() {
     prefs.end();
 }
 static void loadHistory() {
-    prefs.begin("hist", true);
+    prefs.begin("hist", false);
+    if (prefs.getUChar("ver", 0) != 1) {               // one-time wipe of pre-fix history (had bogus 0% points)
+        prefs.clear(); prefs.putUChar("ver", 1);
+        histCount[0] = histCount[1] = 0;
+        prefs.end(); return;
+    }
     for (int t = 0; t < 2; t++) {
         char k[8];
         snprintf(k, sizeof(k), "c%d", t); int c = prefs.getUShort(k, 0); if (c > HIST_N) c = HIST_N;
