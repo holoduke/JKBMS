@@ -369,6 +369,18 @@ static bool bmsSet(int idx, uint16_t reg, uint32_t val) {
     return true;
 }
 static uint32_t socColor(float soc) { return soc >= 60 ? C_ACCENT : soc >= 30 ? C_WARN : C_BAD; }
+static uint32_t lerpColor(uint32_t a, uint32_t b, float t) {
+    if (t < 0) t = 0; if (t > 1) t = 1;
+    int ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
+    int br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
+    return ((uint32_t)(ar + (br - ar) * t) << 16) | ((uint32_t)(ag + (bg - ag) * t) << 8) | (uint32_t)(ab + (bb - ab) * t);
+}
+// SOC ring colour: normal palette up to 90%, then fades green → deep purple-blue at 100%.
+#define C_FULL 0x4012a0
+static uint32_t socRingColor(float soc) {
+    if (soc >= 90) return lerpColor(C_ACCENT, C_FULL, (soc - 90) / 10.0f);
+    return socColor(soc);
+}
 static uint32_t tempColor(float t) { return t >= 55 ? C_BAD : t >= 45 ? C_WARN : C_ACCENT; }
 #define PACK_AH 100.0f
 // estimated runtime (discharging) / time-to-full (charging), shorthand e.g. 8h30
@@ -741,7 +753,6 @@ static void renderBms() {
     drawTabs(autoActive, prog);
 
     const int cx = 100, cy = 178;
-    cText("STATE OF CHARGE", cx, 48, F12, C_MUTED);
     // operational status (from the BMS) — pill with a status dot
     float clo = 9, chi = 0;
     for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < clo) clo = b.cell[i]; if (b.cell[i] > chi) chi = b.cell[i]; }
@@ -752,25 +763,23 @@ static void renderBms() {
     else if (bmsBalancer[view] && (chi - clo) > 0.015f) { st = "Balancing"; sc = C_CYAN; }
     else if (fabsf(b.i) < 2.0f) { st = "Idle"; sc = C_MUTED; }
     else { st = "Normal"; sc = C_ACCENT; }
-    int pw2 = textW(st, F12) + 28, px2 = cx - pw2 / 2, py2 = 66;
+    int pw2 = textW(st, F12) + 28, px2 = cx - pw2 / 2, py2 = 52;
     fRect(px2, py2, pw2, 20, 10, C_CARD); dRect(px2, py2, pw2, 20, 10, C_BORDER);
     fCircle(px2 + 13, py2 + 10, 4, sc);
     lText(st, px2 + 22, py2 + 5, F12, sc);
     bool stale = (!demoMode && !bmsLive[view]);   // live mode, this pack isn't answering → no data
-    drawRing(cx, cy, 74, 58, b.soc, socColor(b.soc), stale);
+    drawRing(cx, cy, 74, 58, b.soc, socRingColor(b.soc), stale);
+    int py = cy + 100;                            // power + current readout, big & centered, just below the ring
     if (stale) {
-        cText("-- W", cx + 8, cy + 96, F20, C_MUTED);
-        cText("NO DATA", cx, cy + 122, F12, C_MUTED);
+        cText("--", cx, py + 2, F28, C_MUTED);
     } else {
-        bool chg = (b.i >= 0); uint32_t pcol = chg ? C_ACCENT : C_WARN;
-        char pw[12]; snprintf(pw, sizeof(pw), "%.0f W", fabsf(b.v * b.i));
-        int bw = textW(pw, F20);
-        cText(pw, cx + 8, cy + 96, F20, pcol);
-        int ax = cx + 8 - bw / 2 - 16, ay = cy + 96 - 6;
-        if (chg) tri(ax, ay + 10, ax + 10, ay + 10, ax + 5, ay, C_ACCENT);
-        else tri(ax, ay, ax + 10, ay, ax + 5, ay + 10, C_WARN);
-        char sub[26]; snprintf(sub, sizeof(sub), "%s  %.1f A", chg ? "CHARGING" : "DISCHARGING", fabsf(b.i));
-        cText(sub, cx, cy + 122, F12, C_MUTED);
+        uint32_t pcol = (b.i >= 0) ? C_ACCENT : C_WARN;   // green = charging, amber = discharging
+        char pw[10], cu[10];
+        snprintf(pw, sizeof(pw), "%.0fW", fabsf(b.v * b.i));
+        if (fabsf(b.i) < 100) snprintf(cu, sizeof(cu), "%.1fA", fabsf(b.i));
+        else snprintf(cu, sizeof(cu), "%.0fA", fabsf(b.i));
+        lText(pw, cx - 10 - textW(pw, F28), py, F28, pcol);   // power: right-aligned just left of centre
+        lText(cu, cx + 10, py, F28, pcol);                     // current: left-aligned just right of centre
     }
 
     const int rx = 200, rw = Wd - rx - 8;
@@ -1967,7 +1976,7 @@ static int *scrollCtx(int *maxS, int *top, int *bot) {
 // scrolling never accidentally toggles a setting.
 static void unsave() {   // instantly undo dim / eco on interaction
     if (appliedB != brightness) { setBrightness(brightness); appliedB = brightness; }
-    if (ecoActive) { ecoActive = false; if (dataTimer) lv_timer_set_period(dataTimer, 300); if (barTimer) lv_timer_set_period(barTimer, 120); }
+    if (ecoActive) { ecoActive = false; if (dataTimer) lv_timer_set_period(dataTimer, 220); if (barTimer) lv_timer_set_period(barTimer, 130); }
 }
 static void press_cb(lv_event_t *e) {
     lastActivity = millis();
@@ -2074,8 +2083,8 @@ static void dataTick_cb(lv_timer_t *t) {
     bool eco = ecoMode && !standby && idle > ECO_IDLE_MS;
     if (eco != ecoActive) {                                          // low-fps when idle
         ecoActive = eco;
-        if (dataTimer) lv_timer_set_period(dataTimer, eco ? 1000 : 300);
-        if (barTimer) lv_timer_set_period(barTimer, eco ? 1000 : 160);
+        if (dataTimer) lv_timer_set_period(dataTimer, eco ? 1000 : 220);
+        if (barTimer) lv_timer_set_period(barTimer, eco ? 1000 : 130);
     }
     if (autoSleepMin > 0 && !standby && idle > (uint32_t)autoSleepMin * 60000UL) { pendingSleep = true; return; }
     if (standby || view == V_SETTINGS || idleActiveNow()) return;   // idle screen owns the canvas
@@ -2184,8 +2193,8 @@ void setup() {
     // Refresh rates kept modest so the panel isn't flushed at max rate (each full
     // flush ~40ms blocks touch polling). Between ticks lv_task_handler runs every
     // ~1ms and polls touch → responsive input.
-    barTimer = lv_timer_create(barTick_cb, 160, NULL);    // auto-switch progress bar (160ms: smooth, frees bus time)
-    dataTimer = lv_timer_create(dataTick_cb, 300, NULL);  // live values (+ power-save supervisor)
+    barTimer = lv_timer_create(barTick_cb, 130, NULL);    // auto-switch progress bar
+    dataTimer = lv_timer_create(dataTick_cb, 220, NULL);  // live values (+ power-save supervisor)
     lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
     lv_timer_create(wifiTick_cb, 500, NULL);
     lv_timer_create(bmsPoll_cb, 1000, NULL);              // poll live BMSes (+ repaint on reconnect)
