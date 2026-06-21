@@ -399,9 +399,11 @@ static void runtimeStr(float soc, float i, float fullAh, char *o, size_t n, uint
     } else { snprintf(o, n, "--"); *col = C_MUTED; }   // idle
 }
 static void timeLabel(char *out, size_t n, float daysAgo, float span) {
-    if (daysAgo < 0.04f) { snprintf(out, n, "now"); return; }
-    if (span >= 2.0f) snprintf(out, n, "%.0fd", daysAgo);
-    else snprintf(out, n, "%.0fh", daysAgo * 24.0f);
+    float minsAgo = daysAgo * 1440.0f;
+    if (minsAgo < 1.0f) { snprintf(out, n, "now"); return; }
+    if (span >= 2.0f) snprintf(out, n, "%.0fd", daysAgo);                   // ≥2 days → days
+    else if (span >= 0.083f) snprintf(out, n, "%.0fh", daysAgo * 24.0f);    // ≥~2h → hours
+    else snprintf(out, n, "%.0fm", minsAgo);                                // short history → minutes
 }
 
 // ============================================================================
