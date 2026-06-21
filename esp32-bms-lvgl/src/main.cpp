@@ -774,13 +774,16 @@ static void renderBms() {
     if (stale) {
         cText("--", cx, py + 2, F28, C_MUTED);
     } else {
-        uint32_t pcol = (b.i >= 0) ? C_ACCENT : C_WARN;   // green = charging, amber = discharging
+        bool chg = (b.i >= 0); uint32_t pcol = chg ? C_ACCENT : C_WARN;   // green = charging, amber = discharging
         char pw[10], cu[10];
         snprintf(pw, sizeof(pw), "%.0fW", fabsf(b.v * b.i));
         if (fabsf(b.i) < 100) snprintf(cu, sizeof(cu), "%.1fA", fabsf(b.i));
         else snprintf(cu, sizeof(cu), "%.0fA", fabsf(b.i));
-        lText(pw, cx - 10 - textW(pw, F28), py, F28, pcol);   // power: right-aligned just left of centre
-        lText(cu, cx + 10, py, F28, pcol);                     // current: left-aligned just right of centre
+        lText(pw, cx - 16 - textW(pw, F28), py, F28, pcol);   // power: right-aligned, left of centre
+        lText(cu, cx + 16, py, F28, pcol);                     // current: left-aligned, right of centre
+        int aw = 7, ay = py + 3, ah = 15;                      // direction arrow, centred between them
+        if (chg) tri(cx - aw, ay + ah, cx + aw, ay + ah, cx, ay, pcol);   // up = charging
+        else     tri(cx - aw, ay, cx + aw, ay, cx, ay + ah, pcol);        // down = discharging
     }
 
     const int rx = 200, rw = Wd - rx - 8;
