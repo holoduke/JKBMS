@@ -962,34 +962,44 @@ static void renderEditor() {
         cText(KEYLBL[k], kx + kw / 2, ky + kh / 2 - 9, F20, save ? C_BG : (cancel ? C_BAD : C_TEXT));
     }
 }
-// fixed rows: 0 battery, 1-3 switches, 4 TX pin, 5 RX pin
-#define BMS_FIXED 6
+// always-shown rows: 0 battery, 1 TX pin, 2 RX pin. Then (when live) 3 switches,
+// then (when the settings block is read) the numeric params + bitmask flags.
+#define BMS_FIXED 3
 static int bmsRowCount() {
-    int b = cfgBms; bool avail = (!demoMode && bmsLive[b] && setOk[b]);
-    if (!avail) return BMS_FIXED + 1;                        // + a "params" notice
-    return BMS_FIXED + numCount(b) + (setOk2[b] ? NBIT : 0); // numerics + bitmask toggles
+    int b = cfgBms;
+    bool live = !demoMode && bmsLive[b];
+    bool avail = live && setOk[b];
+    if (!live) return BMS_FIXED + 1;                         // + "offline/demo" notice
+    if (!avail) return BMS_FIXED + 3 + 1;                    // 3 switches + "reading..." notice
+    return BMS_FIXED + 3 + numCount(b) + (setOk2[b] ? NBIT : 0);
 }
 static int bmsViewH() { return Ht - LIST_TOP - 2; }
 static int bmsContentH() { return bmsRowCount() * SROW_STEP + SROW_STEP; }
 static int bmsMaxScroll() { int m = bmsContentH() - bmsViewH(); return m > 0 ? m : 0; }
 static void renderBmsTab() {
-    int b = cfgBms; bool avail = (!demoMode && bmsLive[b] && setOk[b]);
+    int b = cfgBms;
+    bool live = !demoMode && bmsLive[b];
+    bool avail = live && setOk[b];
     int rows = bmsRowCount();
     if (bmsScroll > bmsMaxScroll()) bmsScroll = bmsMaxScroll();
     for (int i = 0; i < rows; i++) {
         int y = LIST_TOP + i * SROW_STEP - bmsScroll;
         if (y + SROW_H < LIST_TOP || y > Ht) continue;
         if (i == 0) srowAt(y, "Battery", cfgBms ? "BAT 2  >" : "BAT 1  >", C_CYAN);
-        else if (i == 1) srowToggle(y, "Charge MOSFET", bmsCharge[b]);
-        else if (i == 2) srowToggle(y, "Discharge MOSFET", bmsDischarge[b]);
-        else if (i == 3) srowToggle(y, "Balancer", bmsBalancer[b]);
-        else if (i == 4) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2]);     srowAt(y, "UART TX pin", v, C_CYAN); }
-        else if (i == 5) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2 + 1]); srowAt(y, "UART RX pin", v, C_CYAN); }
-        else if (!avail) srowAt(y, "Parameters", demoMode ? "live BMS only" : (bmsLive[b] ? "reading..." : "offline"), C_MUTED);
+        else if (i == 1) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2]);     srowAt(y, "UART TX pin", v, C_CYAN); }
+        else if (i == 2) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2 + 1]); srowAt(y, "UART RX pin", v, C_CYAN); }
+        else if (!live) srowAt(y, "Parameters", demoMode ? "demo mode" : "offline", C_MUTED);
         else {
-            int si = i - BMS_FIXED;
-            if (si < numCount(b)) { const SetDef &d = numDef(si); char v[16]; fmtSetting(v, sizeof(v), d, setGet(b, d)); srowAt(y, d.label, v, C_TEXT); }
-            else { const BitDef &f = BITDEFS[si - numCount(b)]; srowToggle(y, f.label, bitWord(b) & f.mask); }
+            int si = i - BMS_FIXED;                          // live section
+            if (si == 0) srowToggle(y, "Charge MOSFET", bmsCharge[b]);
+            else if (si == 1) srowToggle(y, "Discharge MOSFET", bmsDischarge[b]);
+            else if (si == 2) srowToggle(y, "Balancer", bmsBalancer[b]);
+            else if (!avail) srowAt(y, "Parameters", "reading...", C_MUTED);
+            else {
+                int pi = si - 3;
+                if (pi < numCount(b)) { const SetDef &d = numDef(pi); char v[16]; fmtSetting(v, sizeof(v), d, setGet(b, d)); srowAt(y, d.label, v, C_TEXT); }
+                else { const BitDef &f = BITDEFS[pi - numCount(b)]; srowToggle(y, f.label, bitWord(b) & f.mask); }
+            }
         }
     }
     if (bmsMaxScroll() > 0) {                                // scrollbar
@@ -1292,20 +1302,20 @@ static void handleTap(int x, int y) {
             int ry = LIST_TOP + idx * SROW_STEP - bmsScroll;
             if (idx < 0 || idx >= bmsRowCount() || y < ry || y >= ry + SROW_H) return;
             int b = cfgBms;
-            if (idx == 0) { cfgBms ^= 1; bmsScroll = 0; return; }                 // switch pack (full redraw)
-            if (idx == 1) { bmsCharge[b] = !bmsCharge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b, 0x1070, bmsCharge[b] ? 1 : 0)) bmsCharge[b] = !bmsCharge[b]; markCfg(); markRowAt(ry); return; }
-            if (idx == 2) { bmsDischarge[b] = !bmsDischarge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b, 0x1074, bmsDischarge[b] ? 1 : 0)) bmsDischarge[b] = !bmsDischarge[b]; markCfg(); markRowAt(ry); return; }
-            if (idx == 3) { bmsBalancer[b] = !bmsBalancer[b]; if (!demoMode && bmsLive[b] && !bmsSet(b, 0x1078, bmsBalancer[b] ? 1 : 0)) bmsBalancer[b] = !bmsBalancer[b]; markCfg(); markRowAt(ry); return; }
-            if (idx == 4) { bmsPin[b * 2] = nextPin(bmsPin[b * 2]); bmsBegin(); markCfg(); markRowAt(ry); return; }       // UART TX pin
-            if (idx == 5) { bmsPin[b * 2 + 1] = nextPin(bmsPin[b * 2 + 1]); bmsBegin(); markCfg(); markRowAt(ry); return; } // UART RX pin
-            bool avail = (!demoMode && bmsLive[b] && setOk[b]);
-            if (avail) {
-                int si = idx - BMS_FIXED;
-                // Only the main 4-byte (UINT32) settings are writable. The tail fields
-                // (bitmask flags @282, heating @284, sleep-hours @286) are packed 2-byte
-                // values; a 4-byte write would clobber their neighbours, so they are
-                // display-only until the correct write width is verified on hardware.
-                if (si >= 0 && si < NSET) { editIdx = si; editBms = b; editStr[0] = 0; }   // open keypad (full redraw)
+            bool live = !demoMode && bmsLive[b];
+            if (idx == 0) { cfgBms ^= 1; bmsScroll = 0; return; }                                     // switch pack (full redraw)
+            if (idx == 1) { bmsPin[b * 2] = nextPin(bmsPin[b * 2]); bmsBegin(); markCfg(); markRowAt(ry); return; }        // UART TX pin
+            if (idx == 2) { bmsPin[b * 2 + 1] = nextPin(bmsPin[b * 2 + 1]); bmsBegin(); markCfg(); markRowAt(ry); return; } // UART RX pin
+            if (!live) return;                                                                        // offline/demo: nothing below
+            int si = idx - BMS_FIXED;                                                                 // live section
+            if (si == 0) { bmsCharge[b] = !bmsCharge[b]; if (!bmsSet(b, 0x1070, bmsCharge[b] ? 1 : 0)) bmsCharge[b] = !bmsCharge[b]; markCfg(); markRowAt(ry); return; }
+            if (si == 1) { bmsDischarge[b] = !bmsDischarge[b]; if (!bmsSet(b, 0x1074, bmsDischarge[b] ? 1 : 0)) bmsDischarge[b] = !bmsDischarge[b]; markCfg(); markRowAt(ry); return; }
+            if (si == 2) { bmsBalancer[b] = !bmsBalancer[b]; if (!bmsSet(b, 0x1078, bmsBalancer[b] ? 1 : 0)) bmsBalancer[b] = !bmsBalancer[b]; markCfg(); markRowAt(ry); return; }
+            if (setOk[b]) {
+                int pi = si - 3;
+                // Only the main 4-byte (UINT32) settings are writable; the packed tail
+                // fields (bitmask flags, heating, sleep-hours) are display-only.
+                if (pi >= 0 && pi < NSET) { editIdx = pi; editBms = b; editStr[0] = 0; }   // open keypad (full redraw)
             }
         } else {   // ST_WIFI
             int top = wListTop(), vbot = wRescanY() - 4;
