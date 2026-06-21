@@ -17,8 +17,10 @@
 #define FW_VERSION "0.4.0"
 #define BL_CH_FREQ 5000
 #define BL_CH_RES 8
-#define BMS_TX_PIN 17               // ESP TX -> BMS RX
-#define BMS_RX_PIN 18               // ESP RX <- BMS TX
+#define BMS_TX_PIN 17               // BMS1: ESP TX -> BMS RX
+#define BMS_RX_PIN 18               // BMS1: ESP RX <- BMS TX
+#define BMS2_TX_PIN 16              // BMS2: ESP TX -> BMS RX (IO16, on the 8P)
+#define BMS2_RX_PIN 15             // BMS2: ESP RX <- BMS TX (IO15, on the 8P)
 
 // ---- palette (identical to the original) ----
 #define C_BG 0x04060c
@@ -104,7 +106,9 @@ static bool histDirty = false; static uint32_t histDirtyAt = 0;
 static bool bmsLive[2] = {false, false};   // per-BMS: real device responded over Modbus this poll
 static bool demoMode = false;              // ON = both BMSes simulated; OFF = poll real BMS 1 (addr 1) & 2 (addr 2)
 static float packFullAh[2] = {100.0f, 100.0f};   // full-charge capacity from each BMS (Ah)
-HardwareSerial bmsSerial(1);           // BMS UART: RX=IO18, TX=IO17, 115200
+HardwareSerial bmsSerial(1);           // BMS1 UART: RX=IO18, TX=IO17, 115200
+HardwareSerial bmsSerial2(2);          // BMS2 UART: RX=IO15, TX=IO16, 115200
+static HardwareSerial &bmsPort(int idx) { return idx == 0 ? bmsSerial : bmsSerial2; }   // each pack on its own bus
 enum View { V_BMS1 = 0, V_BMS2 = 1, V_SETTINGS = 2 };
 static int view = V_BMS1;
 static uint32_t lastSwitch = 0, manualUntil = 0;
@@ -219,14 +223,15 @@ static uint16_t mbCrc(const uint8_t *d, int n) {
 }
 // Read the 0x1200 status block from one BMS (Modbus addr) into bms[idx]. Sets bmsLive[idx].
 static void bmsReadAddr(uint8_t addr, int idx) {
+    HardwareSerial &S = bmsPort(idx);
     uint8_t req[8] = {addr, 3, 0x12, 0x00, 0x00, 0x71, 0, 0};
     uint16_t crc = mbCrc(req, 6); req[6] = crc & 0xFF; req[7] = crc >> 8;
-    while (bmsSerial.available()) bmsSerial.read();
-    bmsSerial.write(req, 8); bmsSerial.flush();
+    while (S.available()) S.read();
+    S.write(req, 8); S.flush();
     // Reply (5 + 0x71*2 ≈ 231 bytes) takes ~25 ms at 115200; the loop exits the
     // instant a full frame lands, so this timeout only bites when a pack is silent.
     static uint8_t r[260]; int n = 0; uint32_t t0 = millis();
-    while (millis() - t0 < 70) { while (bmsSerial.available() && n < 260) r[n++] = bmsSerial.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
+    while (millis() - t0 < 70) { while (S.available() && n < 260) r[n++] = S.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
     if (n < 5 || r[0] != addr || r[1] != 3) { bmsLive[idx] = false; return; }
     int bc = r[2]; if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) { bmsLive[idx] = false; return; }
     uint8_t *p = r + 3;
@@ -252,12 +257,13 @@ static void bmsReadAddr(uint8_t addr, int idx) {
 // Read the settings/parameter block (Modbus reg 0x1000, 125 regs = 250 bytes) into
 // setRaw[idx]. byte k == web settings-frame offset k+6, big-endian like realtime.
 static void bmsReadSettings(uint8_t addr, int idx) {
+    HardwareSerial &S = bmsPort(idx);
     uint8_t req[8] = {addr, 3, 0x10, 0x00, 0x00, 0x7D, 0, 0};
     uint16_t crc = mbCrc(req, 6); req[6] = crc & 0xFF; req[7] = crc >> 8;
-    while (bmsSerial.available()) bmsSerial.read();
-    bmsSerial.write(req, 8); bmsSerial.flush();
+    while (S.available()) S.read();
+    S.write(req, 8); S.flush();
     static uint8_t r[300]; int n = 0; uint32_t t0 = millis();
-    while (millis() - t0 < 90) { while (bmsSerial.available() && n < 300) r[n++] = bmsSerial.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
+    while (millis() - t0 < 90) { while (S.available() && n < 300) r[n++] = S.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
     if (n < 5 || r[0] != addr || r[1] != 3) { setOk[idx] = false; return; }
     int bc = r[2]; if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) { setOk[idx] = false; return; }
     int cp = bc < 250 ? bc : 250; memcpy(setRaw[idx], r + 3, cp);
@@ -265,10 +271,10 @@ static void bmsReadSettings(uint8_t addr, int idx) {
     // tail read: reg 0x10FA (frame offset 256) covers the bitmask/heating/sleep fields
     uint8_t q[8] = {addr, 3, 0x10, 0xFA, 0x00, 0x14, 0, 0};
     uint16_t c2 = mbCrc(q, 6); q[6] = c2 & 0xFF; q[7] = c2 >> 8;
-    while (bmsSerial.available()) bmsSerial.read();
-    bmsSerial.write(q, 8); bmsSerial.flush();
+    while (S.available()) S.read();
+    S.write(q, 8); S.flush();
     n = 0; t0 = millis();
-    while (millis() - t0 < 70) { while (bmsSerial.available() && n < 300) r[n++] = bmsSerial.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
+    while (millis() - t0 < 70) { while (S.available() && n < 300) r[n++] = S.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
     setOk2[idx] = false;
     if (n >= 5 && r[0] == addr && r[1] == 3) {
         int bc2 = r[2];
@@ -287,42 +293,44 @@ static void bmsRead() {
     bool wantSet = (setTick++ % 10) == 0;          // refresh the settings block every ~10 polls
     for (int t = 0; t < 2; t++) {
         if (!bmsLive[t] && skip[t] > 0) { skip[t]--; continue; }   // back off from a silent pack
-        bmsReadAddr(t + 1, t);
+        bmsReadAddr(1, t);                                         // each pack is addr 1 on its own UART
         skip[t] = bmsLive[t] ? 0 : BMS_RETRY;                      // online → poll every cycle
         // settings: read once on first contact, then only every ~10 polls (never hammer a silent block)
         bool firstContact = bmsLive[t] && !wasLive[t];
-        if (bmsLive[t] && (wantSet || firstContact)) bmsReadSettings(t + 1, t);
+        if (bmsLive[t] && (wantSet || firstContact)) bmsReadSettings(1, t);
         wasLive[t] = bmsLive[t];
         if (!bmsLive[t]) { setOk[t] = false; setOk2[t] = false; }
     }
 }
-// Write a UINT32 control register (function 0x10, 2 registers) to one BMS (Modbus addr).
-static void bmsWrite(uint8_t addr, uint16_t reg, uint32_t val) {
-    uint8_t f[13] = {addr, 0x10, (uint8_t)(reg >> 8), (uint8_t)reg, 0, 2, 4,
+// Write a UINT32 control register (function 0x10, 2 registers) to BMS idx (addr 1, own bus).
+static void bmsWrite(int idx, uint16_t reg, uint32_t val) {
+    HardwareSerial &S = bmsPort(idx);
+    uint8_t f[13] = {1, 0x10, (uint8_t)(reg >> 8), (uint8_t)reg, 0, 2, 4,
                      (uint8_t)(val >> 24), (uint8_t)(val >> 16), (uint8_t)(val >> 8), (uint8_t)val, 0, 0};
     uint16_t crc = mbCrc(f, 11); f[11] = crc & 0xFF; f[12] = crc >> 8;
-    while (bmsSerial.available()) bmsSerial.read();
-    bmsSerial.write(f, 13); bmsSerial.flush();
-    uint32_t t0 = millis(); while (millis() - t0 < 40) { while (bmsSerial.available()) bmsSerial.read(); }   // drain the 8-byte echo
+    while (S.available()) S.read();
+    S.write(f, 13); S.flush();
+    uint32_t t0 = millis(); while (millis() - t0 < 40) { while (S.available()) S.read(); }   // drain the 8-byte echo
 }
 // Read one UINT32 control register back (function 0x03, 2 registers). false on no/bad reply.
-static bool bmsReadReg(uint8_t addr, uint16_t reg, uint32_t *out) {
-    uint8_t req[8] = {addr, 3, (uint8_t)(reg >> 8), (uint8_t)reg, 0, 2, 0, 0};
+static bool bmsReadReg(int idx, uint16_t reg, uint32_t *out) {
+    HardwareSerial &S = bmsPort(idx);
+    uint8_t req[8] = {1, 3, (uint8_t)(reg >> 8), (uint8_t)reg, 0, 2, 0, 0};
     uint16_t crc = mbCrc(req, 6); req[6] = crc & 0xFF; req[7] = crc >> 8;
-    while (bmsSerial.available()) bmsSerial.read();
-    bmsSerial.write(req, 8); bmsSerial.flush();
+    while (S.available()) S.read();
+    S.write(req, 8); S.flush();
     uint8_t r[16]; int n = 0; uint32_t t0 = millis();
-    while (millis() - t0 < 70) { while (bmsSerial.available() && n < 16) r[n++] = bmsSerial.read(); if (n >= 9) break; }
-    if (n < 9 || r[0] != addr || r[1] != 3 || r[2] != 4) return false;
+    while (millis() - t0 < 70) { while (S.available() && n < 16) r[n++] = S.read(); if (n >= 9) break; }
+    if (n < 9 || r[0] != 1 || r[1] != 3 || r[2] != 4) return false;
     if ((r[7] | (r[8] << 8)) != mbCrc(r, 7)) return false;
     *out = (uint32_t)r[3] << 24 | r[4] << 16 | r[5] << 8 | r[6];
     return true;
 }
 // Write a control register, then read it back to confirm the BMS accepted the value.
-static bool bmsSet(uint8_t addr, uint16_t reg, uint32_t val) {
-    bmsWrite(addr, reg, val);
+static bool bmsSet(int idx, uint16_t reg, uint32_t val) {
+    bmsWrite(idx, reg, val);
     uint32_t rb;
-    if (!bmsReadReg(addr, reg, &rb)) { Serial.printf("[bms] verify failed: no readback for reg %04X\n", reg); return false; }
+    if (!bmsReadReg(idx, reg, &rb)) { Serial.printf("[bms] verify failed: no readback for reg %04X\n", reg); return false; }
     if (rb != val) { Serial.printf("[bms] verify failed: reg %04X wrote %lu, read %lu\n", reg, (unsigned long)val, (unsigned long)rb); return false; }
     return true;
 }
@@ -910,7 +918,7 @@ static bool setPut(int b, const SetDef &d, float v) {
     if (v < d.vmin) v = d.vmin; if (v > d.vmax) v = d.vmax;
     long raw = lroundf(v / d.scale);
     uint16_t reg = 0x1000 + (d.off - 6);
-    if (!bmsSet(b + 1, reg, (uint32_t)(int32_t)raw)) return false;
+    if (!bmsSet(b, reg, (uint32_t)(int32_t)raw)) return false;
     int o = d.off - 6;                                       // mirror into local buffer so the row updates
     switch (setWidth(d.type)) {
         case 1: setRaw[b][o] = raw & 0xFF; break;
@@ -1269,9 +1277,9 @@ static void handleTap(int x, int y) {
             if (idx < 0 || idx >= bmsRowCount() || y < ry || y >= ry + SROW_H) return;
             int b = cfgBms;
             if (idx == 0) { cfgBms ^= 1; bmsScroll = 0; return; }                 // switch pack (full redraw)
-            if (idx == 1) { bmsCharge[b] = !bmsCharge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b + 1, 0x1070, bmsCharge[b] ? 1 : 0)) bmsCharge[b] = !bmsCharge[b]; markCfg(); markRowAt(ry); return; }
-            if (idx == 2) { bmsDischarge[b] = !bmsDischarge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b + 1, 0x1074, bmsDischarge[b] ? 1 : 0)) bmsDischarge[b] = !bmsDischarge[b]; markCfg(); markRowAt(ry); return; }
-            if (idx == 3) { bmsBalancer[b] = !bmsBalancer[b]; if (!demoMode && bmsLive[b] && !bmsSet(b + 1, 0x1078, bmsBalancer[b] ? 1 : 0)) bmsBalancer[b] = !bmsBalancer[b]; markCfg(); markRowAt(ry); return; }
+            if (idx == 1) { bmsCharge[b] = !bmsCharge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b, 0x1070, bmsCharge[b] ? 1 : 0)) bmsCharge[b] = !bmsCharge[b]; markCfg(); markRowAt(ry); return; }
+            if (idx == 2) { bmsDischarge[b] = !bmsDischarge[b]; if (!demoMode && bmsLive[b] && !bmsSet(b, 0x1074, bmsDischarge[b] ? 1 : 0)) bmsDischarge[b] = !bmsDischarge[b]; markCfg(); markRowAt(ry); return; }
+            if (idx == 3) { bmsBalancer[b] = !bmsBalancer[b]; if (!demoMode && bmsLive[b] && !bmsSet(b, 0x1078, bmsBalancer[b] ? 1 : 0)) bmsBalancer[b] = !bmsBalancer[b]; markCfg(); markRowAt(ry); return; }
             bool avail = (!demoMode && bmsLive[b] && setOk[b]);
             if (avail) {
                 int si = idx - 4;
@@ -2092,10 +2100,12 @@ void setup() {
     }
 
     simInit();
-    // Live BMSes over Modbus-RTU on UART1 (RX=IO18, TX=IO17): addr 1 → BMS 1,
-    // addr 2 → BMS 2. bmsRead() flips bmsLive[] per a valid reply; a BMS that
-    // doesn't answer shows a red tab + "Offline". Skipped entirely in demo mode.
+    // Live BMSes over Modbus-RTU, each on its own UART at address 1:
+    //   BMS1 = UART1 (RX=IO18, TX=IO17), BMS2 = UART2 (RX=IO15, TX=IO16).
+    // bmsRead() flips bmsLive[] per a valid reply; a silent pack shows a red tab +
+    // "Offline". Skipped entirely in demo mode.
     bmsSerial.begin(115200, SERIAL_8N1, BMS_RX_PIN, BMS_TX_PIN);
+    bmsSerial2.begin(115200, SERIAL_8N1, BMS2_RX_PIN, BMS2_TX_PIN);
     bmsRead();
     histSample();               // continue the persisted history with a fresh point
     renderGraphs();
