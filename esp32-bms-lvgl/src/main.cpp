@@ -2059,12 +2059,8 @@ void setup() {
     loadSettings();             // restore saved settings before they're used (brightness, wifi, …)
     loadHistory();              // restore the persisted graph history (survives reboot)
 
-    // 80 MHz QSPI ~halves the full-frame flush time vs 40 MHz (flush is the main
-    // perf bottleneck). Falls back to 40 MHz if the panel won't init at 80.
-    if (!gfx->begin(80000000UL)) {
-        Serial.println("[lvgl] 80MHz init failed, retrying at 40MHz");
-        if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");
-    }
+    // 40 MHz QSPI — 80 MHz caused pixel-offset artifacts on this AXS15231B panel.
+    if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");
     gfx->fillScreen(0x0000);
     ledcAttach(TFT_BL, BL_CH_FREQ, BL_CH_RES);
     // playBootAnimation();     // (ninja intro disabled for now)
