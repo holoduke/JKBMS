@@ -2059,7 +2059,12 @@ void setup() {
     loadSettings();             // restore saved settings before they're used (brightness, wifi, …)
     loadHistory();              // restore the persisted graph history (survives reboot)
 
-    if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");
+    // 80 MHz QSPI ~halves the full-frame flush time vs 40 MHz (flush is the main
+    // perf bottleneck). Falls back to 40 MHz if the panel won't init at 80.
+    if (!gfx->begin(80000000UL)) {
+        Serial.println("[lvgl] 80MHz init failed, retrying at 40MHz");
+        if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");
+    }
     gfx->fillScreen(0x0000);
     ledcAttach(TFT_BL, BL_CH_FREQ, BL_CH_RES);
     // playBootAnimation();     // (ninja intro disabled for now)
@@ -2151,7 +2156,8 @@ void loop() {
     wasIdle = idle;
     if (idle) {
         static uint32_t lastFrame = 0; uint32_t now = millis();
-        if (now - lastFrame >= 80) { lastFrame = now; renderIdleFrame(); gfx->flush(); gfxDirty = false; }   // ~12 fps
+        uint32_t period = (appliedB <= DIM_LEVEL) ? 250 : 80;   // ~4 fps once dimmed (motion invisible), else ~12 fps
+        if (now - lastFrame >= period) { lastFrame = now; renderIdleFrame(); gfx->flush(); gfxDirty = false; }
         delay(1); return;
     }
     if (gfxDirty) { gfx->flush(); gfxDirty = false; }
