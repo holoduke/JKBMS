@@ -338,9 +338,10 @@ static void bmsRead() {
         if (!bmsLive[t] && skip[t] > 0) { skip[t]--; continue; }   // back off from a silent pack
         bmsReadAddr(1, t);                                         // each pack is addr 1 on its own UART
         skip[t] = bmsLive[t] ? 0 : BMS_RETRY;                      // online → poll every cycle
-        // settings: keep trying until the block reads, then refresh every ~10 polls.
+        // settings: read on first contact, then refresh every ~10 polls. Do NOT re-read
+        // every poll when it failed — a failed read blocks ~400ms and would freeze the UI.
         bool firstContact = bmsLive[t] && !wasLive[t];
-        if (bmsLive[t] && (firstContact || wantSet || !setOk[t])) bmsReadSettings(1, t);
+        if (bmsLive[t] && (firstContact || wantSet)) bmsReadSettings(1, t);
         wasLive[t] = bmsLive[t];
         if (!bmsLive[t]) { setOk[t] = false; setOk2[t] = false; }
     }
