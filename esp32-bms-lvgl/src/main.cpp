@@ -2045,7 +2045,9 @@ static void press_cb(lv_event_t *e) {
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
     gMoved = false; gAnchored = false; gVel = 0; flingVel = 0;   // grab cancels any momentum
-    if (view == V_SETTINGS && kbActive) { handleTap(p.x, p.y); pressHandled = true; lv_obj_invalidate(scr); }
+    // keyboards handle on press (not release): a tap with touch jitter would set
+    // gMoved and get dropped as a "scroll" — but a keypad has nothing to scroll.
+    if (view == V_SETTINGS && (kbActive || editIdx >= 0)) { handleTap(p.x, p.y); pressHandled = true; lv_obj_invalidate(scr); }
 }
 static void pressing_cb(lv_event_t *e) {
     if (standby || pressHandled || kbActive) return;
