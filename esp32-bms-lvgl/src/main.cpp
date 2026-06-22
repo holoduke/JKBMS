@@ -746,11 +746,7 @@ static void blitCanvas(lv_obj_t *cv, int x, int y, int w, int h) {
     lv_area_t a = {x, y, x + w - 1, y + h - 1};
     lv_draw_image(L, &id, &a);
 }
-static void switchView(int v) {
-    view = v;
-    if (!demoMode && (v == V_BMS1 || v == V_BMS2)) bmsReadAddr(1, v);   // refresh target now → instant fresh data
-    renderGraphs();
-}
+static void switchView(int v) { view = v; renderGraphs(); }   // gauges read from the continuously-polled cache → instant
 
 static void renderBms() {
     const Bms &b = bms[view];
