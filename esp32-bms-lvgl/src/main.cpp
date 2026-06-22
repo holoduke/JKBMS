@@ -123,6 +123,7 @@ static const uint8_t VALIDPINS[] = {5, 6, 7, 9, 14, 15, 16, 17, 18, 46};
 #define NVALID ((int)(sizeof(VALIDPINS) / sizeof(VALIDPINS[0])))
 static int nextPin(int cur) { for (int i = 0; i < NVALID; i++) if (VALIDPINS[i] == cur) return VALIDPINS[(i + 1) % NVALID]; return VALIDPINS[0]; }
 static void bmsBegin() {                // (re)open both UARTs with the current pin assignment
+    bmsSerial.setRxBufferSize(512);  bmsSerial2.setRxBufferSize(512);   // settings reply ~255B — don't overflow the default 256B FIFO
     bmsSerial.end();  bmsSerial.begin(115200, SERIAL_8N1, bmsPin[1], bmsPin[0]);   // (rx, tx)
     bmsSerial2.end(); bmsSerial2.begin(115200, SERIAL_8N1, bmsPin[3], bmsPin[2]);
 }
@@ -291,34 +292,40 @@ static void bmsReadAddr(uint8_t addr, int idx) {
 // A pack that's offline is retried only every BMS_RETRY polls, not every poll, so
 // a missing pack doesn't stall the UI with a timeout every second.
 // Read the settings/parameter block (Modbus reg 0x1000, 125 regs = 250 bytes) into
-// setRaw[idx]. byte k == web settings-frame offset k+6, big-endian like realtime.
-static void bmsReadSettings(uint8_t addr, int idx) {
-    HardwareSerial &S = bmsPort(idx);
-    uint8_t req[8] = {addr, 3, 0x10, 0x00, 0x00, 0x7D, 0, 0};
+// Read `count` holding registers from `reg` into dst[dstOff..], big-endian like realtime.
+// Returns true on a valid, CRC-checked reply. Keeps each reply small enough not to
+// overrun the UART RX buffer (the reason a single 250-byte settings read failed).
+static bool mbReadInto(HardwareSerial &S, uint8_t addr, uint16_t reg, uint8_t count,
+                       uint8_t *dst, int dstOff, int dstCap, uint32_t toMs) {
+    uint8_t req[8] = {addr, 3, (uint8_t)(reg >> 8), (uint8_t)(reg & 0xFF), 0, count, 0, 0};
     uint16_t crc = mbCrc(req, 6); req[6] = crc & 0xFF; req[7] = crc >> 8;
     while (S.available()) S.read();
     S.write(req, 8); S.flush();
-    static uint8_t r[300]; int n = 0; uint32_t t0 = millis();
-    while (millis() - t0 < 90) { while (S.available() && n < 300) r[n++] = S.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
-    if (n < 5 || r[0] != addr || r[1] != 3) { setOk[idx] = false; return; }
-    int bc = r[2]; if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) { setOk[idx] = false; return; }
-    int cp = bc < 250 ? bc : 250; memcpy(setRaw[idx], r + 3, cp);
-    setOk[idx] = true;
-    // tail read: reg 0x10FA (frame offset 256) covers the bitmask/heating/sleep fields
-    uint8_t q[8] = {addr, 3, 0x10, 0xFA, 0x00, 0x14, 0, 0};
-    uint16_t c2 = mbCrc(q, 6); q[6] = c2 & 0xFF; q[7] = c2 >> 8;
-    while (S.available()) S.read();
-    S.write(q, 8); S.flush();
-    n = 0; t0 = millis();
-    while (millis() - t0 < 70) { while (S.available() && n < 300) r[n++] = S.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
-    setOk2[idx] = false;
-    if (n >= 5 && r[0] == addr && r[1] == 3) {
-        int bc2 = r[2];
-        if (n >= 3 + bc2 + 2 && (r[3 + bc2] | (r[4 + bc2] << 8)) == mbCrc(r, 3 + bc2)) {
-            int cp2 = bc2 < 50 ? bc2 : 50; memcpy(setRaw[idx] + 250, r + 3, cp2);   // offset 256 → index 250
-            setOk2[idx] = true;
-        }
-    }
+    static uint8_t r[280]; int n = 0; uint32_t t0 = millis();
+    while (millis() - t0 < toMs) { while (S.available() && n < (int)sizeof(r)) r[n++] = S.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
+    if (n < 5 || r[0] != addr || r[1] != 3) return false;
+    int bc = r[2]; if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) return false;
+    int cp = bc; if (dstOff + cp > dstCap) cp = dstCap - dstOff; if (cp < 0) cp = 0;
+    memcpy(dst + dstOff, r + 3, cp);
+    return true;
+}
+// setRaw[idx]. byte k == web settings-frame offset k+6, big-endian like realtime.
+// The 125-register (250-byte) block is read in two parts so neither reply overruns
+// the UART buffer; offsets are identical to the old single read.
+static void bmsReadSettings(uint8_t addr, int idx) {
+    HardwareSerial &S = bmsPort(idx);
+    auto rd = [&](uint16_t reg, uint8_t cnt, int off, int cap) -> bool {     // retry a couple times for transient misses
+        for (int t = 0; t < 3; t++) if (mbReadInto(S, addr, reg, cnt, setRaw[idx], off, cap, 70)) return true;
+        return false;
+    };
+    // This BMS reliably answers at most ~64 registers per read, so the 125-register
+    // (250-byte) block is split into two ≤64-register reads. Offsets match the old single read.
+    bool a = rd(0x1000, 0x40, 0,   250);    // regs 0x1000.. (64) → bytes 0..127
+    bool b = rd(0x1040, 0x3D, 128, 250);    // regs 0x1040.. (61) → bytes 128..249
+    setOk[idx] = a && b;
+    if (!setOk[idx]) { setOk2[idx] = false; return; }
+    // tail read: reg 0x10FA (frame offset 256) → bitmask/heating/sleep fields, stored at index 250
+    setOk2[idx] = rd(0x10FA, 0x14, 250, 300);
 }
 #define BMS_RETRY 4
 static void bmsRead() {
@@ -331,10 +338,9 @@ static void bmsRead() {
         if (!bmsLive[t] && skip[t] > 0) { skip[t]--; continue; }   // back off from a silent pack
         bmsReadAddr(1, t);                                         // each pack is addr 1 on its own UART
         skip[t] = bmsLive[t] ? 0 : BMS_RETRY;                      // online → poll every cycle
-        // settings: try on first contact; refresh periodically ONLY if the block answers.
-        // (a BMS that never returns settings — like 0x1200-only units — isn't re-hammered)
+        // settings: keep trying until the block reads, then refresh every ~10 polls.
         bool firstContact = bmsLive[t] && !wasLive[t];
-        if (bmsLive[t] && (firstContact || (wantSet && setOk[t]))) bmsReadSettings(1, t);
+        if (bmsLive[t] && (firstContact || wantSet || !setOk[t])) bmsReadSettings(1, t);
         wasLive[t] = bmsLive[t];
         if (!bmsLive[t]) { setOk[t] = false; setOk2[t] = false; }
     }
