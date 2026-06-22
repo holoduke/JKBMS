@@ -222,7 +222,8 @@ static bool pwrSample() {
     for (int t = 0; t < 2; t++) {
         if (!demoMode && !bmsLive[t]) continue;             // nothing to sample
         if (pwrWinN[t] != 0 && (now - pwrWinLast[t]) < PWR_DT) continue;
-        float w = bms[t].v * bms[t].i; if (w < -32000) w = -32000; if (w > 32000) w = 32000;
+        float w = -(bms[t].v * bms[t].i);                  // draw-positive: discharging (using power) reads up, charging down
+        if (w < -32000) w = -32000; if (w > 32000) w = 32000;
         if (pwrWinN[t] >= PWR_WIN) {                        // ring: drop oldest
             memmove(pwrWin[t], pwrWin[t] + 1, (PWR_WIN - 1) * sizeof(pwrWin[0][0]));
             pwrWinN[t] = PWR_WIN - 1;
@@ -618,7 +619,7 @@ static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = fal
 }
 static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    lText("POWER  W", x + 8, y + 6, F10, C_MUTED);
+    lText("POWER DRAW  W", x + 8, y + 6, F10, C_MUTED);
     if (b.pwrCount < 2) { cText("collecting data", x + w / 2, y + h / 2, F12, C_MUTED); return; }
     const int lblW = 24, gx = x + 8 + lblW, gy = y + 22, gw = w - 14 - lblW, gh = h - 38, base = gy + gh;
     int cnt = b.pwrCount > NCAP ? NCAP : b.pwrCount;
