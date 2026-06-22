@@ -1770,7 +1770,7 @@ static void playHudBoot() {
 static bool idleActiveNow() {
     if (idleScreen == 0 || standby || demoMode || kbActive) return false;
     if (view != V_BMS1 && view != V_BMS2) return false;          // only over a dashboard view
-    if (bmsLive[view]) return false;                             // a pack is answering → real UI
+    if (bmsLive[0] || bmsLive[1]) return false;                  // any pack answering → keep the real UI
     return (millis() - lastActivity) > IDLE_DELAY;               // settle after the last touch
 }
 static void idleText(int x, int y, const char *s, uint8_t sz, uint16_t c) {
