@@ -619,6 +619,39 @@ static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = fal
         lText(cv, x + w - 40, midY, F12, C_TEXT);
     }
 }
+static void fmtWh(char *buf, size_t n, float wh) {
+    if (wh >= 1000.0f) snprintf(buf, n, "%.2fkWh", wh / 1000.0f);
+    else snprintf(buf, n, "%.0fWh", wh);
+}
+// Energy drawn from a pack ("spent") over the last `nSamples` history points.
+// History is logged every HIST_INTERVAL_MS only while the pack is live, so this
+// assumes roughly continuous logging (gaps from downtime shorten the real window).
+static float whSpent(int v, int nSamples) {
+    int cnt = histCount[v]; if (cnt <= 0) return 0;
+    int start = cnt - nSamples; if (start < 0) start = 0;
+    const float perH = HIST_INTERVAL_MS / 3600000.0f;          // 5 min = 1/12 h
+    float wh = 0;
+    for (int i = start; i < cnt; i++) {                         // histPwr is charge-positive → discharge is negative
+        int w = histPwr[v][i];
+        if (w < 0) wh += -w * perH;
+    }
+    return wh;
+}
+static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24, float wh6, bool stale) {
+    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    lText("CAPACITY", x + 8, y + 6, F10, C_MUTED);
+    char buf[12];
+    if (stale) snprintf(buf, sizeof(buf), "--"); else fmtWh(buf, sizeof(buf), totalWh);
+    lText(buf, x + 8, y + 22, F16, C_ACCENT);                  // headline: total pack capacity
+    line(x + 8, y + 48, x + w - 8, y + 48, C_BORDER, 170);
+    const char *lbl[2] = {"24h", "6h"}; float val[2] = {wh24, wh6};   // energy drawn over each window
+    for (int r = 0; r < 2; r++) {
+        int ry = y + 56 + r * 20;
+        lText(lbl[r], x + 8, ry, F10, C_MUTED);
+        if (stale) snprintf(buf, sizeof(buf), "--"); else fmtWh(buf, sizeof(buf), val[r]);
+        lText(buf, x + w - textW(buf, F12) - 8, ry, F12, C_WARN);
+    }
+}
 static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     lText("POWER DRAW  W", x + 8, y + 6, F10, C_MUTED);
@@ -695,7 +728,7 @@ static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
 // per-frame line draws). Sizes match their slots in renderBms().
 #define POW_W 164
 #define POW_H 86
-#define CAP_W 272
+#define CAP_W 164                   // match the power graph; energy panel fills the rest
 #define CAP_H 96
 static lv_obj_t *powCv = nullptr, *capCv = nullptr;
 // Capacity graph: persisted 7-day SOC history (live) or genCap() curve (demo).
@@ -808,7 +841,12 @@ static void renderBms() {
     const int cellsW = rw - 8 - POW_W;          // ~1/3 cells, ~2/3 power graph
     drawCells(rx, 120, cellsW, 86, b, stale);
     blitCanvas(powCv, rx + cellsW + 8, 120, POW_W, POW_H);
-    blitCanvas(capCv, rx, 216, CAP_W, CAP_H);
+    // bottom row, columns aligned with the row above: energy summary (left) + capacity graph (right)
+    int cells = (b.v > 1.5f) ? (int)(b.v / 3.3f + 0.5f) : NCELLS;   // infer series count from pack voltage
+    if (cells < 1) cells = NCELLS;
+    float totalWh = fullAh * cells * 3.2f;                          // nominal 3.2 V/cell (LiFePO4)
+    drawEnergyTile(rx, 216, cellsW, CAP_H, totalWh, whSpent(view, 288), whSpent(view, 72), stale);
+    blitCanvas(capCv, rx + cellsW + 8, 216, CAP_W, CAP_H);
 }
 
 // ============================================================================
