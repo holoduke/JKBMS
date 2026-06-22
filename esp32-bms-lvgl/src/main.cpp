@@ -956,20 +956,41 @@ static void renderSysTab() {
 // realtime block. All offsets here are < 250 so one 125-register read covers them.
 enum FType { FT_U32, FT_U16, FT_I32, FT_I16, FT_U8, FT_I8 };
 struct SetDef { const char *label; uint16_t off; uint8_t type; float scale; const char *unit; float vmin, vmax, vstep; };
+// Ordered most-important-first (display order only; each entry's register `off`
+// is independent, so reordering is safe). Grouped: pack basics → current limits →
+// cell-voltage protection → SOC cal → balancing → charge profile → then the
+// rarely-touched timing / temperature / sleep protections.
 static const SetDef SETDEFS[] = {
+    // pack basics
+    {"Nominal cap",      130, FT_U32, 0.001f, "Ah", 1, 2000, 1},
+    {"Cell count",       114, FT_U8,  1.0f,   "",   3, 32, 1},
+    // current limits
+    {"Max charge A",      50, FT_U32, 0.001f, "A",  1, 200, 1},
+    {"Max discharge A",   62, FT_U32, 0.001f, "A",  1, 200, 1},
+    // cell voltage protection
     {"Cell OVP",          18, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
     {"Cell OVP recover",  22, FT_U32, 0.001f, "V",  2.4f, 4.20f, 0.01f},
     {"Cell UVP",          10, FT_U32, 0.001f, "V",  1.5f, 3.50f, 0.01f},
     {"Cell UVP recover",  14, FT_U32, 0.001f, "V",  1.6f, 3.60f, 0.01f},
-    {"Balance trig dV",   26, FT_U32, 0.001f, "V",  0.005f, 0.50f, 0.005f},
+    // SOC calibration
+    {"SOC 100% volt",     30, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
+    {"SOC 0% volt",       34, FT_U32, 0.001f, "V",  1.5f, 3.50f, 0.01f},
+    // balancing
     {"Balance start V",  138, FT_U32, 0.001f, "V",  2.5f, 4.20f, 0.01f},
+    {"Balance trig dV",   26, FT_U32, 0.001f, "V",  0.005f, 0.50f, 0.005f},
     {"Max balance A",     78, FT_U32, 0.001f, "A",  0.1f, 2.0f, 0.1f},
-    {"Max charge A",      50, FT_U32, 0.001f, "A",  1, 200, 1},
+    // charge profile (inverter/charger handshake)
+    {"Req charge volt",   38, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
+    {"Req float volt",    42, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
+    {"Power off volt",    46, FT_U32, 0.001f, "V",  1.5f, 3.20f, 0.01f},
+    // current-protection timing
     {"Charge OCP delay",  54, FT_U32, 1.0f,   "s",  1, 320, 1},
     {"Charge OCP recov",  58, FT_U32, 1.0f,   "s",  1, 320, 1},
-    {"Max discharge A",   62, FT_U32, 0.001f, "A",  1, 200, 1},
     {"Dischg OCP delay",  66, FT_U32, 1.0f,   "s",  1, 320, 1},
     {"Dischg OCP recov",  70, FT_U32, 1.0f,   "s",  1, 320, 1},
+    {"Short-circ delay", 134, FT_U32, 1.0f,   "us", 0, 1000, 1},
+    {"Short-circ recov",  74, FT_U32, 1.0f,   "s",  1, 256, 1},
+    // temperature protection
     {"Charge OTP",        82, FT_U16, 0.1f,   "C",  20, 100, 1},
     {"Charge OTP recov",  86, FT_U16, 0.1f,   "C",  15, 95, 1},
     {"Dischg OTP",        90, FT_U16, 0.1f,   "C",  20, 100, 1},
@@ -978,16 +999,8 @@ static const SetDef SETDEFS[] = {
     {"Charge UTP recov", 102, FT_I32, 0.1f,   "C",  -25, 25, 1},
     {"MOS OTP",          106, FT_I32, 0.1f,   "C",  50, 120, 1},
     {"MOS OTP recover",  110, FT_I32, 0.1f,   "C",  40, 110, 1},
-    {"SOC 100% volt",     30, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
-    {"SOC 0% volt",       34, FT_U32, 0.001f, "V",  1.5f, 3.50f, 0.01f},
-    {"Req charge volt",   38, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
-    {"Req float volt",    42, FT_U32, 0.001f, "V",  2.5f, 4.25f, 0.01f},
-    {"Power off volt",    46, FT_U32, 0.001f, "V",  1.5f, 3.20f, 0.01f},
+    // sleep
     {"Smart sleep V",      6, FT_U32, 0.001f, "V",  2.0f, 3.60f, 0.01f},
-    {"Short-circ recov",  74, FT_U32, 1.0f,   "s",  1, 256, 1},
-    {"Short-circ delay", 134, FT_U32, 1.0f,   "us", 0, 1000, 1},
-    {"Nominal cap",      130, FT_U32, 0.001f, "Ah", 1, 2000, 1},
-    {"Cell count",       114, FT_U8,  1.0f,   "",   3, 32, 1},
 };
 #define NSET ((int)(sizeof(SETDEFS) / sizeof(SETDEFS[0])))
 // settings that live in the tail region (need the 2nd read; setOk2)
