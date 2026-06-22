@@ -520,6 +520,21 @@ static void drawWifi(int cx, int cy, uint32_t color) {
         }
     }
 }
+// compact wifi glyph for the top bar (dot at bottom, arcs fanning up)
+static void drawWifiSmall(int cx, int cy, uint32_t color) {
+    fCircle(cx, cy, 1, color);
+    const float a0 = 50.0f * (PI / 180.0f), a1 = 130.0f * (PI / 180.0f), yScale = 0.72f;
+    int radii[3] = {4, 8, 12};
+    for (int k = 0; k < 3; k++) {
+        int r = radii[k], px = -1, py = -1;
+        for (int s = 0; s <= 8; s++) {
+            float a = a0 + (a1 - a0) * s / 8.0f;
+            int x = cx + (int)(r * cosf(a)), y = cy - (int)(r * sinf(a) * yScale);
+            if (px >= 0) line(px, py, x, y, color);
+            px = x; py = y;
+        }
+    }
+}
 static void drawTabs(bool autoActive, float prog) {
     const int y = 6, h = 28;
     const int tabX[2] = {TAB1_X, TAB2_X};
@@ -533,6 +548,8 @@ static void drawTabs(bool autoActive, float prog) {
         cText(lbl, x + TAB_W / 2, y + h / 2, F16, on ? C_BG : (offline ? C_BAD : C_MUTED));
         if (on && autoActive) fRect(x + 6, y + h - 3, (int)((TAB_W - 12) * prog), 2, 0, C_BG);
     }
+    // wifi status icon, just right of the battery buttons (green = connected, grey = not)
+    drawWifiSmall(TAB2_X + TAB_W + 22, y + h - 4, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
     struct tm ti;
     if (getLocalTime(&ti, 0)) {
         char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min);
@@ -966,7 +983,7 @@ struct SetDef { const char *label; uint16_t off; uint8_t type; float scale; cons
 static const SetDef SETDEFS[] = {
     // pack basics
     {"Nominal cap",      130, FT_U32, 0.001f, "Ah", 1, 2000, 1},
-    {"Cell count",       114, FT_U8,  1.0f,   "",   3, 32, 1},
+    {"Cell count",       114, FT_U32, 1.0f,   "",   3, 32, 1},
     // current limits
     {"Max charge A",      50, FT_U32, 0.001f, "A",  1, 200, 1},
     {"Max discharge A",   62, FT_U32, 0.001f, "A",  1, 200, 1},
@@ -993,11 +1010,11 @@ static const SetDef SETDEFS[] = {
     {"Dischg OCP recov",  70, FT_U32, 1.0f,   "s",  1, 320, 1},
     {"Short-circ delay", 134, FT_U32, 1.0f,   "us", 0, 1000, 1},
     {"Short-circ recov",  74, FT_U32, 1.0f,   "s",  1, 256, 1},
-    // temperature protection
-    {"Charge OTP",        82, FT_U16, 0.1f,   "C",  20, 100, 1},
-    {"Charge OTP recov",  86, FT_U16, 0.1f,   "C",  15, 95, 1},
-    {"Dischg OTP",        90, FT_U16, 0.1f,   "C",  20, 100, 1},
-    {"Dischg OTP recov",  94, FT_U16, 0.1f,   "C",  15, 95, 1},
+    // temperature protection (Modbus stores these as 32-bit, not the BLE frame's u16)
+    {"Charge OTP",        82, FT_U32, 0.1f,   "C",  20, 100, 1},
+    {"Charge OTP recov",  86, FT_U32, 0.1f,   "C",  15, 95, 1},
+    {"Dischg OTP",        90, FT_U32, 0.1f,   "C",  20, 100, 1},
+    {"Dischg OTP recov",  94, FT_U32, 0.1f,   "C",  15, 95, 1},
     {"Charge UTP",        98, FT_I32, 0.1f,   "C",  -30, 20, 1},
     {"Charge UTP recov", 102, FT_I32, 0.1f,   "C",  -25, 25, 1},
     {"MOS OTP",          106, FT_I32, 0.1f,   "C",  50, 120, 1},
