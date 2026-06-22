@@ -330,9 +330,10 @@ static void bmsRead() {
         if (!bmsLive[t] && skip[t] > 0) { skip[t]--; continue; }   // back off from a silent pack
         bmsReadAddr(1, t);                                         // each pack is addr 1 on its own UART
         skip[t] = bmsLive[t] ? 0 : BMS_RETRY;                      // online → poll every cycle
-        // settings: read once on first contact, then only every ~10 polls (never hammer a silent block)
+        // settings: try on first contact; refresh periodically ONLY if the block answers.
+        // (a BMS that never returns settings — like 0x1200-only units — isn't re-hammered)
         bool firstContact = bmsLive[t] && !wasLive[t];
-        if (bmsLive[t] && (wantSet || firstContact)) bmsReadSettings(1, t);
+        if (bmsLive[t] && (firstContact || (wantSet && setOk[t]))) bmsReadSettings(1, t);
         wasLive[t] = bmsLive[t];
         if (!bmsLive[t]) { setOk[t] = false; setOk2[t] = false; }
     }
@@ -2092,7 +2093,9 @@ static void dataTick_cb(lv_timer_t *t) {
         int tB = (dimAfterSec && idle > (uint32_t)dimAfterSec * 1000UL) ? DIM_LEVEL : brightness;
         if (tB != appliedB) { setBrightness(tB); appliedB = tB; }   // auto-dim
     }
-    bool eco = ecoMode && !standby && idle > ECO_IDLE_MS;
+    // eco throttles the UI to 1fps when idle — but NOT while auto-switch is rotating,
+    // or the cycling display lags (each switch/value only repaints once a second).
+    bool eco = ecoMode && !standby && !autoSwitch && idle > ECO_IDLE_MS;
     if (eco != ecoActive) {                                          // low-fps when idle
         ecoActive = eco;
         if (dataTimer) lv_timer_set_period(dataTimer, eco ? 1000 : 220);
