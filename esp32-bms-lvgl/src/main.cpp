@@ -549,7 +549,8 @@ static void drawTabs(bool autoActive, float prog) {
         if (on && autoActive) fRect(x + 6, y + h - 3, (int)((TAB_W - 12) * prog), 2, 0, C_BG);
     }
     // wifi status icon, just right of the battery buttons (green = connected, grey = not)
-    drawWifiSmall(TAB2_X + TAB_W + 22, y + h - 4, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
+    // dot sits at the baseline, arcs fan ~9px up → place the dot below centre so the glyph centres
+    drawWifiSmall(TAB2_X + TAB_W + 22, y + h / 2 + 5, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
     struct tm ti;
     if (getLocalTime(&ti, 0)) {
         char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min);
