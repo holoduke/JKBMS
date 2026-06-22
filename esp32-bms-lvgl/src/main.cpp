@@ -571,7 +571,9 @@ static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float
     for (int r = 0; r < 3; r++) {
         int ry = y + 12 + r * 19;
         lText(lbl[r], x + 8, ry + 2, F10, C_MUTED);
-        if (stale) { lText("--", x + 34, ry, F12, C_MUTED); continue; }
+        // an unwired probe reads a saturated sentinel (~±200C) → show n/c, not a fake temp
+        bool noProbe = (r > 0) && (v[r] < -50 || v[r] > 120);
+        if (stale || noProbe) { lText("--", x + 34, ry, F12, C_MUTED); continue; }
         char buf[8]; snprintf(buf, sizeof(buf), "%.0fC", v[r]);
         lText(buf, x + 34, ry, F12, tempColor(v[r]));
     }
