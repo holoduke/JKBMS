@@ -808,8 +808,10 @@ static void renderBms() {
     else if (!b.bmsOk) { st = "Protected"; sc = C_BAD; }
     else if (!bmsDischarge[view] || !bmsCharge[view]) { st = "FET off"; sc = C_WARN; }
     else if (bmsBalancer[view] && (chi - clo) > 0.015f) { st = "Balancing"; sc = C_CYAN; }
-    else if (fabsf(b.i) < 2.0f) { st = "Idle"; sc = C_MUTED; }
-    else { st = "Normal"; sc = C_ACCENT; }
+    else if (b.i > 2.0f) { st = "Charging"; sc = C_ACCENT; }       // +current = charging (green)
+    else if (b.i < -2.0f) { st = "Discharging"; sc = C_WARN; }     // -current = discharging (amber)
+    else if (b.soc >= 99) { st = "Full"; sc = C_ACCENT; }          // topped off, at rest
+    else { st = "Idle"; sc = C_MUTED; }                            // at rest
     int pw2 = textW(st, F12) + 28, px2 = cx - pw2 / 2, py2 = 52;
     fRect(px2, py2, pw2, 20, 10, C_CARD); dRect(px2, py2, pw2, 20, 10, C_BORDER);
     fCircle(px2 + 13, py2 + 10, 4, sc);
