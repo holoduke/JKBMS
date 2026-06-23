@@ -143,6 +143,10 @@ static bool bmsCharge[2] = {true, true}, bmsDischarge[2] = {true, true}, bmsBala
 static int cfgBms = 0;              // which BMS the BMS-settings tab configures
 static bool tempF = false, fmt12 = false, wifiAuto = true;
 static int simSpeed = 1;            // demo data speed (1/2/5x)
+#define WEB_USER "admin"            // web portal + OTA login (password is changeable, stored in NVS)
+static char webPass[24] = "jkbms";  // default; change it from the web page's Security section
+static void webBegin();             // defined in web_portal.h (started on first WiFi connect)
+static void webLoop();
 static int sysScroll = 0;           // System-tab scroll offset (px)
 static int bmsScroll = 0;           // BMS-tab scroll offset (px)
 static bool infoPopup = false;
@@ -1293,6 +1297,7 @@ static bool wifiPoll() {
         last = st; changed = true;
         if (st == WL_CONNECTED) {
             snprintf(wifiMsg, sizeof(wifiMsg), "Connected: %s", WiFi.SSID().c_str());
+            webBegin();   // start the web portal + OTA once we have an IP
             if (!ntpStarted) { configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.nist.gov"); ntpStarted = true; }
             if (!wifiSaved && connSsid[0]) { prefs.begin("wifi", false); prefs.putString("ssid", connSsid); prefs.putString("pass", connPass); prefs.end(); wifiSaved = true; }
         } else if (st == WL_CONNECT_FAILED) snprintf(wifiMsg, sizeof(wifiMsg), "connect failed (password?)");
@@ -1324,6 +1329,7 @@ static void saveSettings() {
     prefs.putBool("demo", demoMode);
     prefs.putInt("idle", idleScreen);
     prefs.putBytes("pins", bmsPin, sizeof(bmsPin));
+    prefs.putString("wpass", webPass);
     prefs.end();
 }
 static void loadSettings() {
@@ -1339,6 +1345,7 @@ static void loadSettings() {
     demoMode = prefs.getBool("demo", demoMode);
     idleScreen = prefs.getInt("idle", idleScreen);
     if (prefs.isKey("pins")) prefs.getBytes("pins", bmsPin, sizeof(bmsPin));
+    { String wp = prefs.getString("wpass", webPass); strncpy(webPass, wp.c_str(), sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0; }
     prefs.end();
     appliedB = brightness;
 }
@@ -2212,6 +2219,8 @@ static void wifiTick_cb(lv_timer_t *t) {
     if (wifiPoll() && view == V_SETTINGS && !standby) lv_obj_invalidate(scr);
 }
 
+#include "web_portal.h"   // monitor + controls + OTA (uses the globals/helpers above)
+
 void setup() {
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);   // never block the loop when no USB host is reading
@@ -2301,6 +2310,7 @@ void setup() {
 
 void loop() {
     lv_task_handler();
+    webLoop();   // serve the web portal + handle OTA (no-op until WiFi connects)
     if (pendingSleep) {
         pendingSleep = false;
         playSleepAnimation();   // blocking, draws + flushes itself; sets standby
