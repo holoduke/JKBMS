@@ -39,6 +39,8 @@ input{background:#0b0f14;color:#e6edf3;border:1px solid #30363d;border-radius:6p
 <div><span class=tab id=t0 onclick=sel(0)>BAT 1</span><span class=tab id=t1 onclick=sel(1)>BAT 2</span>
 <span class=pill id=net style=float:right></span></div>
 <div class=card id=mon></div>
+<div class=card><b>Device screen</b> <button class=sm onclick=shot()>Refresh</button>
+<div style=margin-top:8px><img id=scr style="width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-rendering:pixelated" alt="tap Refresh"></div></div>
 <div class=card><b>Controls</b><div id=ctl></div></div>
 <div class=card><b>Settings</b> <span class=mut>(tap value to edit)</span><table id=params></table></div>
 <div class=card><b>Firmware update</b>
@@ -71,12 +73,13 @@ async function ed(i,l){let v=prompt('New value for '+l);if(v===null||v==='')retu
 await fetch('/setparam?bms='+cur+'&idx='+i+'&val='+encodeURIComponent(v),{method:'POST'});setTimeout(load,500)}
 async function chpw(){if(!np.value)return;await fetch('/setpass?p='+encodeURIComponent(np.value),{method:'POST'});
 np.value='';ust.textContent='password changed — re-login on next action'}
+function shot(){scr.src='/screen.bmp?t='+Date.now()}
 function upl(){let f=fwf.files[0];if(!f){ust.textContent='pick a .bin first';return}
 let x=new XMLHttpRequest();x.open('POST','/update');prog.style.display='block';
 x.upload.onprogress=e=>{bar.style.width=(e.loaded/e.total*100)+'%'};
 x.onload=()=>{ust.textContent=x.status==200?'OK — device rebooting…':'failed: '+x.responseText};
 let fd=new FormData();fd.append('f',f);x.send(fd)}
-load();setInterval(load,2000);
+load();setInterval(load,2000);shot();
 </script></body></html>)HTML";
 
 // ---- JSON state ----
@@ -120,9 +123,53 @@ static String webJson() {
     return j;
 }
 
+// Stream the live LVGL framebuffer as a 24-bit BMP. The canvas is rotated/column-major:
+// landscape pixel (lx,ly) lives at fb[lx*Ht + (Ht-1-ly)]. BMP is top-down (negative height), BGR.
+// WiFiClient.write() can do partial sends when the TCP buffer is full; loop until all sent
+static void clientWriteAll(WiFiClient &c, const uint8_t *p, size_t n) {
+    size_t sent = 0; uint32_t t0 = millis();
+    while (sent < n && c.connected()) {
+        size_t w = c.write(p + sent, n - sent);
+        if (w) { sent += w; t0 = millis(); }
+        else { if (millis() - t0 > 3000) break; delay(1); }
+    }
+}
+static void handleScreen() {
+    if (!webAuth()) return;
+    const uint16_t *fb = gfx->getFramebuffer();
+    if (!fb) { webServer.send(500, "text/plain", "no framebuffer"); return; }
+    const int W = Wd, H = Ht;
+    const uint32_t imgSize = (uint32_t)W * H * 3, fileSize = 54 + imgSize;
+    uint8_t hdr[54]; memset(hdr, 0, sizeof(hdr));
+    hdr[0] = 'B'; hdr[1] = 'M';
+    hdr[2] = fileSize; hdr[3] = fileSize >> 8; hdr[4] = fileSize >> 16; hdr[5] = fileSize >> 24;
+    hdr[10] = 54; hdr[14] = 40;
+    hdr[18] = W & 0xFF; hdr[19] = W >> 8;
+    int32_t nh = -H; hdr[22] = nh; hdr[23] = nh >> 8; hdr[24] = nh >> 16; hdr[25] = nh >> 24;
+    hdr[26] = 1; hdr[28] = 24;
+    hdr[34] = imgSize; hdr[35] = imgSize >> 8; hdr[36] = imgSize >> 16; hdr[37] = imgSize >> 24;
+    webServer.setContentLength(fileSize);
+    webServer.send(200, "image/bmp", "");
+    WiFiClient client = webServer.client();
+    clientWriteAll(client, hdr, 54);
+    static uint8_t row[Wd * 3];
+    for (int ly = 0; ly < H; ly++) {
+        int o = 0;
+        for (int lx = 0; lx < W; lx++) {
+            uint16_t px = fb[(int32_t)lx * H + (H - 1 - ly)];
+            uint8_t r = (px >> 11) & 0x1f, g = (px >> 5) & 0x3f, b = px & 0x1f;
+            row[o++] = (b << 3) | (b >> 2);   // BMP pixel order is B,G,R
+            row[o++] = (g << 2) | (g >> 4);
+            row[o++] = (r << 3) | (r >> 2);
+        }
+        clientWriteAll(client, row, W * 3);
+    }
+}
+
 static void webBegin() {
     if (webStarted) return;
     webServer.on("/", []() { if (!webAuth()) return; webServer.send_P(200, "text/html", WEB_PAGE); });
+    webServer.on("/screen.bmp", handleScreen);
     webServer.on("/api", []() { if (!webAuth()) return; webServer.send(200, "application/json", webJson()); });
     webServer.on("/toggle", HTTP_POST, []() {
         if (!webAuth()) return;
