@@ -8,6 +8,7 @@
 
 static WebServer webServer(80);
 static bool webStarted = false;
+volatile bool otaActive = false;   // true during an OTA → loop() drops everything but OTA
 
 // require auth on every request; returns false (and sends the 401) if not authed
 static bool webAuth() {
@@ -159,14 +160,18 @@ static void webBegin() {
         []() {
             if (!webServer.authenticate(WEB_USER, webPass)) return;   // guard the upload stream too
             HTTPUpload &up = webServer.upload();
-            if (up.status == UPLOAD_FILE_START) { Update.begin(UPDATE_SIZE_UNKNOWN); }
+            if (up.status == UPLOAD_FILE_START) { WiFi.setSleep(false); Update.begin(UPDATE_SIZE_UNKNOWN); }
             else if (up.status == UPLOAD_FILE_WRITE) { Update.write(up.buf, up.currentSize); }
             else if (up.status == UPLOAD_FILE_END) { Update.end(true); }
         });
     webServer.begin();
-    // ArduinoOTA: push builds from PlatformIO over WiFi (espota), same password
+    // ArduinoOTA: push builds from PlatformIO over WiFi (espota), same password.
+    // OTA needs handle() called tightly, so onStart suspends the UI/polling and
+    // disables WiFi modem-sleep — otherwise the stream starves and drops (broken pipe).
     ArduinoOTA.setHostname("jkbms");
     ArduinoOTA.setPassword(webPass);
+    ArduinoOTA.onStart([]() { otaActive = true; WiFi.setSleep(false); });
+    ArduinoOTA.onError([](ota_error_t e) { otaActive = false; });
     ArduinoOTA.begin();
     webStarted = true;
 }

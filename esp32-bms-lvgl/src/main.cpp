@@ -2309,6 +2309,7 @@ void setup() {
 }
 
 void loop() {
+    if (otaActive) { ArduinoOTA.handle(); return; }   // OTA in progress → give it the whole CPU
     lv_task_handler();
     webLoop();   // serve the web portal + handle OTA (no-op until WiFi connects)
     if (pendingSleep) {
