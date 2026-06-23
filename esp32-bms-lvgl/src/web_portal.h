@@ -21,7 +21,9 @@ static const char WEB_PAGE[] PROGMEM = R"HTML(<!doctype html><html><head><meta c
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>JK BMS</title><style>
 *{box-sizing:border-box}body{margin:0;background:#0b0f14;color:#e6edf3;font:14px system-ui,sans-serif}
-h1{font-size:18px;margin:14px}.wrap{max-width:760px;margin:0 auto;padding:8px}
+h1{font-size:18px;margin:14px}.wrap{max-width:1000px;margin:0 auto;padding:8px}
+.grid{display:grid;grid-template-columns:1fr;gap:0}.col{min-width:0}
+@media(min-width:780px){.grid{grid-template-columns:1fr 1fr;align-items:start}}
 .card{background:#11161d;border:1px solid #1f2731;border-radius:12px;padding:14px;margin:10px}
 .row{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
 .big{font-size:30px;font-weight:700}.mut{color:#7d8590}.grn{color:#3fb950}.amb{color:#d29922}.red{color:#f85149}
@@ -38,16 +40,21 @@ input{background:#0b0f14;color:#e6edf3;border:1px solid #30363d;border-radius:6p
 <h1>JK BMS Controller <span class=mut id=fw></span></h1>
 <div><span class=tab id=t0 onclick=sel(0)>BAT 1</span><span class=tab id=t1 onclick=sel(1)>BAT 2</span>
 <span class=pill id=net style=float:right></span></div>
+<div class=grid>
+<div class=col>
 <div class=card id=mon></div>
-<div class=card><b>Device screen</b> <button class=sm onclick=shot()>Refresh</button>
-<div style=margin-top:8px><img id=scr style="width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-rendering:pixelated" alt="tap Refresh"></div></div>
-<div class=card><b>Controls</b><div id=ctl></div></div>
 <div class=card><b>Settings</b> <span class=mut>(tap value to edit)</span><table id=params></table></div>
 <div class=card><b>Firmware update</b>
 <p class=mut id=fwv></p><input type=file id=fwf accept=.bin>
 <button onclick=upl()>Upload &amp; flash</button><div id=prog><div id=bar></div></div><p id=ust></p></div>
 <div class=card><b>Security</b><div class=row><span>Change password</span>
 <span><input type=password id=np placeholder="new password"><button class=sm onclick=chpw()>Save</button></span></div></div>
+</div>
+<div class=col>
+<div class=card><b>Device screen</b> <button class=sm onclick=shot()>Refresh</button>
+<div style=margin-top:8px><img id=scr style="width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-rendering:pixelated" alt="tap Refresh"></div></div>
+<div class=card><b>Controls</b><div id=ctl></div></div>
+</div>
 </div><script>
 let cur=0,D={};
 function sel(b){cur=b;t0.className='tab'+(b==0?' on':'');t1.className='tab'+(b==1?' on':'');render()}
