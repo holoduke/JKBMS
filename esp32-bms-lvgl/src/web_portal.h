@@ -78,8 +78,9 @@ params.innerHTML=ps.map(s=>`<tr><td>${s.l}</td><td style=text-align:right onclic
 async function tog(k){await fetch('/toggle?bms='+cur+'&which='+k,{method:'POST'});setTimeout(load,400)}
 async function ed(i,l){let v=prompt('New value for '+l);if(v===null||v==='')return;
 await fetch('/setparam?bms='+cur+'&idx='+i+'&val='+encodeURIComponent(v),{method:'POST'});setTimeout(load,500)}
-async function chpw(){if(!np.value)return;await fetch('/setpass?p='+encodeURIComponent(np.value),{method:'POST'});
-np.value='';ust.textContent='password changed — re-login on next action'}
+async function chpw(){if(np.value.length<4){ust.textContent='password min 4 chars';return}
+let r=await fetch('/setpass',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'p='+encodeURIComponent(np.value)});
+np.value='';ust.textContent=r.ok?'password changed — re-login on next action':'change failed'}
 function shot(){scr.src='/screen.bmp?t='+Date.now()}
 function upl(){let f=fwf.files[0];if(!f){ust.textContent='pick a .bin first';return}
 let x=new XMLHttpRequest();x.open('POST','/update');prog.style.display='block';
@@ -91,8 +92,9 @@ load();setInterval(load,2000);shot();
 
 // ---- JSON state ----
 static String webJson() {
-    String j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
-               "\",\"up\":" + String(millis() / 1000) + ",\"packs\":[";
+    String j; j.reserve(3600);   // one allocation; avoids a realloc cascade from the +='s below
+    j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
+        "\",\"up\":" + String(millis() / 1000) + ",\"packs\":[";
     for (int t = 0; t < 2; t++) {
         const Bms &b = bms[t];
         bool live = demoMode || bmsLive[t];
@@ -158,6 +160,7 @@ static void handleScreen() {
     webServer.setContentLength(fileSize);
     webServer.send(200, "image/bmp", "");
     WiFiClient client = webServer.client();
+    WiFi.setSleep(false);          // modem-sleep latency stalls the 460KB stream → truncation; disable while sending
     clientWriteAll(client, hdr, 54);
     static uint8_t row[Wd * 3];
     for (int ly = 0; ly < H; ly++) {
@@ -171,6 +174,7 @@ static void handleScreen() {
         }
         clientWriteAll(client, row, W * 3);
     }
+    WiFi.setSleep(true);
 }
 
 static void webBegin() {
@@ -190,16 +194,18 @@ static void webBegin() {
     });
     webServer.on("/setparam", HTTP_POST, []() {
         if (!webAuth()) return;
+        if (!webServer.hasArg("idx") || !webServer.hasArg("val")) { webServer.send(400, "text/plain", "missing arg"); return; }
         int b = webServer.arg("bms").toInt() & 1, idx = webServer.arg("idx").toInt();
         if (idx < 0 || idx >= NSET) { webServer.send(400, "text/plain", "bad idx"); return; }
-        bool ok = setPut(b, SETDEFS[idx], webServer.arg("val").toFloat());
+        bool ok = setPut(b, SETDEFS[idx], webServer.arg("val").toFloat());   // setPut clamps to the setting's vmin/vmax
         webServer.send(ok ? 200 : 500, "text/plain", ok ? "ok" : "write failed");
     });
     webServer.on("/setpass", HTTP_POST, []() {
         if (!webAuth()) return;
         String p = webServer.arg("p");
-        if (p.length() < 1 || p.length() >= sizeof(webPass)) { webServer.send(400, "text/plain", "bad"); return; }
+        if (p.length() < 4 || p.length() >= sizeof(webPass)) { webServer.send(400, "text/plain", "min 4 chars"); return; }
         strncpy(webPass, p.c_str(), sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0;
+        ArduinoOTA.setPassword(webPass);   // re-arm OTA too, else espota keeps the old password until reboot
         saveSettings();
         webServer.send(200, "text/plain", "ok");
     });
@@ -212,7 +218,7 @@ static void webBegin() {
             if (ok) { delay(400); ESP.restart(); }
         },
         []() {
-            if (!webServer.authenticate(WEB_USER, webPass)) return;   // guard the upload stream too
+            if (!webServer.authenticate(WEB_USER, webPass)) { Update.abort(); return; }   // abort, don't leave a half-written image
             HTTPUpload &up = webServer.upload();
             if (up.status == UPLOAD_FILE_START) { WiFi.setSleep(false); Update.begin(UPDATE_SIZE_UNKNOWN); }
             else if (up.status == UPLOAD_FILE_WRITE) { Update.write(up.buf, up.currentSize); }
@@ -225,6 +231,7 @@ static void webBegin() {
     ArduinoOTA.setHostname("jkbms");
     ArduinoOTA.setPassword(webPass);
     ArduinoOTA.onStart([]() { otaActive = true; WiFi.setSleep(false); });
+    ArduinoOTA.onEnd([]() { otaActive = false; });
     ArduinoOTA.onError([](ota_error_t e) { otaActive = false; });
     ArduinoOTA.begin();
     webStarted = true;

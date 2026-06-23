@@ -7,6 +7,7 @@
 #include <lvgl.h>
 #include <Arduino_GFX_Library.h>
 #include <WiFi.h>
+#include <esp_mac.h>
 #include <Preferences.h>
 #include <time.h>
 #include <math.h>
@@ -336,15 +337,16 @@ static void bmsRead() {
     if (demoMode) { bmsLive[0] = bmsLive[1] = false; return; }
     static uint8_t skip[2] = {0, 0};
     static bool wasLive[2] = {false, false};
-    static uint8_t setTick = 0;
-    bool wantSet = (setTick++ % 10) == 0;          // refresh the settings block every ~10 polls
+    static uint8_t setTick = 0; setTick++;
     for (int t = 0; t < 2; t++) {
         if (!bmsLive[t] && skip[t] > 0) { skip[t]--; continue; }   // back off from a silent pack
         bmsReadAddr(1, t);                                         // each pack is addr 1 on its own UART
         skip[t] = bmsLive[t] ? 0 : BMS_RETRY;                      // online → poll every cycle
-        // settings: read on first contact, then refresh every ~10 polls. Do NOT re-read
-        // every poll when it failed — a failed read blocks ~400ms and would freeze the UI.
+        // settings: read on first contact, then refresh every ~10 polls — but stagger the two
+        // packs (BMS0 at tick 0,10,…; BMS1 at 5,15,…) so a failed read (~400ms) never blocks
+        // both in the same poll, which would freeze the UI for ~0.8-1.3s.
         bool firstContact = bmsLive[t] && !wasLive[t];
+        bool wantSet = (setTick % 10) == (uint8_t)(t * 5);
         if (bmsLive[t] && (firstContact || wantSet)) bmsReadSettings(1, t);
         wasLive[t] = bmsLive[t];
         if (!bmsLive[t]) { setOk[t] = false; setOk2[t] = false; }
@@ -873,7 +875,7 @@ static void renderBms() {
     drawCells(rx, 120, cellsW, 86, b, stale);
     blitCanvas(powCv, rx + cellsW + 8, 120, POW_W, POW_H);
     // bottom row, columns aligned with the row above: energy summary (left) + capacity graph (right)
-    int cells = (b.v > 1.5f) ? (int)(b.v / 3.3f + 0.5f) : NCELLS;   // infer series count from pack voltage
+    int cells = (b.v > 1.5f) ? (int)(b.v / 3.3f + 0.5f) : NCELLS;   // series count inferred from pack voltage
     if (cells < 1) cells = NCELLS;
     float totalWh = fullAh * cells * 3.2f;                          // nominal 3.2 V/cell (LiFePO4)
     drawEnergyTile(rx, 216, cellsW, CAP_H, totalWh, whSpent(view, 288), whSpent(view, 72), stale);
@@ -1239,8 +1241,10 @@ static void renderInfoPopup() {
     snprintf(b, sizeof(b), "%lu / %lu KB", (unsigned long)(ESP.getFreePsram() / 1024), (unsigned long)(ESP.getPsramSize() / 1024)); kvLine(lx, &ly, "PSRAM free", b);
     snprintf(b, sizeof(b), "%lu KB", (unsigned long)(ESP.getFreeHeap() / 1024)); kvLine(lx, &ly, "Heap free", b);
     kvLine(lx, &ly, "MAC", WiFi.macAddress().c_str());
-    if (WiFi.status() == WL_CONNECTED) kvLine(lx, &ly, "IP", WiFi.localIP().toString().c_str());
-    else kvLine(lx, &ly, "WiFi", "not connected");
+    if (WiFi.status() == WL_CONNECTED) {
+        kvLine(lx, &ly, "IP", WiFi.localIP().toString().c_str());
+        snprintf(b, sizeof(b), "%s / %s", WEB_USER, webPass); kvLine(lx, &ly, "Web login", b);   // portal + OTA credentials
+    } else kvLine(lx, &ly, "WiFi", "not connected");
     snprintf(b, sizeof(b), "%lu s", (unsigned long)(millis() / 1000)); kvLine(lx, &ly, "Uptime", b);
     lText("BMS info: coming soon", lx, ly + 3, F12, C_MUTED);
     lText("tap to close", x + w - 92, y + h - 18, F12, C_MUTED);
@@ -1345,7 +1349,8 @@ static void loadSettings() {
     demoMode = prefs.getBool("demo", demoMode);
     idleScreen = prefs.getInt("idle", idleScreen);
     if (prefs.isKey("pins")) prefs.getBytes("pins", bmsPin, sizeof(bmsPin));
-    { String wp = prefs.getString("wpass", webPass); strncpy(webPass, wp.c_str(), sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0; }
+    if (prefs.isKey("wpass")) { String wp = prefs.getString("wpass", webPass); strncpy(webPass, wp.c_str(), sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0; }
+    else { uint8_t mac[6] = {0}; esp_read_mac(mac, ESP_MAC_WIFI_STA); snprintf(webPass, sizeof(webPass), "jk-%02x%02x", mac[4], mac[5]); }   // fresh install → unique default (from eFuse MAC), not the public 'jkbms'
     prefs.end();
     appliedB = brightness;
 }
