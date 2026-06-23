@@ -377,12 +377,18 @@ static bool bmsReadReg(int idx, uint16_t reg, uint32_t *out) {
     return true;
 }
 // Write a control register, then read it back to confirm the BMS accepted the value.
+// The read-back can be transiently slow/missed right after the write (BMS busy),
+// so retry a few times before declaring failure — otherwise a good write reports
+// as "didn't change" and the UI keeps the old value.
 static bool bmsSet(int idx, uint16_t reg, uint32_t val) {
     bmsWrite(idx, reg, val);
-    uint32_t rb;
-    if (!bmsReadReg(idx, reg, &rb)) { Serial.printf("[bms] verify failed: no readback for reg %04X\n", reg); return false; }
-    if (rb != val) { Serial.printf("[bms] verify failed: reg %04X wrote %lu, read %lu\n", reg, (unsigned long)val, (unsigned long)rb); return false; }
-    return true;
+    uint32_t rb = 0;
+    for (int t = 0; t < 4; t++) {
+        if (bmsReadReg(idx, reg, &rb) && rb == val) return true;
+        delay(25);
+    }
+    Serial.printf("[bms] verify failed: reg %04X wrote %lu, read %lu\n", reg, (unsigned long)val, (unsigned long)rb);
+    return false;
 }
 static uint32_t socColor(float soc) { return soc >= 60 ? C_ACCENT : soc >= 30 ? C_WARN : C_BAD; }
 static uint32_t lerpColor(uint32_t a, uint32_t b, float t) {
