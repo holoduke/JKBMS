@@ -55,25 +55,33 @@ the UI updates in place rather than rebuilding the DOM per frame.
 <p align="center"><img src="esp32-bms-lvgl/docs/dashboard.gif" width="480" alt="ESP32 LVGL dashboard, captured from the device"></p>
 
 Standalone firmware for a **Guition JC3248W535** (ESP32-S3, 3.5" 320×480 QSPI touch
-display) that reads the JK-BMS over its wired UART and shows everything on the
-built-in screen — no phone, no cloud. *(The clip above is captured straight from the
-device framebuffer.)*
+display) that reads **two JK-BMS packs live over their wired RS485/UART** and shows
+everything on the built-in screen — no phone, no cloud. *(The clip above is captured
+straight from the device framebuffer.)*
 
 Two builds live side by side:
 
 - **[`esp32-bms-lvgl/`](esp32-bms-lvgl/)** — the polished build using **LVGL 9**: anti-aliased
-  fonts, BMS tabs, SOC ring gauge, power/capacity charts, scrollable settings, WiFi +
-  on-screen keyboard, and power-on / sleep animations.
+  fonts, auto-switching BMS tabs, SOC ring gauge, power-draw + capacity/energy charts,
+  per-cell bars, scrollable **editable** settings (written back to the BMS), WiFi +
+  on-screen keyboard, power-save, and power-on / sleep animations.
 - **[`esp32-bms/`](esp32-bms/)** — the original, drawn directly with Arduino_GFX (no AA fonts,
   but lighter and faster).
 
+**Live & writable:** reads the realtime block and the full settings block over Modbus,
+and writes settings back (capacity, current limits, protections) and toggles the
+charge/discharge/balancer MOSFETs — each write read-back-verified.
+
+**Web portal + OTA:** on WiFi it serves a password-protected web app (live monitor,
+controls, a live screenshot of the LCD, and a firmware-update page) and supports
+**over-the-air updates** (browser upload or PlatformIO/espota) — no cable needed.
+
 ```sh
-cd esp32-bms-lvgl && pio run -t upload   # PlatformIO
+cd esp32-bms-lvgl && pio run -t upload   # first flash over USB; thereafter OTA over WiFi
 ```
 
-See **[esp32-bms-lvgl/README.md](esp32-bms-lvgl/README.md)** for hardware, wiring and build details.
-
-> Data is currently simulated; wiring up the live JK UART parser is the next step.
+See **[esp32-bms-lvgl/README.md](esp32-bms-lvgl/README.md)** for hardware, wiring, the web
+portal, OTA, and build details.
 
 ---
 
