@@ -90,7 +90,9 @@ struct Bms {
     int capCount; float capSpanDays;
     int pwrCount; float pwrSpanMin;   // power graph: short rolling window (minutes)
     float peakChg, peakDis;
-    bool bmsOk;                 // overall BMS status (no active protection)
+    bool bmsOk;                 // BMS-reported operational state (errors bitmask == 0)
+    uint32_t errFlags;          // BMS protection/warning bitmask (realtime offset 166)
+    bool chgMos, disMos, balWork;  // actual charge/discharge MOSFET + balancer state from the BMS
     uint32_t uptime;            // BMS-reported total runtime (seconds); 0 = unknown
     bool uptimeOk;              // device-info read succeeded
 };
@@ -291,7 +293,12 @@ static void bmsReadAddr(uint8_t addr, int idx) {
     uint32_t up = U32(0xBC);                          // total runtime (s) — web frame offset 194 − 6
     if (up > 0 && up < 4000000000UL) { b.uptime = up; b.uptimeOk = true; }
     float w = b.v * b.i; if (w > b.peakChg) b.peakChg = w; if (-w > b.peakDis) b.peakDis = -w;
-    b.bmsOk = true; bmsLive[idx] = true;
+    b.errFlags = U32(0xA0);            // protection/warning bitmask (web offset 166)
+    b.chgMos = p[0xC0];                // actual charge MOSFET state (web 198)
+    b.disMos = p[0xC1];                // actual discharge MOSFET state (web 199)
+    b.balWork = p[0xC3];               // balancer actively working (web 201)
+    b.bmsOk = (b.errFlags == 0);       // operational unless the BMS reports a fault
+    bmsLive[idx] = true;
 }
 // Poll both real BMSes (addr 1 → BMS 1, addr 2 → BMS 2). Skipped in demo mode.
 // A pack that's offline is retried only every BMS_RETRY polls, not every poll, so
@@ -391,6 +398,20 @@ static bool bmsSet(int idx, uint16_t reg, uint32_t val) {
     return false;
 }
 static uint32_t socColor(float soc) { return soc >= 60 ? C_ACCENT : soc >= 30 ? C_WARN : C_BAD; }
+// Single source of truth for the status pill — uses REAL BMS state (fault bitmask,
+// actual MOSFET + balancer flags) not just a current threshold. Shared by the
+// device dashboard and the web /api so they never diverge.
+static const char *bmsStatusStr(int t, bool live, uint32_t *col) {
+    const Bms &b = bms[t];
+    if (!live)             { *col = C_BAD;   return "Offline"; }
+    if (b.errFlags)        { *col = C_BAD;   return "Alarm"; }      // BMS reports a protection/warning
+    if (!b.disMos || !b.chgMos) { *col = C_WARN; return "FET off"; }
+    if (b.balWork)         { *col = C_CYAN;  return "Balancing"; }
+    if (b.i > 0.5f)        { *col = C_ACCENT; return "Charging"; }
+    if (b.i < -0.5f)       { *col = C_WARN;  return "Discharging"; }
+    if (b.soc >= 99)       { *col = C_ACCENT; return "Full"; }
+    return *col = C_MUTED, "Idle";
+}
 static uint32_t lerpColor(uint32_t a, uint32_t b, float t) {
     if (t < 0) t = 0; if (t > 1) t = 1;
     int ar = (a >> 16) & 0xff, ag = (a >> 8) & 0xff, ab = a & 0xff;
@@ -680,10 +701,12 @@ static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24
     char buf[12];
     if (stale) snprintf(buf, sizeof(buf), "--"); else fmtWh(buf, sizeof(buf), totalWh);
     lText(buf, x + 8, y + 22, F16, C_ACCENT);                  // headline: total pack capacity
-    line(x + 8, y + 48, x + w - 8, y + 48, C_BORDER, 170);
+    // section label so the two rows below are clearly "energy used", not more capacities
+    lText("USED", x + 8, y + 44, F10, C_MUTED);
+    line(x + 8 + textW("USED", F10) + 6, y + 49, x + w - 8, y + 49, C_BORDER, 170);
     const char *lbl[2] = {"24h", "6h"}; float val[2] = {wh24, wh6};   // energy drawn over each window
     for (int r = 0; r < 2; r++) {
-        int ry = y + 56 + r * 20;
+        int ry = y + 58 + r * 19;
         lText(lbl[r], x + 8, ry, F10, C_MUTED);
         if (stale) snprintf(buf, sizeof(buf), "--"); else fmtWh(buf, sizeof(buf), val[r]);
         lText(buf, x + w - textW(buf, F12) - 8, ry, F12, C_WARN);
@@ -831,18 +854,8 @@ static void renderBms() {
     drawTabs(autoActive, prog);
 
     const int cx = 100, cy = 178;
-    // operational status (from the BMS) — pill with a status dot
-    float clo = 9, chi = 0;
-    for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < clo) clo = b.cell[i]; if (b.cell[i] > chi) chi = b.cell[i]; }
-    const char *st; uint32_t sc;
-    if (!demoMode && !bmsLive[view]) { st = "Offline"; sc = C_BAD; }
-    else if (!b.bmsOk) { st = "Protected"; sc = C_BAD; }
-    else if (!bmsDischarge[view] || !bmsCharge[view]) { st = "FET off"; sc = C_WARN; }
-    else if (bmsBalancer[view] && (chi - clo) > 0.015f) { st = "Balancing"; sc = C_CYAN; }
-    else if (b.i > 2.0f) { st = "Charging"; sc = C_ACCENT; }       // +current = charging (green)
-    else if (b.i < -2.0f) { st = "Discharging"; sc = C_WARN; }     // -current = discharging (amber)
-    else if (b.soc >= 99) { st = "Full"; sc = C_ACCENT; }          // topped off, at rest
-    else { st = "Idle"; sc = C_MUTED; }                            // at rest
+    // operational status — real BMS state (fault bitmask + actual MOSFET/balancer flags)
+    uint32_t sc; const char *st = bmsStatusStr(view, demoMode || bmsLive[view], &sc);
     int pw2 = textW(st, F12) + 28, px2 = cx - pw2 / 2, py2 = 52;
     fRect(px2, py2, pw2, 20, 10, C_CARD); dRect(px2, py2, pw2, 20, 10, C_BORDER);
     fCircle(px2 + 13, py2 + 10, 4, sc);

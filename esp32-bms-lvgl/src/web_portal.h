@@ -98,12 +98,7 @@ static String webJson() {
     for (int t = 0; t < 2; t++) {
         const Bms &b = bms[t];
         bool live = demoMode || bmsLive[t];
-        float clo = 9, chi = 0;
-        for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < clo) clo = b.cell[i]; if (b.cell[i] > chi) chi = b.cell[i]; }
-        const char *st = !live ? "Offline" : !b.bmsOk ? "Protected"
-                       : (!bmsDischarge[t] || !bmsCharge[t]) ? "FET off"
-                       : (bmsBalancer[t] && (chi - clo) > 0.015f) ? "Balancing"
-                       : b.i > 2 ? "Charging" : b.i < -2 ? "Discharging" : b.soc >= 99 ? "Full" : "Idle";
+        uint32_t sc; const char *st = bmsStatusStr(t, live, &sc);   // same real-BMS-state helper as the device UI
         float fullAh = (!demoMode && bmsLive[t]) ? packFullAh[t] : PACK_AH;
         if (t) j += ",";
         j += "{\"live\":" + String(live ? 1 : 0) + ",\"soc\":" + String(b.soc, 0) +
