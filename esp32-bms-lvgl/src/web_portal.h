@@ -21,78 +21,100 @@ static const char WEB_PAGE[] PROGMEM = R"HTML(<!doctype html><html><head><meta c
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>JK BMS</title><style>
 *{box-sizing:border-box}body{margin:0;background:#0b0f14;color:#e6edf3;font:14px system-ui,sans-serif}
-h1{font-size:18px;margin:14px}.wrap{max-width:1000px;margin:0 auto;padding:8px}
-.grid{display:grid;grid-template-columns:1fr;gap:0}.col{min-width:0}
-@media(min-width:780px){.grid{grid-template-columns:1fr 1fr;align-items:start}}
-.card{background:#11161d;border:1px solid #1f2731;border-radius:12px;padding:14px;margin:10px}
-.row{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
-.big{font-size:30px;font-weight:700}.mut{color:#7d8590}.grn{color:#3fb950}.amb{color:#d29922}.red{color:#f85149}
-.pill{display:inline-block;padding:2px 10px;border-radius:10px;background:#1f2731;font-size:12px}
-.cells{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:6px;margin-top:8px}
-.cell{background:#0b0f14;border:1px solid #1f2731;border-radius:6px;padding:4px 6px;font-size:12px;text-align:center}
+.wrap{max-width:1100px;margin:0 auto;padding:10px}
+h1{font-size:18px;margin:6px 8px}
+.bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px}
+.tab{padding:6px 16px;border-radius:8px;background:#1f2731;cursor:pointer;font-weight:600}
+.tab.on{background:#1f6feb}
+.pill{padding:2px 10px;border-radius:10px;background:#1f2731;font-size:12px}
+.grid{display:grid;grid-template-columns:1fr;gap:10px}
+@media(min-width:760px){.grid{grid-template-columns:1fr 1fr;align-items:start}}
+.card{background:#11161d;border:1px solid #1f2731;border-radius:12px;padding:14px}
+.ct{font-size:11px;color:#7d8590;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:3px 0}
+.mut{color:#7d8590}.grn{color:#3fb950}.amb{color:#d29922}.red{color:#f85149}.cy{color:#39d0d8}
+.big{font-size:30px;font-weight:700;line-height:1.1}
+.met{display:grid;grid-template-columns:1fr 1fr;gap:10px;text-align:center}
+.met .v{font-size:22px;font-weight:700}
+.cells{display:grid;grid-template-columns:repeat(auto-fill,minmax(72px,1fr));gap:6px}
+.cell{background:#0b0f14;border:1px solid #1f2731;border-radius:6px;padding:5px;text-align:center;font-size:12px}
+.cell.hi{border-color:#d29922}.cell.lo{border-color:#39d0d8}
 button{background:#1f6feb;color:#fff;border:0;border-radius:8px;padding:8px 12px;font-size:14px;cursor:pointer}
-button.off{background:#30363d}button.sm{padding:4px 8px;font-size:12px}
+button.off{background:#30363d}button.sm{padding:4px 10px;font-size:12px}
 table{width:100%;border-collapse:collapse}td{padding:5px 4px;border-bottom:1px solid #1f2731}
-input{background:#0b0f14;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px;width:90px}
-.tab{display:inline-block;padding:6px 14px;border-radius:8px;background:#1f2731;margin-right:6px;cursor:pointer}
-.tab.on{background:#1f6feb}#prog{height:8px;background:#30363d;border-radius:4px;overflow:hidden;display:none}
-#bar{height:100%;width:0;background:#3fb950}</style></head><body><div class=wrap>
+input{background:#0b0f14;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px;width:96px}
+img{width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-rendering:pixelated}
+#prog{height:8px;background:#30363d;border-radius:4px;overflow:hidden;display:none;margin-top:8px}#pb{height:100%;width:0;background:#3fb950}
+</style></head><body><div class=wrap>
 <h1>JK BMS Controller <span class=mut id=fw></span></h1>
-<div><span class=tab id=t0 onclick=sel(0)>BAT 1</span><span class=tab id=t1 onclick=sel(1)>BAT 2</span>
-<span class=pill id=net style=float:right></span></div>
+<div class=bar><span class=tab id=t0 onclick=sel(0)>BAT 1</span><span class=tab id=t1 onclick=sel(1)>BAT 2</span>
+<span class=pill id=net style=margin-left:auto></span></div>
 <div class=grid>
-<div class=col>
-<div class=card id=mon></div>
-<div class=card><b>Settings</b> <span class=mut>(tap value to edit)</span><table id=params></table></div>
-<div class=card><b>Firmware update</b>
-<p class=mut id=fwv></p><input type=file id=fwf accept=.bin>
-<button onclick=upl()>Upload &amp; flash</button><div id=prog><div id=bar></div></div><p id=ust></p></div>
-<div class=card><b>Security</b><div class=row><span>Change password</span>
-<span><input type=password id=np placeholder="new password"><button class=sm onclick=chpw()>Save</button></span></div></div>
-</div>
-<div class=col>
-<div class=card><b>Device screen</b> <button class=sm onclick=shot()>Refresh</button>
-<div style=margin-top:8px><img id=scr style="width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-rendering:pixelated" alt="tap Refresh"></div></div>
-<div class=card><b>Controls</b><div id=ctl></div></div>
-</div>
-</div><script>
+ <div class=card><div class=ct>Status</div><div id=stat></div></div>
+ <div class=card><div class=ct>Live</div><div class=met id=met></div></div>
+ <div class=card><div class=ct>Cells <span id=cd class=mut></span></div><div class=cells id=cells></div></div>
+ <div class=card><div class=ct>Temperatures</div><div id=temps></div></div>
+ <div class=card><div class=ct>Session</div><div id=sess></div></div>
+ <div class=card><div class=ct>Controls</div><div id=ctl></div></div>
+ <div class=card><div class=ct>Device screen</div><button class=sm onclick=shot()>Refresh</button>
+  <div style=margin-top:8px><img id=scr alt="tap Refresh"></div></div>
+ <div class=card><div class=ct>Settings <span class=mut>(tap value to edit)</span></div><table id=params></table></div>
+ <div class=card><div class=ct>Firmware update</div><p class=mut id=fwv></p>
+  <input type=file id=fwf accept=.bin> <button onclick=upl()>Upload &amp; flash</button>
+  <div id=prog><div id=pb></div></div><p id=ust></p></div>
+ <div class=card><div class=ct>Security</div><div class=row><span>Change password</span>
+  <span><input type=password id=np placeholder="new password"><button class=sm onclick=chpw()>Save</button></span></div></div>
+</div></div><script>
 let cur=0,D={};
 function sel(b){cur=b;t0.className='tab'+(b==0?' on':'');t1.className='tab'+(b==1?' on':'');render()}
+function tc(t){return(t<-50||t>120)?'--':t.toFixed(0)+'°C'}
+function wh(w){return Math.abs(w)>=1000?(w/1000).toFixed(2)+'kWh':w.toFixed(0)+'Wh'}
+function pc(w,t){return t>1?' ('+Math.round(w/t*100)+'%)':''}
 async function load(){try{D=await(await fetch('/api')).json();fw.textContent='v'+D.fw;
-net.textContent=D.ip+' · up '+Math.floor(D.up/60)+'m';fwv.textContent='current: v'+D.fw;render()}catch(e){}}
-function tc(t){return (t<-50||t>120)?'--':t.toFixed(0)+'C'}
+ net.textContent=D.ip+' · up '+Math.floor(D.up/60)+'m';fwv.textContent='current: v'+D.fw;render()}catch(e){}}
 function render(){if(!D.packs)return;let p=D.packs[cur];
-let col=p.i>2?'grn':p.i<-2?'amb':'mut';
-mon.innerHTML=`<div class=row><span class=pill>${p.st}</span><span class=mut>${p.live?'live':'offline'}</span></div>
-<div class=row><span class=big>${p.soc.toFixed(0)}%</span><span class="big ${col}">${p.w.toFixed(0)}W</span></div>
-<div class=row><span class=mut>Voltage</span><b>${p.v.toFixed(2)}V</b></div>
-<div class=row><span class=mut>Current</span><b>${p.i.toFixed(1)}A</b></div>
-<div class=row><span class=mut>Capacity</span><b>${p.cap.toFixed(0)}Ah</b></div>
-<div class=row><span class=mut>Temps</span><b>MOS ${tc(p.tmos)} · T1 ${tc(p.t1)} · T2 ${tc(p.t2)}</b></div>
-<div class=cells>${p.cells.map((c,i)=>`<div class=cell>C${i+1}<br><b>${c.toFixed(2)}</b></div>`).join('')}</div>`;
-ctl.innerHTML=[['chg','Charge MOSFET',p.chg],['dis','Discharge MOSFET',p.dis],['bal','Balancer',p.bal]]
-.map(([k,n,v])=>`<div class=row><span>${n}</span><button class="sm ${v?'':'off'}" onclick="tog('${k}')">${v?'ON':'OFF'}</button></div>`).join('');
-let ps=D.params&&D.params[cur]||[];
-params.innerHTML=ps.map(s=>`<tr><td>${s.l}</td><td style=text-align:right onclick="ed(${s.i},'${s.l}')"><b>${s.v}</b></td></tr>`).join('')
-||'<tr><td class=mut>not loaded yet</td></tr>';}
-async function tog(k){await fetch('/toggle?bms='+cur+'&which='+k,{method:'POST'});setTimeout(load,400)}
+ let op=p.err>0?['⚠ Alarm','red']:['✓ Operational','grn'];
+ stat.innerHTML=`<div class="big ${op[1]}">${op[0]}</div>
+  <div class=row style=margin-top:6px><span class=mut>State</span><span class=pill>${p.st}</span></div>
+  <div class=row><span class=mut>Link</span><span class=${p.live?'grn':'mut'}>${p.live?'live':'offline'}</span></div>`;
+ let cc=p.i>0.5?'grn':p.i<-0.5?'amb':'mut';
+ met.innerHTML=`<div><div class=big>${p.soc.toFixed(0)}%</div><div class=mut>SOC</div></div>
+  <div><div class="v ${cc}">${p.w.toFixed(0)} W</div><div class=mut>${p.i>0.5?'charging':p.i<-0.5?'discharging':'idle'}</div></div>
+  <div><div class=v>${p.v.toFixed(2)} V</div><div class=mut>voltage</div></div>
+  <div><div class="v ${cc}">${Math.abs(p.i).toFixed(1)} A</div><div class=mut>current</div></div>`;
+ let mn=Math.min(...p.cells),mx=Math.max(...p.cells);
+ cd.textContent='Δ '+((mx-mn)*1000).toFixed(0)+' mV';
+ cells.innerHTML=p.cells.map((c,i)=>`<div class="cell${c==mx?' hi':c==mn?' lo':''}">C${i+1}<br><b>${c.toFixed(3)}</b></div>`).join('');
+ temps.innerHTML=[['MOSFET',p.tmos],['Sensor 1',p.t1],['Sensor 2',p.t2]]
+  .map(([n,v])=>`<div class=row><span class=mut>${n}</span><b>${tc(v)}</b></div>`).join('');
+ sess.innerHTML=[['Capacity',p.cap.toFixed(0)+' Ah'],['Total energy',wh(p.twh)],['Cycles',p.cyc],['Health',p.soh+'%'],
+  ['Uptime',(p.up_s/3600).toFixed(0)+' h'],['Peak charge',p.pkc.toFixed(0)+' W'],['Peak discharge',p.pkd.toFixed(0)+' W'],
+  ['Used 24h',wh(p.u24)+pc(p.u24,p.twh)],['Used 6h',wh(p.u6)+pc(p.u6,p.twh)]]
+  .map(([n,v])=>`<div class=row><span class=mut>${n}</span><b>${v}</b></div>`).join('');
+ ctl.innerHTML=[['chg','Charge MOSFET',p.chg],['dis','Discharge MOSFET',p.dis],['bal','Balancer',p.bal]]
+  .map(([k,n,v])=>`<div class=row><span>${n}</span><button class="sm ${v?'':'off'}" onclick="tog('${k}')">${v?'ON':'OFF'}</button></div>`).join('');
+ let ps=D.params&&D.params[cur]||[];
+ params.innerHTML=ps.map(s=>`<tr><td>${s.l}</td><td style=text-align:right;cursor:pointer onclick="ed(${s.i},'${s.l.replace(/'/g,'')}')"><b>${s.v}</b></td></tr>`).join('')
+  ||'<tr><td class=mut>settings not loaded (BMS offline?)</td></tr>';}
+async function tog(k){await fetch('/toggle?bms='+cur+'&which='+k,{method:'POST'});setTimeout(load,500)}
 async function ed(i,l){let v=prompt('New value for '+l);if(v===null||v==='')return;
-await fetch('/setparam?bms='+cur+'&idx='+i+'&val='+encodeURIComponent(v),{method:'POST'});setTimeout(load,500)}
+ let r=await fetch('/setparam?bms='+cur+'&idx='+i+'&val='+encodeURIComponent(v),{method:'POST'});
+ if(!r.ok)alert('write failed');setTimeout(load,600)}
 async function chpw(){if(np.value.length<4){ust.textContent='password min 4 chars';return}
-let r=await fetch('/setpass',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'p='+encodeURIComponent(np.value)});
-np.value='';ust.textContent=r.ok?'password changed — re-login on next action':'change failed'}
+ let r=await fetch('/setpass',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'p='+encodeURIComponent(np.value)});
+ np.value='';ust.textContent=r.ok?'password changed — re-login on next action':'change failed'}
 function shot(){scr.src='/screen.bmp?t='+Date.now()}
 function upl(){let f=fwf.files[0];if(!f){ust.textContent='pick a .bin first';return}
-let x=new XMLHttpRequest();x.open('POST','/update');prog.style.display='block';
-x.upload.onprogress=e=>{bar.style.width=(e.loaded/e.total*100)+'%'};
-x.onload=()=>{ust.textContent=x.status==200?'OK — device rebooting…':'failed: '+x.responseText};
-let fd=new FormData();fd.append('f',f);x.send(fd)}
+ let x=new XMLHttpRequest();x.open('POST','/update');prog.style.display='block';
+ x.upload.onprogress=e=>{pb.style.width=(e.loaded/e.total*100)+'%'};
+ x.onload=()=>{ust.textContent=x.status==200?'OK — device rebooting…':'failed: '+x.responseText};
+ let fd=new FormData();fd.append('f',f);x.send(fd)}
 load();setInterval(load,2000);shot();
 </script></body></html>)HTML";
 
 // ---- JSON state ----
 static String webJson() {
-    String j; j.reserve(3600);   // one allocation; avoids a realloc cascade from the +='s below
+    String j; j.reserve(4200);   // one allocation; avoids a realloc cascade from the +='s below
     j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
         "\",\"up\":" + String(millis() / 1000) + ",\"packs\":[";
     for (int t = 0; t < 2; t++) {
@@ -107,7 +129,13 @@ static String webJson() {
              ",\"t1\":" + String(b.tp1, 0) + ",\"t2\":" + String(b.tp2, 0) +
              ",\"cap\":" + String(fullAh, 0) + ",\"chg\":" + String(bmsCharge[t] ? 1 : 0) +
              ",\"dis\":" + String(bmsDischarge[t] ? 1 : 0) + ",\"bal\":" + String(bmsBalancer[t] ? 1 : 0) +
-             ",\"ok\":" + String(b.bmsOk ? 1 : 0) + ",\"st\":\"" + st + "\",\"cells\":[";
+             ",\"ok\":" + String(b.bmsOk ? 1 : 0) + ",\"st\":\"" + st + "\"" +
+             ",\"cyc\":" + String(b.cycles) + ",\"soh\":" + String(b.soh) +
+             ",\"up_s\":" + String(b.uptimeOk ? b.uptime : 0) + ",\"err\":" + String(b.errFlags) +
+             ",\"pkc\":" + String(b.peakChg, 0) + ",\"pkd\":" + String(b.peakDis, 0) +
+             ",\"twh\":" + String(packTotalWh(t), 0) +
+             ",\"u24\":" + String(whSpent(t, 288), 0) + ",\"u6\":" + String(whSpent(t, 72), 0) +
+             ",\"cells\":[";
         for (int i = 0; i < NCELLS; i++) { if (i) j += ","; j += String(b.cell[i], 2); }
         j += "]}";
     }

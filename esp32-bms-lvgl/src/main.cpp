@@ -93,6 +93,7 @@ struct Bms {
     bool bmsOk;                 // BMS-reported operational state (errors bitmask == 0)
     uint32_t errFlags;          // BMS protection/warning bitmask (realtime offset 166)
     bool chgMos, disMos, balWork;  // actual charge/discharge MOSFET + balancer state from the BMS
+    uint32_t cycles; uint8_t soh;  // cycle count + state-of-health % (realtime 182 / 190)
     uint32_t uptime;            // BMS-reported total runtime (seconds); 0 = unknown
     bool uptimeOk;              // device-info read succeeded
 };
@@ -297,6 +298,8 @@ static void bmsReadAddr(uint8_t addr, int idx) {
     b.chgMos = p[0xC0];                // actual charge MOSFET state (web 198)
     b.disMos = p[0xC1];                // actual discharge MOSFET state (web 199)
     b.balWork = p[0xC3];               // balancer actively working (web 201)
+    b.cycles = U32(0xB0);              // cycle count (web 182)
+    b.soh = p[0xB8];                   // state of health % (web 190)
     b.bmsOk = (b.errFlags == 0);       // operational unless the BMS reports a fault
     bmsLive[idx] = true;
 }
@@ -695,6 +698,13 @@ static float whSpent(int v, int nSamples) {
     }
     return wh;
 }
+// Total pack energy (Wh) = full Ah × nominal 3.2V/cell, cell count inferred from voltage.
+static float packTotalWh(int t) {
+    float fullAh = (!demoMode && bmsLive[t]) ? packFullAh[t] : PACK_AH;
+    float v = bms[t].v;
+    int cells = (v > 1.5f) ? (int)(v / 3.3f + 0.5f) : NCELLS; if (cells < 1) cells = NCELLS;
+    return fullAh * cells * 3.2f;
+}
 static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24, float wh6, bool stale) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     lText("CAPACITY", x + 8, y + 6, F10, C_MUTED);
@@ -896,10 +906,7 @@ static void renderBms() {
     drawCells(rx, 120, cellsW, 86, b, stale);
     blitCanvas(powCv, rx + cellsW + 8, 120, POW_W, POW_H);
     // bottom row, columns aligned with the row above: energy summary (left) + capacity graph (right)
-    int cells = (b.v > 1.5f) ? (int)(b.v / 3.3f + 0.5f) : NCELLS;   // series count inferred from pack voltage
-    if (cells < 1) cells = NCELLS;
-    float totalWh = fullAh * cells * 3.2f;                          // nominal 3.2 V/cell (LiFePO4)
-    drawEnergyTile(rx, 216, cellsW, CAP_H, totalWh, whSpent(view, 288), whSpent(view, 72), stale);
+    drawEnergyTile(rx, 216, cellsW, CAP_H, packTotalWh(view), whSpent(view, 288), whSpent(view, 72), stale);
     blitCanvas(capCv, rx + cellsW + 8, 216, CAP_W, CAP_H);
 }
 
