@@ -81,7 +81,8 @@ async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json()
  t1.style.display=D.n>1?'':'none';if(cur>=D.n)sel(0);render()}catch(e){net.style.color='#f85149';net.textContent='disconnected — retrying…'}}
 function render(){if(!D.packs)return;let p=D.packs[cur];
  let op=p.err>0?['⚠ Alarm','red']:['✓ Operational','grn'];
- stat.innerHTML=`<div class="big ${op[1]}">${op[0]}</div>
+ let alarms=(p.al&&p.al.length)?`<div style=margin-top:6px>${p.al.map(a=>`<div class=red>• ${esc(a)}</div>`).join('')}</div>`:'';
+ stat.innerHTML=`<div class="big ${op[1]}">${op[0]}</div>${alarms}
   <div class=row style=margin-top:6px><span class=mut>State</span><span class=pill>${p.st}</span></div>
   <div class=row><span class=mut>Link</span><span class=${p.live?'grn':'mut'}>${p.live?'live':'offline'}</span></div>`;
  let cc=p.i>0.5?'grn':p.i<-0.5?'amb':'mut';
@@ -91,12 +92,14 @@ function render(){if(!D.packs)return;let p=D.packs[cur];
   <div><div class="v ${cc}">${Math.abs(p.i).toFixed(1)} A</div><div class=mut>current</div></div>`;
  let mn=Math.min(...p.cells),mx=Math.max(...p.cells);
  cd.textContent='Δ '+((mx-mn)*1000).toFixed(0)+' mV';
- cells.innerHTML=p.cells.map((c,i)=>`<div class="cell${c==mx?' hi':c==mn?' lo':''}">C${i+1}<br><b>${c.toFixed(3)}</b></div>`).join('');
+ cells.innerHTML=p.cells.map((c,i)=>`<div class="cell${c==mx?' hi':c==mn?' lo':''}">C${i+1}<br><b>${c.toFixed(3)}</b>${(p.res&&p.res[i]!=null)?`<br><span class=mut>${p.res[i].toFixed(2)} mΩ</span>`:''}</div>`).join('');
  temps.innerHTML=[['MOSFET',p.tmos],['Sensor 1',p.t1],['Sensor 2',p.t2]]
   .map(([n,v])=>`<div class=row><span class=mut>${n}</span><b>${tc(v)}</b></div>`).join('');
  sess.innerHTML=[['Capacity',p.cap.toFixed(0)+' Ah'],['Total energy',wh(p.twh)],['Cycles',p.cyc],['Health',p.soh+'%'],
-  ['Uptime',(p.up_s/3600).toFixed(0)+' h'],['Peak charge',p.pkc.toFixed(0)+' W'],['Peak discharge',p.pkd.toFixed(0)+' W'],
-  ['Used 24h',wh(p.u24)+pc(p.u24,p.twh)],['Used 6h',wh(p.u6)+pc(p.u6,p.twh)]]
+  ['Uptime',(p.up_s/3600).toFixed(0)+' h'],['Balance current',(p.bcur||0).toFixed(2)+' A'],
+  ['Peak charge',p.pkc.toFixed(0)+' W'],['Peak discharge',p.pkd.toFixed(0)+' W'],
+  ['Charged 24h',wh(p.c24||0)],['Used 24h',wh(p.u24)+pc(p.u24,p.twh)],
+  ['Charged 6h',wh(p.c6||0)],['Used 6h',wh(p.u6)+pc(p.u6,p.twh)]]
   .map(([n,v])=>`<div class=row><span class=mut>${n}</span><b>${v}</b></div>`).join('');
  ctl.innerHTML=[['chg','Charge MOSFET',p.chg],['dis','Discharge MOSFET',p.dis],['bal','Balancer',p.bal]]
   .map(([k,n,v])=>`<div class=row><span>${n}</span><button class="sm ${v?'':'off'}" onclick="tog('${k}')">${v?'ON':'OFF'}</button></div>`).join('');
@@ -125,7 +128,7 @@ load();setInterval(load,2000);   // screenshot is heavy (blocks the server while
 
 // ---- JSON state ----
 static String webJson() {
-    String j; j.reserve(5000);   // one allocation; avoids a realloc cascade from the +='s below
+    String j; j.reserve(6500);   // one allocation; avoids a realloc cascade from the +='s below
     j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
         "\",\"up\":" + String(millis() / 1000) + ",\"n\":" + String(numBms) + ",\"packs\":[";
     for (int t = 0; t < numBms; t++) {
@@ -144,10 +147,17 @@ static String webJson() {
              ",\"cyc\":" + String(b.cycles) + ",\"soh\":" + String(b.soh) +
              ",\"up_s\":" + String(b.uptimeOk ? b.uptime : 0) + ",\"err\":" + String(b.errFlags) +
              ",\"pkc\":" + String(b.peakChg, 0) + ",\"pkd\":" + String(b.peakDis, 0) +
-             ",\"twh\":" + String(packTotalWh(t), 0) +
+             ",\"twh\":" + String(packTotalWh(t), 0) + ",\"bcur\":" + String(b.balCur, 2) +
              ",\"u24\":" + String(whSpent(t, 288), 0) + ",\"u6\":" + String(whSpent(t, 72), 0) +
+             ",\"c24\":" + String(whGained(t, 288), 0) + ",\"c6\":" + String(whGained(t, 72), 0) +
              ",\"cells\":[";
-        for (int i = 0; i < NCELLS; i++) { if (i) j += ","; j += String(b.cell[i], 2); }
+        for (int i = 0; i < b.nCells; i++) { if (i) j += ","; j += String(b.cell[i], 3); }
+        j += "],\"res\":[";
+        for (int i = 0; i < b.nCells; i++) { if (i) j += ","; j += String(b.cellRes[i], 2); }
+        j += "],\"al\":[";
+        int na = 0;
+        for (int bit = 0; bit < 29; bit++)
+            if (((b.errFlags >> bit) & 1u) && ERR_NAMES[bit][0]) { if (na++) j += ","; j += "\""; j += ERR_NAMES[bit]; j += "\""; }
         j += "]}";
     }
     j += "],\"params\":[";

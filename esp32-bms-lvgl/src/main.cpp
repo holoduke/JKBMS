@@ -34,7 +34,8 @@
 #define C_WARN 0xfbbf24
 #define C_BAD 0xfb7185
 
-#define NCELLS 4
+#define NCELLS 4                    // demo/fallback cell count
+#define MAXCELLS 24                 // JK realtime frame carries up to 24 cells; actual count detected at runtime
 #define NCAP 168
 #define Wd 480
 #define Ht 320
@@ -85,7 +86,7 @@ static bool gfxDirty = false;
 // ---- simulated BMS data ----
 struct Bms {
     float soc, v, i, tMos, tp1, tp2;
-    float cell[NCELLS];
+    float cell[MAXCELLS]; float cellRes[MAXCELLS]; int nCells; float balCur;   // per-cell V + resistance, detected count, balance current
     float cap[NCAP], pwr[NCAP];
     int capCount; float capSpanDays;
     int pwrCount; float pwrSpanMin;   // power graph: short rolling window (minutes)
@@ -98,6 +99,15 @@ struct Bms {
     bool uptimeOk;              // device-info read succeeded
 };
 static Bms bms[2];
+// JK protection/warning bitmask bit → name (realtime errors field, offset 166). Bits 3,29-31 unused.
+static const char *ERR_NAMES[29] = {
+    "Wire resistance", "MOSFET over-temp", "Cell count mismatch", "", "Fully charged",
+    "Pack over-voltage", "Charge over-current", "Charge short-circuit", "Charge over-temp",
+    "Charge under-temp", "Coprocessor comm err", "Cell under-voltage", "Pack under-voltage",
+    "Discharge over-current", "Discharge short-circuit", "Discharge over-temp", "Charge MOSFET fault",
+    "Discharge MOSFET fault", "GPS disconnected", "Change password", "Discharge-on failed",
+    "Battery over-temp", "Temp sensor anomaly", "PL module anomaly", "SCP release failed",
+    "Discharge OCP2", "Discharge OCP3", "Discharge under-temp", "GPS remote lock"};
 // Real graph history: one sample / 5 min per BMS, ring-buffered to HIST_N (=2016 = 7 days),
 // persisted to NVS so the trends survive a reboot. Demo mode uses genCap() instead.
 // Compact storage: SOC fits a byte, pack power an int16 (W) → ~6 KB/BMS in NVS.
@@ -254,7 +264,8 @@ static void simStep(uint32_t nowMs) {
         bms[t].tMos = 33 + fabsf(bms[t].i) * 0.45f + 3 * sinf(s * 0.07f + ph);
         bms[t].tp1 = 24 + 3 * sinf(s * 0.03f + ph) + t;
         bms[t].tp2 = 25 + 3 * sinf(s * 0.04f + ph + 1) + t;
-        for (int i = 0; i < NCELLS; i++) bms[t].cell[i] = bms[t].v / NCELLS + 0.015f * sinf(s * 0.5f + i * 1.7f + ph);
+        bms[t].nCells = NCELLS;
+        for (int i = 0; i < NCELLS; i++) { bms[t].cell[i] = bms[t].v / NCELLS + 0.015f * sinf(s * 0.5f + i * 1.7f + ph); bms[t].cellRes[i] = 0.30f + 0.05f * i; }
         bms[t].bmsOk = true; bms[t].errFlags = 0;
         bms[t].chgMos = bms[t].disMos = true; bms[t].soh = 100;   // healthy simulated pack (else status pill shows "FET off")
         float p = bms[t].v * bms[t].i;
@@ -285,7 +296,14 @@ static void bmsReadAddr(uint8_t addr, int idx) {
     auto U16 = [&](int o) { return (uint16_t)(p[o] << 8 | p[o + 1]); };
     auto U32 = [&](int o) { return (uint32_t)((uint32_t)p[o] << 24 | p[o + 1] << 16 | p[o + 2] << 8 | p[o + 3]); };
     Bms &b = bms[idx];
-    for (int i = 0; i < NCELLS; i++) b.cell[i] = U16(i * 2) / 1000.0f;
+    int nc = 0;                                       // cells: voltage @0x00.., resistance @0x4A.. (web 6/80), up to 24
+    for (int i = 0; i < MAXCELLS; i++) {
+        b.cell[i] = U16(i * 2) / 1000.0f;
+        b.cellRes[i] = U16(0x4A + i * 2) / 1000.0f;   // mΩ
+        if (b.cell[i] > 0.5f) nc = i + 1;             // highest populated cell → actual series count
+    }
+    b.nCells = nc > 0 ? nc : NCELLS;
+    b.balCur = (int16_t)U16(0xA4) / 1000.0f;          // balance current (web offset 170)
     b.v = (int32_t)U32(0x90) / 1000.0f;   // signed like current, matches the JK i32 encoding
     b.i = (int32_t)U32(0x98) / 1000.0f;
     b.tMos = (int16_t)U16(0x8A) / 10.0f;
@@ -663,25 +681,30 @@ static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, 
 }
 static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = false) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    int n = b.nCells; if (n < 1) n = 1; if (n > MAXCELLS) n = MAXCELLS;
     float lo = 9, hi = 0; int loI = 0, hiI = 0;
-    for (int i = 0; i < NCELLS; i++) { if (b.cell[i] < lo) { lo = b.cell[i]; loI = i; } if (b.cell[i] > hi) { hi = b.cell[i]; hiI = i; } }
+    for (int i = 0; i < n; i++) { if (b.cell[i] < lo) { lo = b.cell[i]; loI = i; } if (b.cell[i] > hi) { hi = b.cell[i]; hiI = i; } }
     char hdr[20];
     if (stale) snprintf(hdr, sizeof(hdr), "CELLS  --");
     else snprintf(hdr, sizeof(hdr), "CELLS  %dmV", (int)((hi - lo) * 1000));
     lText(hdr, x + 8, y + 7, F12, C_MUTED);
-    const int top = y + 22, rh = (h - 28) / NCELLS;
-    for (int i = 0; i < NCELLS; i++) {
-        int ry = top + i * rh, midY = ry + (rh - 8) / 2 - 2;
-        char cl[4]; snprintf(cl, sizeof(cl), "C%d", i + 1);
-        lText(cl, x + 8, midY, F12, C_MUTED);
-        int bx = x + 28, bw = w - 28 - 42, by = ry + 2, bh = rh - 4;
-        fRect(bx, by, bw, bh, 2, C_BORDER);
-        if (stale) { lText("--", x + w - 40, midY, F12, C_MUTED); continue; }
-        float frac = (b.cell[i] - 3.0f) / 0.6f; frac = frac < 0.05f ? 0.05f : frac > 1 ? 1 : frac;
-        uint32_t c = (i == loI) ? C_CYAN : (i == hiI) ? C_WARN : C_ACCENT;
-        fRect(bx, by, (int)(bw * frac), bh, 2, c);
-        char cv[8]; snprintf(cv, sizeof(cv), "%.2f", b.cell[i]);
-        lText(cv, x + w - 40, midY, F12, C_TEXT);
+    // adaptive grid: 1 column with bars for small packs, 2-3 columns for bigger ones
+    int cols = n <= 6 ? 1 : n <= 16 ? 2 : 3;
+    int rows = (n + cols - 1) / cols;
+    const int top = y + 22, cw = (w - 8) / cols; int rh = (h - 26) / rows; if (rh > 18) rh = 18;
+    for (int i = 0; i < n; i++) {
+        int col = i / rows, row = i % rows;
+        int cxo = x + 6 + col * cw, ry = top + row * rh, midY = ry + (rh - 9) / 2;
+        char cl[5]; snprintf(cl, sizeof(cl), "C%d", i + 1);
+        lText(cl, cxo, midY, F10, C_MUTED);
+        uint32_t c = stale ? C_MUTED : (i == loI) ? C_CYAN : (i == hiI) ? C_WARN : C_TEXT;
+        char cv[8]; if (stale) snprintf(cv, sizeof(cv), "--"); else snprintf(cv, sizeof(cv), "%.2f", b.cell[i]);
+        lText(cv, cxo + cw - 8 - textW(cv, F10), midY, F10, c);
+        if (cols == 1 && !stale) {   // room for a fill bar only in single-column mode
+            int bx = cxo + 22, bw = cw - 22 - 36, by = ry + 3, bh = rh - 6;
+            float frac = (b.cell[i] - 3.0f) / 0.6f; frac = frac < 0.05f ? 0.05f : frac > 1 ? 1 : frac;
+            fRect(bx, by, bw, bh, 2, C_BORDER); fRect(bx, by, (int)(bw * frac), bh, 2, (i == loI) ? C_CYAN : (i == hiI) ? C_WARN : C_ACCENT);
+        }
     }
 }
 static void fmtWh(char *buf, size_t n, float wh) {
@@ -702,11 +725,22 @@ static float whSpent(int v, int nSamples) {
     }
     return wh;
 }
+// Energy charged INTO the pack over the last nSamples (the positive-power counterpart of whSpent).
+static float whGained(int v, int nSamples) {
+    int cnt = histCount[v]; if (cnt <= 0) return 0;
+    int start = cnt - nSamples; if (start < 0) start = 0;
+    const float perH = HIST_INTERVAL_MS / 3600000.0f;
+    float wh = 0;
+    for (int i = start; i < cnt; i++) { int w = histPwr[v][i]; if (w > 0) wh += w * perH; }
+    return wh;
+}
 // Total pack energy (Wh) = full Ah × nominal 3.2V/cell, cell count inferred from voltage.
 static float packTotalWh(int t) {
     float fullAh = (!demoMode && bmsLive[t]) ? packFullAh[t] : PACK_AH;
     float v = bms[t].v;
-    int cells = (v > 1.5f) ? (int)(v / 3.3f + 0.5f) : NCELLS; if (cells < 1) cells = NCELLS;
+    int cells = bms[t].nCells > 0 ? bms[t].nCells           // prefer the detected series count
+              : (v > 1.5f) ? (int)(v / 3.3f + 0.5f) : NCELLS;
+    if (cells < 1) cells = NCELLS;
     return fullAh * cells * 3.2f;
 }
 static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24, float wh6, bool stale) {
@@ -876,6 +910,15 @@ static void renderBms() {
     fRect(px2, py2, pw2, 20, 10, C_CARD); dRect(px2, py2, pw2, 20, 10, C_BORDER);
     fCircle(px2 + 13, py2 + 10, 4, sc);
     lText(st, px2 + 22, py2 + 5, F12, sc);
+    if (b.errFlags && (demoMode || bmsLive[view])) {   // name the active protection(s) under the pill
+        char al[44] = ""; int shown = 0;
+        for (int bit = 0; bit < 29 && shown < 2; bit++)
+            if (((b.errFlags >> bit) & 1) && ERR_NAMES[bit][0]) {
+                if (shown) strncat(al, " · ", sizeof(al) - strlen(al) - 1);
+                strncat(al, ERR_NAMES[bit], sizeof(al) - strlen(al) - 1); shown++;
+            }
+        if (shown) cText(al, cx, py2 + 24, F10, C_BAD);
+    }
     bool stale = (!demoMode && !bmsLive[view]);   // live mode, this pack isn't answering → no data
     drawRing(cx, cy, 74, 58, b.soc, socRingColor(b.soc), stale);
     int py = cy + 100;                            // power + current readout, big & centered, just below the ring
