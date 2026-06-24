@@ -706,8 +706,12 @@ static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24
     for (int r = 0; r < 2; r++) {
         int ry = y + 56 + r * 20;
         lText(lbl[r], x + 8, ry, F10, C_MUTED);
-        if (stale) snprintf(buf, sizeof(buf), "--"); else fmtWh(buf, sizeof(buf), val[r]);
-        lText(buf, x + w - textW(buf, F12) - 8, ry, F12, C_WARN);
+        if (stale) { lText("--", x + w - textW("--", F12) - 8, ry, F12, C_MUTED); continue; }
+        fmtWh(buf, sizeof(buf), val[r]);
+        char pc[8]; snprintf(pc, sizeof(pc), "%d%%", totalWh > 1 ? (int)(val[r] / totalWh * 100.0f + 0.5f) : 0);
+        int pcw = textW(pc, F10);                                  // % of total capacity, small + dim, far right
+        lText(pc, x + w - 8 - pcw, ry + 1, F10, C_MUTED);
+        lText(buf, x + w - 8 - pcw - 5 - textW(buf, F12), ry, F12, C_WARN);   // Wh just left of it
     }
 }
 static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
