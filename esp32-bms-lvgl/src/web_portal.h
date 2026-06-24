@@ -10,10 +10,12 @@ static WebServer webServer(80);
 static bool webStarted = false;
 volatile bool otaActive = false;   // true during an OTA → loop() drops everything but OTA
 
-// require auth on every request; returns false (and sends the 401) if not authed
+// require auth on every request; returns false (and sends the 401) if not authed.
+// Digest auth → the password is never sent in cleartext over the LAN (unlike Basic),
+// without the self-signed-cert warnings/overhead that ESP32 TLS would bring.
 static bool webAuth() {
     if (webServer.authenticate(WEB_USER, webPass)) return true;
-    webServer.requestAuthentication();
+    webServer.requestAuthentication(DIGEST_AUTH, "JK BMS");
     return false;
 }
 
@@ -65,12 +67,13 @@ img{width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-
  <div class=card><div class=ct>Security</div><div class=row><span>Change password</span>
   <span><input type=password id=np placeholder="new password"><button class=sm onclick=chpw()>Save</button></span></div></div>
 </div></div><script>
-let cur=0,D={};
+let cur=0,D={},shotBusy=false;
+function esc(s){return String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}
 function sel(b){cur=b;t0.className='tab'+(b==0?' on':'');t1.className='tab'+(b==1?' on':'');render()}
 function tc(t){return(t<-50||t>120)?'--':t.toFixed(0)+'°C'}
 function wh(w){return Math.abs(w)>=1000?(w/1000).toFixed(2)+'kWh':w.toFixed(0)+'Wh'}
 function pc(w,t){return t>1?' ('+Math.round(w/t*100)+'%)':''}
-async function load(){try{D=await(await fetch('/api')).json();fw.textContent='v'+D.fw;
+async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json();fw.textContent='v'+D.fw;
  net.textContent=D.ip+' · up '+Math.floor(D.up/60)+'m';fwv.textContent='current: v'+D.fw;render()}catch(e){}}
 function render(){if(!D.packs)return;let p=D.packs[cur];
  let op=p.err>0?['⚠ Alarm','red']:['✓ Operational','grn'];
@@ -94,27 +97,28 @@ function render(){if(!D.packs)return;let p=D.packs[cur];
  ctl.innerHTML=[['chg','Charge MOSFET',p.chg],['dis','Discharge MOSFET',p.dis],['bal','Balancer',p.bal]]
   .map(([k,n,v])=>`<div class=row><span>${n}</span><button class="sm ${v?'':'off'}" onclick="tog('${k}')">${v?'ON':'OFF'}</button></div>`).join('');
  let ps=D.params&&D.params[cur]||[];
- params.innerHTML=ps.map(s=>`<tr><td>${s.l}</td><td style=text-align:right;cursor:pointer onclick="ed(${s.i},'${s.l.replace(/'/g,'')}')"><b>${s.v}</b></td></tr>`).join('')
+ params.innerHTML=ps.map(s=>`<tr><td>${esc(s.l)}</td><td style=text-align:right;cursor:pointer onclick="ed(${s.i})"><b>${esc(s.v)}</b></td></tr>`).join('')
   ||'<tr><td class=mut>settings not loaded (BMS offline?)</td></tr>';}
 async function tog(k){await fetch('/toggle?bms='+cur+'&which='+k,{method:'POST'});setTimeout(load,500)}
-async function ed(i,l){let v=prompt('New value for '+l);if(v===null||v==='')return;
+async function ed(i){let s=(D.params[cur]||[]).find(x=>x.i==i);if(!s)return;
+ let v=prompt('New value for '+s.l,s.v);if(v===null||v==='')return;
  let r=await fetch('/setparam?bms='+cur+'&idx='+i+'&val='+encodeURIComponent(v),{method:'POST'});
  if(!r.ok)alert('write failed');setTimeout(load,600)}
 async function chpw(){if(np.value.length<4){ust.textContent='password min 4 chars';return}
  let r=await fetch('/setpass',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'p='+encodeURIComponent(np.value)});
  np.value='';ust.textContent=r.ok?'password changed — re-login on next action':'change failed'}
-function shot(){scr.src='/screen.bmp?t='+Date.now()}
+function shot(){shotBusy=true;scr.onload=scr.onerror=()=>{shotBusy=false};scr.src='/screen.bmp?t='+Date.now()}
 function upl(){let f=fwf.files[0];if(!f){ust.textContent='pick a .bin first';return}
  let x=new XMLHttpRequest();x.open('POST','/update');prog.style.display='block';
  x.upload.onprogress=e=>{pb.style.width=(e.loaded/e.total*100)+'%'};
  x.onload=()=>{ust.textContent=x.status==200?'OK — device rebooting…':'failed: '+x.responseText};
  let fd=new FormData();fd.append('f',f);x.send(fd)}
-load();setInterval(load,2000);shot();
+load();setInterval(load,2000);   // screenshot is heavy (blocks the server while it streams) → load on Refresh only
 </script></body></html>)HTML";
 
 // ---- JSON state ----
 static String webJson() {
-    String j; j.reserve(4200);   // one allocation; avoids a realloc cascade from the +='s below
+    String j; j.reserve(5000);   // one allocation; avoids a realloc cascade from the +='s below
     j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
         "\",\"up\":" + String(millis() / 1000) + ",\"packs\":[";
     for (int t = 0; t < 2; t++) {
@@ -197,7 +201,7 @@ static void handleScreen() {
         }
         clientWriteAll(client, row, W * 3);
     }
-    WiFi.setSleep(true);
+    if (!otaActive) WiFi.setSleep(true);   // don't re-enable sleep if an OTA just started mid-send
 }
 
 static void webBegin() {
@@ -241,10 +245,10 @@ static void webBegin() {
             if (ok) { delay(400); ESP.restart(); }
         },
         []() {
-            if (!webServer.authenticate(WEB_USER, webPass)) { Update.abort(); return; }   // abort, don't leave a half-written image
+            if (!webServer.authenticate(WEB_USER, webPass)) { Update.abort(); webServer.requestAuthentication(DIGEST_AUTH, "JK BMS"); return; }
             HTTPUpload &up = webServer.upload();
             if (up.status == UPLOAD_FILE_START) { WiFi.setSleep(false); Update.begin(UPDATE_SIZE_UNKNOWN); }
-            else if (up.status == UPLOAD_FILE_WRITE) { Update.write(up.buf, up.currentSize); }
+            else if (up.status == UPLOAD_FILE_WRITE) { if (Update.write(up.buf, up.currentSize) != up.currentSize) Update.abort(); }
             else if (up.status == UPLOAD_FILE_END) { Update.end(true); }
         });
     webServer.begin();

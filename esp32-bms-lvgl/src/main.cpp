@@ -254,7 +254,8 @@ static void simStep(uint32_t nowMs) {
         bms[t].tp1 = 24 + 3 * sinf(s * 0.03f + ph) + t;
         bms[t].tp2 = 25 + 3 * sinf(s * 0.04f + ph + 1) + t;
         for (int i = 0; i < NCELLS; i++) bms[t].cell[i] = bms[t].v / NCELLS + 0.015f * sinf(s * 0.5f + i * 1.7f + ph);
-        bms[t].bmsOk = true;
+        bms[t].bmsOk = true; bms[t].errFlags = 0;
+        bms[t].chgMos = bms[t].disMos = true; bms[t].soh = 100;   // healthy simulated pack (else status pill shows "FET off")
         float p = bms[t].v * bms[t].i;
         if (p > bms[t].peakChg) bms[t].peakChg = p;
         if (-p > bms[t].peakDis) bms[t].peakDis = -p;
