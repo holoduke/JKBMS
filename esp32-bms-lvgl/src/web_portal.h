@@ -47,6 +47,9 @@ table{width:100%;border-collapse:collapse}td{padding:5px 4px;border-bottom:1px s
 input{background:#0b0f14;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px;width:96px}
 img{width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-rendering:pixelated}
 #prog{height:8px;background:#30363d;border-radius:4px;overflow:hidden;display:none;margin-top:8px}#pb{height:100%;width:0;background:#3fb950}
+.scrwrap{margin-top:8px;min-height:48px;display:flex;align-items:center;justify-content:center}
+.spin{width:30px;height:30px;border:3px solid #30363d;border-top-color:#1f6feb;border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body><div class=wrap>
 <h1>JK BMS Controller <span class=mut id=fw></span></h1>
 <div class=bar><span class=tab id=t0 onclick=sel(0)>BAT 1</span><span class=tab id=t1 onclick=sel(1)>BAT 2</span>
@@ -59,7 +62,7 @@ img{width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-
  <div class=card><div class=ct>Session</div><div id=sess></div></div>
  <div class=card><div class=ct>Controls</div><div id=ctl></div></div>
  <div class=card><div class=ct>Device screen</div><button class=sm onclick=shot()>Refresh</button>
-  <div style=margin-top:8px><img id=scr alt="tap Refresh"></div></div>
+  <div class=scrwrap><img id=scr style=display:none><div id=scrld class=spin style=display:none></div><span id=scrh class=mut>tap Refresh</span></div></div>
  <div class=card><div class=ct>Settings <span class=mut>(tap value to edit)</span></div><table id=params></table></div>
  <div class=card><div class=ct>Firmware update</div><p class=mut id=fwv></p>
   <input type=file id=fwf accept=.bin> <button onclick=upl()>Upload &amp; flash</button>
@@ -107,7 +110,10 @@ async function ed(i){let s=(D.params[cur]||[]).find(x=>x.i==i);if(!s)return;
 async function chpw(){if(np.value.length<4){ust.textContent='password min 4 chars';return}
  let r=await fetch('/setpass',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'p='+encodeURIComponent(np.value)});
  np.value='';ust.textContent=r.ok?'password changed — re-login on next action':'change failed'}
-function shot(){shotBusy=true;scr.onload=scr.onerror=()=>{shotBusy=false};scr.src='/screen.bmp?t='+Date.now()}
+function shot(){shotBusy=true;scrld.style.display='block';scrh.style.display='none';
+ scr.onload=()=>{shotBusy=false;scrld.style.display='none';scr.style.display='block'};
+ scr.onerror=()=>{shotBusy=false;scrld.style.display='none';scrh.textContent='load failed — retry';scrh.style.display='inline'};
+ scr.src='/screen.bmp?t='+Date.now()}
 function upl(){let f=fwf.files[0];if(!f){ust.textContent='pick a .bin first';return}
  let x=new XMLHttpRequest();x.open('POST','/update');prog.style.display='block';
  x.upload.onprogress=e=>{pb.style.width=(e.loaded/e.total*100)+'%'};
