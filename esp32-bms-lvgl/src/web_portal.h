@@ -77,7 +77,8 @@ function tc(t){return(t<-50||t>120)?'--':t.toFixed(0)+'°C'}
 function wh(w){return Math.abs(w)>=1000?(w/1000).toFixed(2)+'kWh':w.toFixed(0)+'Wh'}
 function pc(w,t){return t>1?' ('+Math.round(w/t*100)+'%)':''}
 async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json();fw.textContent='v'+D.fw;
- net.textContent=D.ip+' · up '+Math.floor(D.up/60)+'m';fwv.textContent='current: v'+D.fw;render()}catch(e){}}
+ net.textContent=D.ip+' · up '+Math.floor(D.up/60)+'m';fwv.textContent='current: v'+D.fw;
+ t1.style.display=D.n>1?'':'none';if(cur>=D.n)sel(0);render()}catch(e){}}
 function render(){if(!D.packs)return;let p=D.packs[cur];
  let op=p.err>0?['⚠ Alarm','red']:['✓ Operational','grn'];
  stat.innerHTML=`<div class="big ${op[1]}">${op[0]}</div>
@@ -126,8 +127,8 @@ load();setInterval(load,2000);   // screenshot is heavy (blocks the server while
 static String webJson() {
     String j; j.reserve(5000);   // one allocation; avoids a realloc cascade from the +='s below
     j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
-        "\",\"up\":" + String(millis() / 1000) + ",\"packs\":[";
-    for (int t = 0; t < 2; t++) {
+        "\",\"up\":" + String(millis() / 1000) + ",\"n\":" + String(numBms) + ",\"packs\":[";
+    for (int t = 0; t < numBms; t++) {
         const Bms &b = bms[t];
         bool live = demoMode || bmsLive[t];
         uint32_t sc; const char *st = bmsStatusStr(t, live, &sc);   // same real-BMS-state helper as the device UI
@@ -150,7 +151,7 @@ static String webJson() {
         j += "]}";
     }
     j += "],\"params\":[";
-    for (int t = 0; t < 2; t++) {
+    for (int t = 0; t < numBms; t++) {
         if (t) j += ",";
         j += "[";
         bool avail = (!demoMode && bmsLive[t] && setOk[t]);

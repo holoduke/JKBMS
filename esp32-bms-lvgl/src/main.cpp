@@ -145,6 +145,7 @@ static int brightness = 90;
 static int autoSleepMin = 0;                 // 0 = never; else 2/5/30/120
 static bool bmsCharge[2] = {true, true}, bmsDischarge[2] = {true, true}, bmsBalancer[2] = {false, false};
 static int cfgBms = 0;              // which BMS the BMS-settings tab configures
+static int numBms = 1;             // number of BMS packs in use (1 or 2); default 1
 static bool tempF = false, fmt12 = false, wifiAuto = true;
 static int simSpeed = 1;            // demo data speed (1/2/5x)
 #define WEB_USER "admin"            // web portal + OTA login (password is changeable, stored in NVS)
@@ -215,7 +216,7 @@ static void histAppend(int idx, float soc, float watt) {
 // Sample any live BMS once per HIST_INTERVAL (first reading seeds it immediately).
 static void histSample() {
     uint32_t now = millis();
-    for (int t = 0; t < 2; t++) {
+    for (int t = 0; t < numBms; t++) {
         if (!bmsLive[t]) continue;
         if (bms[t].soc < 1) continue;                  // skip implausible 0% (BMS not settled / bad read)
         if (histCount[t] == 0 || (now - histLastMs[t]) >= HIST_INTERVAL_MS) {
@@ -228,7 +229,7 @@ static void histSample() {
 // whenever there's data to plot (live, or demo sim). Returns true if a sample landed.
 static bool pwrSample() {
     uint32_t now = millis(); bool added = false;
-    for (int t = 0; t < 2; t++) {
+    for (int t = 0; t < numBms; t++) {
         if (!demoMode && !bmsLive[t]) continue;             // nothing to sample
         if (pwrWinN[t] != 0 && (now - pwrWinLast[t]) < PWR_DT) continue;
         float w = -(bms[t].v * bms[t].i);                  // draw-positive: discharging (using power) reads up, charging down
@@ -244,7 +245,7 @@ static bool pwrSample() {
 }
 static void simStep(uint32_t nowMs) {
     float s = nowMs / 1000.0f * simSpeed;
-    for (int t = 0; t < 2; t++) {
+    for (int t = 0; t < numBms; t++) {
         if (!demoMode) continue;                 // live mode shows only real data (or a stale/offline state)
         float ph = t * 2.1f;
         bms[t].soc = 62 + 30 * sinf(s * 0.05f + ph);
@@ -349,7 +350,8 @@ static void bmsRead() {
     static uint8_t skip[2] = {0, 0};
     static bool wasLive[2] = {false, false};
     static uint8_t setTick = 0; setTick++;
-    for (int t = 0; t < 2; t++) {
+    if (numBms < 2) bmsLive[1] = false;            // pack 2 disabled → never "live"
+    for (int t = 0; t < numBms; t++) {
         if (!bmsLive[t] && skip[t] > 0) { skip[t]--; continue; }   // back off from a silent pack
         bmsReadAddr(1, t);                                         // each pack is addr 1 on its own UART
         skip[t] = bmsLive[t] ? 0 : BMS_RETRY;                      // online → poll every cycle
@@ -575,7 +577,7 @@ static void drawWifiSmall(int cx, int cy, uint32_t color) {
 static void drawTabs(bool autoActive, float prog) {
     const int y = 6, h = 28;
     const int tabX[2] = {TAB1_X, TAB2_X};
-    for (int t = 0; t < 2; t++) {
+    for (int t = 0; t < numBms; t++) {
         int x = tabX[t]; bool on = (view == t);
         bool offline = !demoMode && !bmsLive[t];   // real mode + this BMS isn't answering
         uint32_t bg = on ? (offline ? C_BAD : C_ACCENT) : C_CARD;
@@ -583,7 +585,7 @@ static void drawTabs(bool autoActive, float prog) {
         if (!on) dRect(x, y, TAB_W, h, 8, offline ? C_BAD : C_BORDER);
         char lbl[8]; snprintf(lbl, sizeof(lbl), "BAT %d", t + 1);
         cText(lbl, x + TAB_W / 2, y + h / 2, F16, on ? C_BG : (offline ? C_BAD : C_MUTED));
-        if (on && autoActive) fRect(x + 6, y + h - 3, (int)((TAB_W - 12) * prog), 2, 0, C_BG);
+        if (on && autoActive && numBms >= 2) fRect(x + 6, y + h - 3, (int)((TAB_W - 12) * prog), 2, 0, C_BG);
     }
     // wifi status icon, just right of the battery buttons (green = connected, grey = not)
     // dot sits at the baseline, arcs fan ~9px up → place the dot below centre so the glyph centres
@@ -856,7 +858,7 @@ static void blitCanvas(lv_obj_t *cv, int x, int y, int w, int h) {
     lv_area_t a = {x, y, x + w - 1, y + h - 1};
     lv_draw_image(L, &id, &a);
 }
-static void switchView(int v) { view = v; renderGraphs(); }   // gauges read from the continuously-polled cache → instant
+static void switchView(int v) { if (v == V_BMS2 && numBms < 2) v = V_BMS1; view = v; renderGraphs(); }   // gauges read from the continuously-polled cache → instant
 
 static void renderBms() {
     const Bms &b = bms[view];
@@ -1135,7 +1137,7 @@ static void renderEditor() {
 }
 // always-shown rows: 0 battery, 1 TX pin, 2 RX pin. Then (when live) 3 switches,
 // then (when the settings block is read) the numeric params + bitmask flags.
-#define BMS_FIXED 3
+#define BMS_FIXED 4
 static int bmsRowCount() {
     int b = cfgBms;
     bool live = !demoMode && bmsLive[b];
@@ -1156,9 +1158,10 @@ static void renderBmsTab() {
     for (int i = 0; i < rows; i++) {
         int y = LIST_TOP + i * SROW_STEP - bmsScroll;
         if (y + SROW_H < LIST_TOP || y > Ht) continue;
-        if (i == 0) srowAt(y, "Battery", cfgBms ? "BAT 2  >" : "BAT 1  >", C_CYAN);
-        else if (i == 1) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2]);     srowAt(y, "UART TX pin", v, C_CYAN); }
-        else if (i == 2) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2 + 1]); srowAt(y, "UART RX pin", v, C_CYAN); }
+        if (i == 0) srowAt(y, "Batteries", numBms == 2 ? "2  >" : "1  >", C_CYAN);
+        else if (i == 1) srowAt(y, "Configure", cfgBms ? "BAT 2  >" : "BAT 1  >", numBms == 2 ? C_CYAN : C_MUTED);
+        else if (i == 2) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2]);     srowAt(y, "UART TX pin", v, C_CYAN); }
+        else if (i == 3) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2 + 1]); srowAt(y, "UART RX pin", v, C_CYAN); }
         else if (!live) srowAt(y, "Parameters", demoMode ? "demo mode" : "offline", C_MUTED);
         else {
             int si = i - BMS_FIXED;                          // live section
@@ -1361,6 +1364,7 @@ static void saveSettings() {
     prefs.putBool("bb0", bmsBalancer[0]); prefs.putBool("bb1", bmsBalancer[1]);
     prefs.putBool("demo", demoMode);
     prefs.putInt("idle", idleScreen);
+    prefs.putInt("nbms", numBms);
     prefs.putBytes("pins", bmsPin, sizeof(bmsPin));
     prefs.putString("wpass", webPass);
     prefs.end();
@@ -1377,6 +1381,10 @@ static void loadSettings() {
     bmsBalancer[0] = prefs.getBool("bb0", false); bmsBalancer[1] = prefs.getBool("bb1", false);
     demoMode = prefs.getBool("demo", demoMode);
     idleScreen = prefs.getInt("idle", idleScreen);
+    if (prefs.isKey("nbms")) numBms = prefs.getInt("nbms", 2);
+    else numBms = prefs.isKey("autosw") ? 2 : 1;   // existing install (ran the old hardcoded-dual build) → keep 2; fresh flash → default 1
+    if (numBms < 1) numBms = 1; if (numBms > 2) numBms = 2;
+    if (numBms < 2) { bmsLive[1] = false; cfgBms = 0; }
     if (prefs.isKey("pins")) prefs.getBytes("pins", bmsPin, sizeof(bmsPin));
     if (prefs.isKey("wpass")) { String wp = prefs.getString("wpass", webPass); strncpy(webPass, wp.c_str(), sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0; }
     else { uint8_t mac[6] = {0}; esp_read_mac(mac, ESP_MAC_WIFI_STA); snprintf(webPass, sizeof(webPass), "jk-%02x%02x", mac[4], mac[5]); }   // fresh install → unique default (from eFuse MAC), not the public 'jkbms'
@@ -1485,9 +1493,12 @@ static void handleTap(int x, int y) {
             if (idx < 0 || idx >= bmsRowCount() || y < ry || y >= ry + SROW_H) return;
             int b = cfgBms;
             bool live = !demoMode && bmsLive[b];
-            if (idx == 0) { cfgBms ^= 1; bmsScroll = 0; return; }                                     // switch pack (full redraw)
-            if (idx == 1) { bmsPin[b * 2] = nextPin(bmsPin[b * 2]); bmsBegin(); markCfg(); markRowAt(ry); return; }        // UART TX pin
-            if (idx == 2) { bmsPin[b * 2 + 1] = nextPin(bmsPin[b * 2 + 1]); bmsBegin(); markCfg(); markRowAt(ry); return; } // UART RX pin
+            if (idx == 0) { numBms = numBms == 2 ? 1 : 2;                                              // toggle 1 / 2 packs
+                            if (numBms < 2) { cfgBms = 0; bmsLive[1] = false; if (view == V_BMS2) view = V_BMS1; }
+                            bmsScroll = 0; markCfg(); return; }                                        // full redraw
+            if (idx == 1) { if (numBms >= 2) { cfgBms ^= 1; bmsScroll = 0; } return; }                 // configure pack 1/2 (only with 2)
+            if (idx == 2) { bmsPin[b * 2] = nextPin(bmsPin[b * 2]); bmsBegin(); markCfg(); markRowAt(ry); return; }        // UART TX pin
+            if (idx == 3) { bmsPin[b * 2 + 1] = nextPin(bmsPin[b * 2 + 1]); bmsBegin(); markCfg(); markRowAt(ry); return; } // UART RX pin
             if (!live) return;                                                                        // offline/demo: nothing below
             int si = idx - BMS_FIXED;                                                                 // live section
             if (si == 0) { bmsCharge[b] = !bmsCharge[b]; if (!bmsSet(b, 0x1070, bmsCharge[b] ? 1 : 0)) bmsCharge[b] = !bmsCharge[b]; markCfg(); markRowAt(ry); return; }
@@ -1520,7 +1531,7 @@ static void handleTap(int x, int y) {
     manualUntil = millis() + PAUSE_MS;
     if (y <= 44) {
         if (x >= TAB1_X && x < TAB1_X + TAB_W) { switchView(V_BMS1); lastSwitch = millis(); }
-        else if (x >= TAB2_X && x < TAB2_X + TAB_W) { switchView(V_BMS2); lastSwitch = millis(); }
+        else if (numBms >= 2 && x >= TAB2_X && x < TAB2_X + TAB_W) { switchView(V_BMS2); lastSwitch = millis(); }
         else if (x >= GEAR_X - 10) { cfgBms = (view == V_BMS2) ? 1 : 0; view = V_SETTINGS; kbActive = false; infoPopup = false; }  // keep last sub-tab
         else if (x >= BED_X - 8) pendingSleep = true;                                                              // sleep, left of the gear
     }
@@ -2200,7 +2211,7 @@ static void bmsPoll_cb(lv_timer_t *t) {
 }
 static void barTick_cb(lv_timer_t *t) {
     if (standby || view == V_SETTINGS || idleActiveNow()) return;
-    if (!autoSwitch || millis() < manualUntil) return;   // paused/off → bar not moving, skip flush
+    if (!autoSwitch || numBms < 2 || millis() < manualUntil) return;   // paused/off/single-pack → bar not moving, skip flush
     invArea(6, 4, TAB2_X + TAB_W, 36);
 }
 static void dataTick_cb(lv_timer_t *t) {
@@ -2227,7 +2238,7 @@ static void dataTick_cb(lv_timer_t *t) {
     }
     if (autoSleepMin > 0 && !standby && idle > (uint32_t)autoSleepMin * 60000UL) { pendingSleep = true; return; }
     if (standby || view == V_SETTINGS || idleActiveNow()) return;   // idle screen owns the canvas
-    if (autoSwitch && now >= manualUntil && now - lastSwitch >= intervalMs) {
+    if (numBms >= 2 && autoSwitch && now >= manualUntil && now - lastSwitch >= intervalMs) {
         int other = view ^ 1;
         // only flip to the other pack if it's available (demo mode shows both;
         // in live mode skip a BMS that isn't answering — if both are down, stay put)
