@@ -701,12 +701,10 @@ static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24
     char buf[12];
     if (stale) snprintf(buf, sizeof(buf), "--"); else fmtWh(buf, sizeof(buf), totalWh);
     lText(buf, x + 8, y + 22, F16, C_ACCENT);                  // headline: total pack capacity
-    // section label so the two rows below are clearly "energy used", not more capacities
-    lText("USED", x + 8, y + 44, F10, C_MUTED);
-    line(x + 8 + textW("USED", F10) + 6, y + 49, x + w - 8, y + 49, C_BORDER, 170);
-    const char *lbl[2] = {"24h", "6h"}; float val[2] = {wh24, wh6};   // energy drawn over each window
+    line(x + 8, y + 48, x + w - 8, y + 48, C_BORDER, 170);
+    const char *lbl[2] = {"24h", "6h"}; float val[2] = {wh24, wh6};   // energy drawn (used) over each window
     for (int r = 0; r < 2; r++) {
-        int ry = y + 58 + r * 19;
+        int ry = y + 56 + r * 20;
         lText(lbl[r], x + 8, ry, F10, C_MUTED);
         if (stale) snprintf(buf, sizeof(buf), "--"); else fmtWh(buf, sizeof(buf), val[r]);
         lText(buf, x + w - textW(buf, F12) - 8, ry, F12, C_WARN);
