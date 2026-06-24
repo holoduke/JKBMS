@@ -1,90 +1,130 @@
 # ⚡ JK BMS — dashboards & firmware
 
-Tools for monitoring and controlling **JK-BMS** battery management systems — a
-zero-install **Web Bluetooth** dashboard, and standalone **ESP32 touchscreen**
-firmware. Everything runs locally; nothing leaves your device.
+Monitor and control **JK-BMS** battery systems (LiFePO₄ / Li-ion) — over **Bluetooth** from
+your browser, or with a standalone **ESP32 touchscreen** wired to the BMS. Everything runs
+locally; nothing leaves your network. **One or two packs** are supported everywhere.
 
-| | |
-|---|---|
-| 🌐 **[Web dashboard](#-web-dashboard)** | Browser app over Bluetooth — no install, no cloud |
-| 📟 **[ESP32 firmware](#-esp32-touchscreen-firmware)** | Standalone 3.5" touchscreen monitor over the BMS UART |
+This repo ships **three apps** that all speak the JK protocol:
+
+| # | App | Runs on | Link to BMS | Best for |
+|---|-----|---------|-------------|----------|
+| 1 | 🌐 **Web Bluetooth dashboard** | Any Chromium browser | BLE | Quick check from a phone/laptop, no hardware |
+| 2 | 📟 **ESP32 firmware — LVGL** | Guition JC3248W535 touchscreen | RS485/UART | A permanent, polished panel + a built-in web app & OTA |
+| 3 | 📟 **ESP32 firmware — Arduino_GFX** | same board | RS485/UART | The lighter/faster original build |
+
+<p align="center">
+<img src="screenshot-dashboard.png" width="48%" alt="Web Bluetooth dashboard">
+<img src="esp32-bms-lvgl/docs/dashboard.gif" width="48%" alt="ESP32 LVGL touchscreen dashboard">
+</p>
+<p align="center"><em>Left: the Web Bluetooth dashboard (demo mode). Right: the LVGL touchscreen firmware, captured live from the device framebuffer.</em></p>
 
 ---
 
-## 🌐 Web dashboard
+## 1 · 🌐 Web Bluetooth dashboard  (`index.html`)
 
-![JK BMS dashboard](screenshot-dashboard.png)
+A single-file, zero-install dashboard that talks to a JK-BMS directly over **Web Bluetooth** —
+no app, no build step, no account, no cloud.
 
-A single-file **Web Bluetooth** dashboard for JK-BMS (targeting the **JK-B2A8S20P**,
-hardware v11+ / `JK02_32S` protocol). No app, no build step, no account.
+- **Live**: SOC / voltage / power ring gauges, per-cell voltages & resistances (min/max
+  highlighted), temperatures, cycles, SOH, operational/alarm status.
+- **Trends**: rolling sparklines (V, A, W, SOC, MOS temp), session energy (Wh in/out, peaks).
+- **Control**: nearly every protection setting & switch is writable (MOSFETs, balancer,
+  OVP/UVP, OCP/OTP/UTP …) — each write bounds-checked and confirmed.
+- **Multi-pack**: connect several BMSes at once and switch instantly; auto-reconnect.
+- **Dev tool**: paste a captured frame hex dump to decode it offline and verify CRC.
 
-> **Try it without hardware:** open the page with `?demo=1` for a fully interactive
-> simulated LiFePO₄ pack — add `&cells=8` (or 16/24/32) and `&packs=2` to preview any setup.
+<p align="center"><img src="screen1.png" width="70%" alt="Web dashboard with two packs paired"></p>
+<p align="center"><em>Two packs paired at once.</em></p>
 
-**Highlights**
-- **Live**: SOC / voltage / power ring gauges, per-cell voltages & resistances (min/max highlighted), temperatures, cycles, SOH.
-- **Trends**: rolling sparklines (V, A, W, SOC, MOS temp), session energy (Wh in/out, peaks), per-cell balance chart.
-- **Control**: nearly every protection setting and switch is writable (MOSFETs, balancer, OVP/UVP, OCP/OTP/UTP, …) — toggles & click-to-edit, each write confirmed with bounds checking.
-- **Multi-pack**: connect several BMSes at once and switch instantly; auto-reconnect with backoff.
-- **Dev tool**: paste a captured frame hex dump to decode it offline, verify CRC, and gap-analyse undecoded bytes.
-
-**Run it**
+**Run it** (Web Bluetooth needs a *secure context* — `localhost` counts, so no HTTPS needed):
 ```sh
 python3 -m http.server 8765 --bind 127.0.0.1
-# open http://127.0.0.1:8765/ in Chrome or Edge (a secure context, so BLE works without HTTPS)
+# open http://127.0.0.1:8765/ in Chrome or Edge, click "pair new"
 ```
-Web Bluetooth is not supported in Firefox/Safari.
-
-<details>
-<summary>Protocol &amp; tech notes</summary>
-
-Implements the JK02_32S BLE frame format (header `55 AA EB 90`; type byte at offset 4:
-`01`=settings, `02`=realtime, `03`=device info). Writes are
-`AA 55 90 EB | register | len | value LE | CRC`, validated against
-[`syssi/esphome-jk-bms`](https://github.com/syssi/esphome-jk-bms).
-
-Single `index.html`, zero runtime deps. Tailwind is compiled statically
-(`npx tailwindcss@3.4 --content index.html`). BLE writes are queued &amp; bounds-checked;
-the UI updates in place rather than rebuilding the DOM per frame.
-</details>
+> Try it with no hardware: open `…/?demo=1` (add `&cells=8` / `&packs=2` to preview any setup).
+> Web Bluetooth is **not** supported in Firefox or Safari.
 
 ---
 
-## 📟 ESP32 touchscreen firmware
+## 2 · 📟 ESP32 touchscreen firmware — LVGL  (`esp32-bms-lvgl/`)
 
-<p align="center"><img src="esp32-bms-lvgl/docs/dashboard.gif" width="480" alt="ESP32 LVGL dashboard, captured from the device"></p>
+The flagship build: a permanent panel that reads the BMS over its wired RS485/UART and shows
+everything on a 3.5″ touchscreen — **plus a built-in web app and over-the-air updates**.
 
-Standalone firmware for a **Guition JC3248W535** (ESP32-S3, 3.5" 320×480 QSPI touch
-display) that reads **two JK-BMS packs live over their wired RS485/UART** and shows
-everything on the built-in screen — no phone, no cloud. *(The clip above is captured
-straight from the device framebuffer.)*
+<p align="center"><img src="docs/device-screen.png" width="70%" alt="LVGL dashboard captured from the device"></p>
 
-Two builds live side by side:
+- **Live dashboard**: SOC ring gauge, big W·A readout with charge/discharge arrow, status pill
+  (Charging / Discharging / Full / Idle / Balancing / FET-off / Alarm — from the BMS's real
+  state), voltage / peaks / temps tiles, per-cell bars, a **power-draw graph** (10-min window)
+  and a **capacity panel** (total kWh + energy used in the last 24 h / 6 h, with %).
+- **Two packs**: auto-switching tabs; both polled every second.
+- **Editable settings** written back to the BMS: capacity, cell count, current limits, cell
+  OVP/UVP, SOC calibration, balancing, charge profile, temperature protections — via an
+  on-screen numeric keypad, each write read-back-verified.
+- **Settings**: BMS / WiFi / System tabs, on-screen WiFi keyboard, power-save (auto-dim /
+  -sleep / eco), selectable no-data "idle" screens, boot/sleep animations.
+- **📶 Built-in web portal** at `http://<device-ip>/` — a responsive dashboard mirroring the
+  screen, with **controls**, the full **editable settings**, a **live screenshot** of the LCD,
+  and **firmware update**. Password-protected (HTTP Digest).
+- **🔄 OTA**: update over WiFi from the browser *or* PlatformIO — **no cable** after the first flash.
 
-- **[`esp32-bms-lvgl/`](esp32-bms-lvgl/)** — the polished build using **LVGL 9**: anti-aliased
-  fonts, auto-switching BMS tabs, SOC ring gauge, power-draw + capacity/energy charts,
-  per-cell bars, scrollable **editable** settings (written back to the BMS), WiFi +
-  on-screen keyboard, power-save, and power-on / sleep animations.
-- **[`esp32-bms/`](esp32-bms/)** — the original, drawn directly with Arduino_GFX (no AA fonts,
-  but lighter and faster).
+See **[esp32-bms-lvgl/README.md](esp32-bms-lvgl/README.md)** for the deep dive (rendering
+pipeline, protocol map, web portal, OTA).
 
-**Live & writable:** reads the realtime block and the full settings block over Modbus,
-and writes settings back (capacity, current limits, protections) and toggles the
-charge/discharge/balancer MOSFETs — each write read-back-verified.
+---
 
-**Web portal + OTA:** on WiFi it serves a password-protected web app (live monitor,
-controls, a live screenshot of the LCD, and a firmware-update page) and supports
-**over-the-air updates** (browser upload or PlatformIO/espota) — no cable needed.
+## 3 · 📟 ESP32 touchscreen firmware — Arduino_GFX  (`esp32-bms/`)
 
-```sh
-cd esp32-bms-lvgl && pio run -t upload   # first flash over USB; thereafter OTA over WiFi
-```
+The original build, drawn directly with **Arduino_GFX** (bitmap fonts, no LVGL pipeline) —
+lighter and faster, fewer features. Same board and wiring as the LVGL build. A good base if
+you want maximum headroom or to port the dashboard elsewhere.
 
-See **[esp32-bms-lvgl/README.md](esp32-bms-lvgl/README.md)** for hardware, wiring, the web
-portal, OTA, and build details.
+---
+
+## 🔌 Recommended hardware
+
+| Part | Notes |
+|------|-------|
+| **Display board** | **Guition JC3248W535** — ESP32-S3-N16R8, 3.5″ 320×480 QSPI (AXS15231B) capacitive touch. Both firmware builds target this exact board. |
+| **BMS** | Any JK-BMS with an **RS485 port** (e.g. JK-B2A8S20P). Set its protocol to **"JK BMS RS485 Modbus", 115200 baud**. |
+| **Wiring** | BMS RS485/UART → ESP32. Defaults: **BMS1** RX `IO18` / TX `IO17`, **BMS2** RX `IO15` / TX `IO16`, shared GND. Pins are configurable in Settings → BMS. |
+| **Power** | 5 V to the board. ⚠️ Powering from a buck converter often disables the USB **data** port — flash over USB from a PC, then run from the buck. For switched installs, prefer **high-side** switching. |
+| **Web dashboard** | A Chromium browser (Chrome/Edge) with Web Bluetooth — nothing else. |
+
+> ⚠️ Always verify your own wiring and never connect VBAT to a logic pin. Set the JK's RS485
+> protocol correctly or the device won't read it.
+
+---
+
+## 🚀 Getting started
+
+### Web dashboard (fastest)
+1. `python3 -m http.server 8765 --bind 127.0.0.1`
+2. Open `http://127.0.0.1:8765/` in Chrome/Edge → **pair new** → pick your BMS.
+   (Or `…/?demo=1` to explore with simulated data.)
+
+### ESP32 firmware
+1. Install **[PlatformIO](https://platformio.org/)** (CLI or the VS Code extension).
+2. Clone this repo.
+3. First flash over USB:
+   ```sh
+   cd esp32-bms-lvgl      # or esp32-bms for the original
+   pio run -t upload
+   ```
+4. On the device: **Settings → WiFi** → connect your network. **Settings → BMS** → set
+   **Batteries** (1 or 2) and the **UART pins**; make sure the JK's protocol is **RS485 Modbus**.
+5. Open the web portal at **`http://<device-ip>/`** (login `admin`; the password is shown on
+   the device's **System Info** screen — a unique per-device default, changeable in the portal).
+6. **Updates from now on are wireless** — no cable:
+   - **Browser:** portal → *Firmware update* → pick `firmware.bin` (`.pio/build/jc3248w535/firmware.bin`).
+   - **PlatformIO:** `pio run` then upload via `espota` to the device IP (hostname `jkbms`).
+
+### Single vs. dual pack
+Default is **one** pack. For two, set **Settings → BMS → Batteries → 2** (on the device) and
+wire the second pack to BMS2's pins. The dashboard, tabs, web portal and API all adapt to the
+count automatically.
 
 ---
 
 ## License
-
 © 2025–2026 Gillis Haasnoot
