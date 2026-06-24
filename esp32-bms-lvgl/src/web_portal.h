@@ -69,8 +69,15 @@ img{width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-
   <div id=prog><div id=pb></div></div><p id=ust></p></div>
  <div class=card><div class=ct>Security</div><div class=row><span>Change password</span>
   <span><input type=password id=np placeholder="new password"><button class=sm onclick=chpw()>Save</button></span></div></div>
+ <div class=card><div class=ct>Home Assistant (MQTT)</div>
+  <div class=row><span class=mut>Status</span><span id=mqst>—</span></div>
+  <div class=row><span>Broker host</span><input id=mqh placeholder=192.168.x.x></div>
+  <div class=row><span>Port</span><input id=mqp type=number placeholder=1883></div>
+  <div class=row><span>Username</span><input id=mqu placeholder=optional></div>
+  <div class=row><span>Password</span><input id=mqpw type=password placeholder="(unchanged)"></div>
+  <div class=row><span><label><input type=checkbox id=mqe> Enabled</label></span><button class=sm onclick=savemq()>Save</button></div></div>
 </div></div><script>
-let cur=0,D={},shotBusy=false;
+let cur=0,D={},shotBusy=false,mqInit=false;
 function esc(s){return String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}
 function sel(b){cur=b;t0.className='tab'+(b==0?' on':'');t1.className='tab'+(b==1?' on':'');render()}
 function tc(t){return(t<-50||t>120)?'--':t.toFixed(0)+'°C'}
@@ -78,7 +85,10 @@ function wh(w){return Math.abs(w)>=1000?(w/1000).toFixed(2)+'kWh':w.toFixed(0)+'
 function pc(w,t){return t>1?' ('+Math.round(w/t*100)+'%)':''}
 async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json();fw.textContent='v'+D.fw;
  net.style.color='';net.textContent=D.ip+' · up '+Math.floor(D.up/60)+'m';fwv.textContent='current: v'+D.fw;
- t1.style.display=D.n>1?'':'none';if(cur>=D.n)sel(0);render()}catch(e){net.style.color='#f85149';net.textContent='disconnected — retrying…'}}
+ t1.style.display=D.n>1?'':'none';if(cur>=D.n)sel(0);
+ mqe.checked=!!D.mqEn;mqst.textContent=D.mqEn?(D.mqUp?'connected ✓':'enabled, not connected'):'disabled';mqst.className=D.mqUp?'grn':D.mqEn?'amb':'mut';
+ if(!mqInit){mqh.value=D.mqHost||'';mqp.value=D.mqPort||1883;mqu.value=D.mqUser||'';mqInit=true}
+ render()}catch(e){net.style.color='#f85149';net.textContent='disconnected — retrying…'}}
 function render(){if(!D.packs)return;let p=D.packs[cur];
  let op=p.err>0?['⚠ Alarm','red']:['✓ Operational','grn'];
  let alarms=(p.al&&p.al.length)?`<div style=margin-top:6px>${p.al.map(a=>`<div class=red>• ${esc(a)}</div>`).join('')}</div>`:'';
@@ -114,6 +124,8 @@ async function ed(i){let s=(D.params[cur]||[]).find(x=>x.i==i);if(!s)return;
 async function chpw(){if(np.value.length<4){ust.textContent='password min 4 chars';return}
  let r=await fetch('/setpass',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'p='+encodeURIComponent(np.value)});
  np.value='';ust.textContent=r.ok?'password changed — re-login on next action':'change failed'}
+async function savemq(){let b='en='+(mqe.checked?1:0)+'&host='+encodeURIComponent(mqh.value)+'&port='+(mqp.value||1883)+'&user='+encodeURIComponent(mqu.value)+'&pass='+encodeURIComponent(mqpw.value);
+ let r=await fetch('/setmqtt',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b});mqpw.value='';mqst.textContent=r.ok?'saved — connecting…':'save failed'}
 function shot(){shotBusy=true;scrld.style.display='block';scrh.style.display='none';
  scr.onload=()=>{shotBusy=false;scrld.style.display='none';scr.style.display='block'};
  scr.onerror=()=>{shotBusy=false;scrld.style.display='none';scrh.textContent='load failed — retry';scrh.style.display='inline'};
@@ -130,7 +142,10 @@ load();setInterval(load,2000);   // screenshot is heavy (blocks the server while
 static String webJson() {
     String j; j.reserve(6500);   // one allocation; avoids a realloc cascade from the +='s below
     j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
-        "\",\"up\":" + String(millis() / 1000) + ",\"n\":" + String(numBms) + ",\"packs\":[";
+        "\",\"up\":" + String(millis() / 1000) + ",\"n\":" + String(numBms) +
+        ",\"mqEn\":" + String(mqttEnabled ? 1 : 0) + ",\"mqUp\":" + String(mqttUp ? 1 : 0) +
+        ",\"mqHost\":\"" + mqttHost + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + mqttUser + "\"" +
+        ",\"packs\":[";
     for (int t = 0; t < numBms; t++) {
         const Bms &b = bms[t];
         bool live = demoMode || bmsLive[t];
@@ -245,6 +260,18 @@ static void webBegin() {
         if (idx < 0 || idx >= NSET) { webServer.send(400, "text/plain", "bad idx"); return; }
         bool ok = setPut(b, SETDEFS[idx], webServer.arg("val").toFloat());   // setPut clamps to the setting's vmin/vmax
         webServer.send(ok ? 200 : 500, "text/plain", ok ? "ok" : "write failed");
+    });
+    webServer.on("/setmqtt", HTTP_POST, []() {                               // configure MQTT / Home Assistant
+        if (!webAuth()) return;
+        mqttEnabled = webServer.arg("en") == "1";
+        strncpy(mqttHost, webServer.arg("host").c_str(), sizeof(mqttHost) - 1); mqttHost[sizeof(mqttHost) - 1] = 0;
+        strncpy(mqttUser, webServer.arg("user").c_str(), sizeof(mqttUser) - 1); mqttUser[sizeof(mqttUser) - 1] = 0;
+        if (webServer.hasArg("pass") && webServer.arg("pass").length())       // keep existing pass if field left blank
+            { strncpy(mqttPass, webServer.arg("pass").c_str(), sizeof(mqttPass) - 1); mqttPass[sizeof(mqttPass) - 1] = 0; }
+        if (webServer.hasArg("port")) mqttPort = webServer.arg("port").toInt();
+        if (mqttPort < 1 || mqttPort > 65535) mqttPort = 1883;
+        saveSettings(); mqttReconnect = true;
+        webServer.send(200, "text/plain", "ok");
     });
     webServer.on("/setpass", HTTP_POST, []() {
         if (!webAuth()) return;

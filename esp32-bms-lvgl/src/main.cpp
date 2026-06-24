@@ -162,6 +162,12 @@ static int simSpeed = 1;            // demo data speed (1/2/5x)
 static char webPass[24] = "jkbms";  // default; change it from the web page's Security section
 static void webBegin();             // defined in web_portal.h (started on first WiFi connect)
 static void webLoop();
+// MQTT / Home Assistant config (set from the web portal, persisted in NVS)
+static bool mqttEnabled = false; static int mqttPort = 1883;
+static char mqttHost[64] = "", mqttUser[40] = "", mqttPass[40] = "";
+static bool mqttReconnect = false;  // web sets this when config changes → mqttLoop re-applies
+static bool mqttUp = false;         // current broker connection state (for the web portal)
+static void mqttLoop();             // defined in mqtt.h
 static int sysScroll = 0;           // System-tab scroll offset (px)
 static int bmsScroll = 0;           // BMS-tab scroll offset (px)
 static bool infoPopup = false;
@@ -1411,6 +1417,8 @@ static void saveSettings() {
     prefs.putInt("nbms", numBms);
     prefs.putBytes("pins", bmsPin, sizeof(bmsPin));
     prefs.putString("wpass", webPass);
+    prefs.putBool("mqEn", mqttEnabled); prefs.putString("mqHost", mqttHost); prefs.putInt("mqPort", mqttPort);
+    prefs.putString("mqUser", mqttUser); prefs.putString("mqPass", mqttPass);
     prefs.end();
 }
 static void loadSettings() {
@@ -1432,6 +1440,10 @@ static void loadSettings() {
     if (prefs.isKey("pins")) prefs.getBytes("pins", bmsPin, sizeof(bmsPin));
     if (prefs.isKey("wpass")) { String wp = prefs.getString("wpass", webPass); strncpy(webPass, wp.c_str(), sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0; }
     else { uint8_t mac[6] = {0}; esp_read_mac(mac, ESP_MAC_WIFI_STA); snprintf(webPass, sizeof(webPass), "jk-%02x%02x", mac[4], mac[5]); }   // fresh install → unique default (from eFuse MAC), not the public 'jkbms'
+    mqttEnabled = prefs.getBool("mqEn", false); mqttPort = prefs.getInt("mqPort", 1883);
+    { String s = prefs.getString("mqHost", ""); strncpy(mqttHost, s.c_str(), sizeof(mqttHost) - 1); mqttHost[sizeof(mqttHost) - 1] = 0;
+      s = prefs.getString("mqUser", ""); strncpy(mqttUser, s.c_str(), sizeof(mqttUser) - 1); mqttUser[sizeof(mqttUser) - 1] = 0;
+      s = prefs.getString("mqPass", ""); strncpy(mqttPass, s.c_str(), sizeof(mqttPass) - 1); mqttPass[sizeof(mqttPass) - 1] = 0; }
     prefs.end();
     appliedB = brightness;
 }
@@ -2309,6 +2321,7 @@ static void wifiTick_cb(lv_timer_t *t) {
 }
 
 #include "web_portal.h"   // monitor + controls + OTA (uses the globals/helpers above)
+#include "mqtt.h"         // MQTT + Home Assistant auto-discovery
 
 void setup() {
     Serial.begin(115200);
@@ -2401,6 +2414,7 @@ void loop() {
     if (otaActive) { ArduinoOTA.handle(); return; }   // OTA in progress → give it the whole CPU
     lv_task_handler();
     webLoop();   // serve the web portal + handle OTA (no-op until WiFi connects)
+    mqttLoop();  // Home Assistant / MQTT (no-op unless enabled + connected)
     if (pendingSleep) {
         pendingSleep = false;
         playSleepAnimation();   // blocking, draws + flushes itself; sets standby
