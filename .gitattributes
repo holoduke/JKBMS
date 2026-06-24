@@ -1,0 +1,6 @@
+# Generated LVGL bitmap-font data — exclude from language stats and collapse in diffs.
+esp32-bms-lvgl/src/fonts/*.c linguist-generated
+
+# This is a C++/Arduino firmware project; classify headers as C++ (not C) so the
+# repo's primary language reflects the firmware (and shows under the C++ topic filter).
+*.h linguist-language=C++
