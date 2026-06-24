@@ -3176,7 +3176,7 @@
             try {
                 bytes = ReplayTool.parseHexDump(document.getElementById('replayInput').value);
             } catch (e) {
-                out.innerHTML = `<p class="text-red-500">Parse error: ${e.message}</p>`;
+                out.innerHTML = `<p class="text-red-500">Parse error: ${escapeHtml(e.message)}</p>`;
                 return;
             }
             if (bytes.length < 6) {

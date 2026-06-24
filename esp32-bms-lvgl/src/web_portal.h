@@ -77,8 +77,8 @@ function tc(t){return(t<-50||t>120)?'--':t.toFixed(0)+'°C'}
 function wh(w){return Math.abs(w)>=1000?(w/1000).toFixed(2)+'kWh':w.toFixed(0)+'Wh'}
 function pc(w,t){return t>1?' ('+Math.round(w/t*100)+'%)':''}
 async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json();fw.textContent='v'+D.fw;
- net.textContent=D.ip+' · up '+Math.floor(D.up/60)+'m';fwv.textContent='current: v'+D.fw;
- t1.style.display=D.n>1?'':'none';if(cur>=D.n)sel(0);render()}catch(e){}}
+ net.style.color='';net.textContent=D.ip+' · up '+Math.floor(D.up/60)+'m';fwv.textContent='current: v'+D.fw;
+ t1.style.display=D.n>1?'':'none';if(cur>=D.n)sel(0);render()}catch(e){net.style.color='#f85149';net.textContent='disconnected — retrying…'}}
 function render(){if(!D.packs)return;let p=D.packs[cur];
  let op=p.err>0?['⚠ Alarm','red']:['✓ Operational','grn'];
  stat.innerHTML=`<div class="big ${op[1]}">${op[0]}</div>
@@ -218,8 +218,8 @@ static void webBegin() {
     webServer.on("/api", []() { if (!webAuth()) return; webServer.send(200, "application/json", webJson()); });
     webServer.on("/toggle", HTTP_POST, []() {
         if (!webAuth()) return;
-        int b = webServer.arg("bms").toInt() & 1; String w = webServer.arg("which");
-        if (b >= numBms) { webServer.send(400, "text/plain", "pack not enabled"); return; }
+        int b = webServer.arg("bms").toInt(); String w = webServer.arg("which");
+        if (b < 0 || b >= numBms) { webServer.send(400, "text/plain", "pack not enabled"); return; }
         bool ok = false;
         if (w == "chg")      { bool n = !bmsCharge[b];    if (bmsSet(b, 0x1070, n)) { bmsCharge[b] = n; ok = true; } }
         else if (w == "dis") { bool n = !bmsDischarge[b]; if (bmsSet(b, 0x1074, n)) { bmsDischarge[b] = n; ok = true; } }
@@ -230,8 +230,8 @@ static void webBegin() {
     webServer.on("/setparam", HTTP_POST, []() {
         if (!webAuth()) return;
         if (!webServer.hasArg("idx") || !webServer.hasArg("val")) { webServer.send(400, "text/plain", "missing arg"); return; }
-        int b = webServer.arg("bms").toInt() & 1, idx = webServer.arg("idx").toInt();
-        if (b >= numBms) { webServer.send(400, "text/plain", "pack not enabled"); return; }
+        int b = webServer.arg("bms").toInt(), idx = webServer.arg("idx").toInt();
+        if (b < 0 || b >= numBms) { webServer.send(400, "text/plain", "pack not enabled"); return; }
         if (idx < 0 || idx >= NSET) { webServer.send(400, "text/plain", "bad idx"); return; }
         bool ok = setPut(b, SETDEFS[idx], webServer.arg("val").toFloat());   // setPut clamps to the setting's vmin/vmax
         webServer.send(ok ? 200 : 500, "text/plain", ok ? "ok" : "write failed");
@@ -268,7 +268,7 @@ static void webBegin() {
     ArduinoOTA.setPassword(webPass);
     ArduinoOTA.onStart([]() { otaActive = true; WiFi.setSleep(false); });
     ArduinoOTA.onEnd([]() { otaActive = false; });
-    ArduinoOTA.onError([](ota_error_t e) { otaActive = false; });
+    ArduinoOTA.onError([](ota_error_t e) { otaActive = false; Serial.printf("[OTA] error %u\n", (unsigned)e); });
     ArduinoOTA.begin();
     webStarted = true;
 }

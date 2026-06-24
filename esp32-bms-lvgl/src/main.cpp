@@ -286,7 +286,7 @@ static void bmsReadAddr(uint8_t addr, int idx) {
     auto U32 = [&](int o) { return (uint32_t)((uint32_t)p[o] << 24 | p[o + 1] << 16 | p[o + 2] << 8 | p[o + 3]); };
     Bms &b = bms[idx];
     for (int i = 0; i < NCELLS; i++) b.cell[i] = U16(i * 2) / 1000.0f;
-    b.v = U32(0x90) / 1000.0f;
+    b.v = (int32_t)U32(0x90) / 1000.0f;   // signed like current, matches the JK i32 encoding
     b.i = (int32_t)U32(0x98) / 1000.0f;
     b.tMos = (int16_t)U16(0x8A) / 10.0f;
     b.tp1 = (int16_t)U16(0x9C) / 10.0f;
