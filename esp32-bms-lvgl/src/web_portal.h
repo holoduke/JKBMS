@@ -219,6 +219,7 @@ static void webBegin() {
     webServer.on("/toggle", HTTP_POST, []() {
         if (!webAuth()) return;
         int b = webServer.arg("bms").toInt() & 1; String w = webServer.arg("which");
+        if (b >= numBms) { webServer.send(400, "text/plain", "pack not enabled"); return; }
         bool ok = false;
         if (w == "chg")      { bool n = !bmsCharge[b];    if (bmsSet(b, 0x1070, n)) { bmsCharge[b] = n; ok = true; } }
         else if (w == "dis") { bool n = !bmsDischarge[b]; if (bmsSet(b, 0x1074, n)) { bmsDischarge[b] = n; ok = true; } }
@@ -230,6 +231,7 @@ static void webBegin() {
         if (!webAuth()) return;
         if (!webServer.hasArg("idx") || !webServer.hasArg("val")) { webServer.send(400, "text/plain", "missing arg"); return; }
         int b = webServer.arg("bms").toInt() & 1, idx = webServer.arg("idx").toInt();
+        if (b >= numBms) { webServer.send(400, "text/plain", "pack not enabled"); return; }
         if (idx < 0 || idx >= NSET) { webServer.send(400, "text/plain", "bad idx"); return; }
         bool ok = setPut(b, SETDEFS[idx], webServer.arg("val").toFloat());   // setPut clamps to the setting's vmin/vmax
         webServer.send(ok ? 200 : 500, "text/plain", ok ? "ok" : "write failed");

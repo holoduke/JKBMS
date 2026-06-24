@@ -589,7 +589,8 @@ static void drawTabs(bool autoActive, float prog) {
     }
     // wifi status icon, just right of the battery buttons (green = connected, grey = not)
     // dot sits at the baseline, arcs fan ~9px up → place the dot below centre so the glyph centres
-    drawWifiSmall(TAB2_X + TAB_W + 22, y + h / 2 + 5, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
+    int wifiX = (numBms >= 2 ? TAB2_X + TAB_W : TAB1_X + TAB_W) + 22;   // just right of the last battery tab
+    drawWifiSmall(wifiX, y + h / 2 + 5, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
     struct tm ti;
     if (getLocalTime(&ti, 0)) {
         char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min);
@@ -1494,7 +1495,7 @@ static void handleTap(int x, int y) {
             int b = cfgBms;
             bool live = !demoMode && bmsLive[b];
             if (idx == 0) { numBms = numBms == 2 ? 1 : 2;                                              // toggle 1 / 2 packs
-                            if (numBms < 2) { cfgBms = 0; bmsLive[1] = false; if (view == V_BMS2) view = V_BMS1; }
+                            if (numBms < 2) { cfgBms = 0; bmsLive[1] = false; if (view == V_BMS2) { view = V_BMS1; renderGraphs(); } }
                             bmsScroll = 0; markCfg(); return; }                                        // full redraw
             if (idx == 1) { if (numBms >= 2) { cfgBms ^= 1; bmsScroll = 0; } return; }                 // configure pack 1/2 (only with 2)
             if (idx == 2) { bmsPin[b * 2] = nextPin(bmsPin[b * 2]); bmsBegin(); markCfg(); markRowAt(ry); return; }        // UART TX pin
@@ -1532,7 +1533,7 @@ static void handleTap(int x, int y) {
     if (y <= 44) {
         if (x >= TAB1_X && x < TAB1_X + TAB_W) { switchView(V_BMS1); lastSwitch = millis(); }
         else if (numBms >= 2 && x >= TAB2_X && x < TAB2_X + TAB_W) { switchView(V_BMS2); lastSwitch = millis(); }
-        else if (x >= GEAR_X - 10) { cfgBms = (view == V_BMS2) ? 1 : 0; view = V_SETTINGS; kbActive = false; infoPopup = false; }  // keep last sub-tab
+        else if (x >= GEAR_X - 10) { cfgBms = (view == V_BMS2 && numBms >= 2) ? 1 : 0; view = V_SETTINGS; kbActive = false; infoPopup = false; }  // keep last sub-tab
         else if (x >= BED_X - 8) pendingSleep = true;                                                              // sleep, left of the gear
     }
 }
@@ -1862,7 +1863,7 @@ static void playHudBoot() {
 static bool idleActiveNow() {
     if (idleScreen == 0 || standby || demoMode || kbActive) return false;
     if (view != V_BMS1 && view != V_BMS2) return false;          // only over a dashboard view
-    if (bmsLive[0] || bmsLive[1]) return false;                  // any pack answering → keep the real UI
+    for (int t = 0; t < numBms; t++) if (bmsLive[t]) return false;   // any active pack answering → keep the real UI
     return (millis() - lastActivity) > IDLE_DELAY;               // settle after the last touch
 }
 static void idleText(int x, int y, const char *s, uint8_t sz, uint16_t c) {
@@ -2195,12 +2196,12 @@ static void invArea(int x1, int y1, int x2, int y2) {
 // Poll the live BMSes; when a pack's online/offline state flips, repaint the tab
 // row (red ↔ accent) and the body (stale ↔ live) so the UI tracks reconnects.
 static void bmsPoll_cb(lv_timer_t *t) {
-    bool was0 = bmsLive[0], was1 = bmsLive[1];
+    bool was0 = bmsLive[0], was1 = numBms >= 2 ? bmsLive[1] : false;
     int hc = histCount[view];
     bmsRead();
     histSample();                              // append a real point when one is due
     if (standby || view == V_SETTINGS) return;
-    if (bmsLive[0] != was0 || bmsLive[1] != was1) {
+    if (bmsLive[0] != was0 || (numBms >= 2 && bmsLive[1] != was1)) {
         invArea(6, 4, TAB2_X + TAB_W, 36);     // tab colours
         invArea(0, 36, Wd - 1, Ht - 1);        // body: stale ↔ live values
     }
@@ -2230,7 +2231,7 @@ static void dataTick_cb(lv_timer_t *t) {
     }
     // eco throttles the UI to 1fps when idle — but NOT while auto-switch is rotating,
     // or the cycling display lags (each switch/value only repaints once a second).
-    bool eco = ecoMode && !standby && !autoSwitch && idle > ECO_IDLE_MS;
+    bool eco = ecoMode && !standby && !(autoSwitch && numBms >= 2) && idle > ECO_IDLE_MS;
     if (eco != ecoActive) {                                          // low-fps when idle
         ecoActive = eco;
         if (dataTimer) lv_timer_set_period(dataTimer, eco ? 1000 : 220);
