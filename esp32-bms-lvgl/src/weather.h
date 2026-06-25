@@ -9,13 +9,32 @@ static uint32_t wxLastFetch = 0;
 static float wxLat = 0, wxLon = 0;
 static bool wxGeo = false;
 
-static bool wxGeoIP() {
+// Primary geo source: boogiewoogiedoo /visitors/location (HTTPS, precise lat/lon as strings).
+static bool wxGeoPrimary() {
+    WiFiClientSecure net; net.setInsecure();
+    HTTPClient http; http.setConnectTimeout(6000); http.setTimeout(6000);
+    if (!http.begin(net, "https://www.boogiewoogiedoo.com/visitors/location")) return false;
+    bool ok = false;
+    if (http.GET() == 200) {
+        String body = http.getString();
+        JsonDocument d;
+        if (!deserializeJson(d, body)) {
+            wxLat = atof(d["lat"] | "0"); wxLon = atof(d["lon"] | "0");   // values arrive as strings
+            strncpy(wxCity, d["city"] | "", sizeof(wxCity) - 1); wxCity[sizeof(wxCity) - 1] = 0;
+            wxGeo = (wxLat != 0 || wxLon != 0); ok = wxGeo;
+        }
+    }
+    http.end(); return ok;
+}
+// Fallback geo: ip-api.com (plain HTTP, city-centroid).
+static bool wxGeoFallback() {
     WiFiClient net; HTTPClient http; http.setConnectTimeout(5000); http.setTimeout(5000);
     if (!http.begin(net, "http://ip-api.com/json/?fields=status,lat,lon,city")) return false;
     bool ok = false;
     if (http.GET() == 200) {
+        String body = http.getString();
         JsonDocument d;
-        if (!deserializeJson(d, http.getStream()) && d["status"] == "success") {
+        if (!deserializeJson(d, body) && d["status"] == "success") {
             wxLat = d["lat"] | 0.0f; wxLon = d["lon"] | 0.0f;
             strncpy(wxCity, d["city"] | "", sizeof(wxCity) - 1); wxCity[sizeof(wxCity) - 1] = 0;
             wxGeo = (wxLat != 0 || wxLon != 0); ok = wxGeo;
@@ -23,6 +42,7 @@ static bool wxGeoIP() {
     }
     http.end(); return ok;
 }
+static bool wxGeoIP() { return wxGeoPrimary() || wxGeoFallback(); }
 
 static bool wxFetch() {
     if (!wxGeo) return false;
