@@ -57,6 +57,9 @@ default is derived from the eFuse MAC, e.g. `jk-xxxx`):
 - **Device screen** — a live screenshot of the LCD framebuffer, JPEG-encoded on the device (`/screen.jpg`, ~30 KB).
 - **Firmware update** — drag a `.bin` and flash it; the device reboots into it.
 - **Security** — change the portal/OTA password (stored in NVS).
+- **Home Assistant (MQTT)** — enable in the portal's *Home Assistant (MQTT)* card; each pack
+  is published with MQTT **auto-discovery** (SOC/V/A/W/temps/health/cycles/status sensors +
+  Charge/Discharge/Balancer switches) and an availability (LWT) topic — no YAML needed.
 
 Two ways to update without a cable (HTTP Basic auth on everything):
 

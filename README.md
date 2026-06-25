@@ -9,7 +9,7 @@ This repo ships **three apps** that all speak the JK protocol:
 | # | App | Runs on | Link to BMS | Best for |
 |---|-----|---------|-------------|----------|
 | 1 | 🌐 **Web Bluetooth dashboard** | Any Chromium browser | BLE | Quick check from a phone/laptop, no hardware |
-| 2 | 📟 **ESP32 firmware — LVGL** | Guition JC3248W535 touchscreen | RS485/UART | A permanent, polished panel + a built-in web app & OTA |
+| 2 | 📟 **ESP32 firmware — LVGL** | Guition JC3248W535 touchscreen | RS485/UART | A permanent, polished panel + web app, OTA & **Home Assistant (MQTT)** |
 | 3 | 📟 **ESP32 firmware — Arduino_GFX** | same board | RS485/UART | The lighter/faster original build |
 
 <p align="center">
@@ -82,6 +82,10 @@ everything on a 3.5″ touchscreen — **plus a built-in web app and over-the-ai
 - **📶 Built-in web portal** at `http://<device-ip>/` — a responsive dashboard mirroring the
   screen, with **controls**, the full **editable settings**, a **live screenshot** of the LCD,
   and **firmware update**. Password-protected (HTTP Digest).
+- **🏠 Home Assistant**: optional **MQTT** with **auto-discovery** — each pack shows up
+  automatically as a device with SOC / voltage / current / power / temps / health / cycles /
+  status sensors plus Charge / Discharge / Balancer switches. Configure the broker in the web
+  portal's *Home Assistant (MQTT)* card; no YAML needed.
 - **🔄 OTA**: update over WiFi from the browser *or* PlatformIO — **no cable** after the first flash.
 
 See **[esp32-bms-lvgl/README.md](esp32-bms-lvgl/README.md)** for the deep dive (rendering
