@@ -20,6 +20,22 @@ This repo ships **three apps** that all speak the JK protocol:
 
 ---
 
+## 🛒 Hardware you need
+
+The Web Bluetooth dashboard (app 1) needs **no hardware** — just a browser. For the ESP32 touchscreen
+builds (apps 2 & 3) you need:
+
+| | Part | What to get | Buy |
+|---|------|-------------|-----|
+| 📟 | **Display board** | Guition **JC3248W535** — ESP32-S3-N16R8, 3.5″ 320×480 QSPI touch | **[AliExpress](https://nl.aliexpress.com/item/1005008495512979.html)** |
+| 🔋 | **BMS** | A **JK-BMS** with an **RS485** port (LiFePO₄ / Li-ion) | **[AliExpress](https://nl.aliexpress.com/item/1005008215378422.html)** |
+| 🔌 | **Buck converter** | Step the pack voltage down to a clean **5 V** for the board | **[AliExpress](https://nl.aliexpress.com/item/1005006537133858.html)** |
+
+Plus a few jumper wires (RS485/UART + GND). Full wiring + setup notes in
+[Recommended hardware](#-recommended-hardware) below.
+
+---
+
 ## 1 · 🌐 Web Bluetooth dashboard  (`index.html`)
 
 A single-file, zero-install dashboard that talks to a JK-BMS directly over **Web Bluetooth** —
@@ -86,9 +102,9 @@ you want maximum headroom or to port the dashboard elsewhere.
 | Part | Notes |
 |------|-------|
 | **Display board** | **Guition JC3248W535** — ESP32-S3-N16R8, 3.5″ 320×480 QSPI (AXS15231B) capacitive touch. Both firmware builds target this exact board. 👉 **[Get it on AliExpress](https://nl.aliexpress.com/item/1005008495512979.html)** |
-| **BMS** | Any JK-BMS with an **RS485 port** (e.g. JK-B2A8S20P). Set its protocol to **"JK BMS RS485 Modbus", 115200 baud**. |
+| **BMS** | Any JK-BMS with an **RS485 port** (e.g. JK-B2A8S20P). Set its protocol to **"JK BMS RS485 Modbus", 115200 baud**. 👉 **[Get it on AliExpress](https://nl.aliexpress.com/item/1005008215378422.html)** |
 | **Wiring** | BMS RS485/UART → ESP32. Defaults: **BMS1** RX `IO18` / TX `IO17`, **BMS2** RX `IO15` / TX `IO16`, shared GND. Pins are configurable in Settings → BMS. |
-| **Power** | 5 V to the board. ⚠️ Powering from a buck converter often disables the USB **data** port — flash over USB from a PC, then run from the buck. For switched installs, prefer **high-side** switching. |
+| **Power** | 5 V to the board, e.g. via a **[buck converter](https://nl.aliexpress.com/item/1005006537133858.html)** stepping down the pack voltage. ⚠️ Powering from a buck converter often disables the USB **data** port — flash over USB from a PC, then run from the buck. For switched installs, prefer **high-side** switching. |
 | **Web dashboard** | A Chromium browser (Chrome/Edge) with Web Bluetooth — nothing else. |
 
 > ⚠️ Always verify your own wiring and never connect VBAT to a logic pin. Set the JK's RS485
