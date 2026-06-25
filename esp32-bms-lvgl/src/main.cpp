@@ -158,8 +158,8 @@ static int cfgBms = 0;              // which BMS the BMS-settings tab configures
 static int numBms = 1;             // number of BMS packs in use (1 or 2); default 1
 static bool tempF = false, fmt12 = false, wifiAuto = true;
 static int simSpeed = 1;            // demo data speed (1/2/5x)
-#define WEB_USER "admin"            // web portal + OTA login (password is changeable, stored in NVS)
-static char webPass[24] = "jkbms";  // default; change it from the web page's Security section
+static char webUser[24] = "admin";  // web portal + OTA login name (editable from device Settings, stored in NVS)
+static char webPass[24] = "jkbms";  // default; change it from device Settings or the web page's Security section
 static void webBegin();             // defined in web_portal.h (started on first WiFi connect)
 static void webLoop();
 // MQTT / Home Assistant config (set from the web portal, persisted in NVS)
@@ -205,7 +205,9 @@ static int netRssi[MAXNET];
 static bool netEnc[MAXNET];
 static int netCount = 0, wifiSel = -1, wifiScroll = 0, kbMode = 0;
 static bool kbActive = false, wifiScanning = false, ntpStarted = false, wifiSaved = false;
-static char wifiPass[33] = ""; static int wifiPassLen = 0;
+enum KbTarget { KBT_WIFI = 0, KBT_WUSER, KBT_WPASS };   // what the text keyboard is editing
+static int kbTarget = KBT_WIFI;
+static char wifiPass[33] = ""; static int wifiPassLen = 0;   // also reused as the scratch buffer for web user/pass entry
 static char wifiMsg[56] = "tap Scan to find networks";
 static char connSsid[33] = "", connPass[33] = "";
 static Preferences prefs;
@@ -1050,7 +1052,8 @@ static void srowToggle(int y, const char *label, bool on) {
 // ---- scrollable System list ----
 static const char *SYS_LABEL[] = {
     "Auto-switch", "Switch interval", "Brightness   - / +", "Auto-sleep", "Eco mode", "Dim after",
-    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode", "No-data screen"};
+    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode", "No-data screen",
+    "Web address", "Web username", "Web password"};
 #define SYS_ROWS ((int)(sizeof(SYS_LABEL) / sizeof(SYS_LABEL[0])))
 static void dimStr(char *o, size_t n) {
     if (dimAfterSec == 0) snprintf(o, n, "Off");
@@ -1071,6 +1074,9 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 9: snprintf(o, n, "%dx", simSpeed); *vc = C_CYAN; break;
         case 10: snprintf(o, n, "view"); *vc = C_CYAN; break;
         case 13: { static const char *IN[6] = {"Dashboard", "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = C_CYAN; break; }
+        case 14: if (WiFi.status() == WL_CONNECTED) { snprintf(o, n, "%s", WiFi.localIP().toString().c_str()); *vc = C_ACCENT; } else { snprintf(o, n, "no WiFi"); *vc = C_MUTED; } break;
+        case 15: snprintf(o, n, "%s", webUser); *vc = C_CYAN; break;
+        case 16: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
@@ -1354,11 +1360,15 @@ static int kbProcess(bool draw, int tx, int ty) {
     return hit;
 }
 static void renderKeyboard() {
-    char hdr[48]; snprintf(hdr, sizeof(hdr), "Wi-Fi: %s", wifiSel >= 0 ? netSsid[wifiSel] : "");
+    char hdr[48];
+    const char *hint;
+    if (kbTarget == KBT_WUSER) { snprintf(hdr, sizeof(hdr), "Web interface username"); hint = "enter username"; }
+    else if (kbTarget == KBT_WPASS) { snprintf(hdr, sizeof(hdr), "Web interface password"); hint = "enter new password"; }
+    else { snprintf(hdr, sizeof(hdr), "Wi-Fi: %s", wifiSel >= 0 ? netSsid[wifiSel] : ""); hint = "enter password"; }
     lText(hdr, 12, 8, F12, C_MUTED);
     drawCloseBtn();
     fRect(12, 30, Wd - 24, 30, 6, C_CARD); dRect(12, 30, Wd - 24, 30, 6, C_BORDER);
-    lText(wifiPassLen ? wifiPass : "enter password", 22, 38, F16, wifiPassLen ? C_TEXT : C_MUTED);
+    lText(wifiPassLen ? wifiPass : hint, 22, 38, F16, wifiPassLen ? C_TEXT : C_MUTED);
     kbProcess(true, 0, 0);
 }
 static void kvLine(int x, int *y, const char *k, const char *v) {
@@ -1378,7 +1388,7 @@ static void renderInfoPopup() {
     kvLine(lx, &ly, "MAC", WiFi.macAddress().c_str());
     if (WiFi.status() == WL_CONNECTED) {
         kvLine(lx, &ly, "IP", WiFi.localIP().toString().c_str());
-        snprintf(b, sizeof(b), "%s / %s", WEB_USER, webPass); kvLine(lx, &ly, "Web login", b);   // portal + OTA credentials
+        snprintf(b, sizeof(b), "%s / %s", webUser, webPass); kvLine(lx, &ly, "Web login", b);   // portal + OTA credentials
     } else kvLine(lx, &ly, "WiFi", "not connected");
     snprintf(b, sizeof(b), "%lu s", (unsigned long)(millis() / 1000)); kvLine(lx, &ly, "Uptime", b);
     lText("BMS info: coming soon", lx, ly + 3, F12, C_MUTED);
@@ -1476,6 +1486,7 @@ static void saveSettings() {
     prefs.putInt("idle", idleScreen);
     prefs.putInt("nbms", numBms);
     prefs.putBytes("pins", bmsPin, sizeof(bmsPin));
+    prefs.putString("wuser", webUser);
     prefs.putString("wpass", webPass);
     prefs.putBool("mqEn", mqttEnabled); prefs.putString("mqHost", mqttHost); prefs.putInt("mqPort", mqttPort);
     prefs.putString("mqUser", mqttUser); prefs.putString("mqPass", mqttPass);
@@ -1498,6 +1509,7 @@ static void loadSettings() {
     if (numBms < 1) numBms = 1; if (numBms > 2) numBms = 2;
     if (numBms < 2) { bmsLive[1] = false; cfgBms = 0; }
     if (prefs.isKey("pins")) prefs.getBytes("pins", bmsPin, sizeof(bmsPin));
+    if (prefs.isKey("wuser")) { String wu = prefs.getString("wuser", webUser); strncpy(webUser, wu.c_str(), sizeof(webUser) - 1); webUser[sizeof(webUser) - 1] = 0; }
     if (prefs.isKey("wpass")) { String wp = prefs.getString("wpass", webPass); strncpy(webPass, wp.c_str(), sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0; }
     else { uint8_t mac[6] = {0}; esp_read_mac(mac, ESP_MAC_WIFI_STA); snprintf(webPass, sizeof(webPass), "jk-%02x%02x", mac[4], mac[5]); }   // fresh install → unique default (from eFuse MAC), not the public 'jkbms'
     mqttEnabled = prefs.getBool("mqEn", false); mqttPort = prefs.getInt("mqPort", 1883);
@@ -1571,7 +1583,12 @@ static void handleTap(int x, int y) {
             if (code > 0) { if (wifiPassLen < 32) { wifiPass[wifiPassLen++] = (char)code; wifiPass[wifiPassLen] = 0; } }
             else if (code == -1) { if (wifiPassLen > 0) wifiPass[--wifiPassLen] = 0; }
             else if (code == -2) kbMode = (kbMode + 1) % 3;
-            else if (code == -4) { kbActive = false; wifiTryConnect(); }
+            else if (code == -4) {                              // OK → commit, depending on what we were editing
+                kbActive = false;
+                if (kbTarget == KBT_WUSER) { if (wifiPassLen) { strncpy(webUser, wifiPass, sizeof(webUser) - 1); webUser[sizeof(webUser) - 1] = 0; markCfg(); } }
+                else if (kbTarget == KBT_WPASS) { if (wifiPassLen) { strncpy(webPass, wifiPass, sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0; markCfg(); } }
+                else wifiTryConnect();
+            }
             return;
         }
         if (x >= CLOSE_X - 12 && y <= 44) { switchView(V_BMS1); manualUntil = millis() + PAUSE_MS; lastSwitch = millis(); return; }
@@ -1599,6 +1616,9 @@ static void handleTap(int x, int y) {
                 case 10: infoPopup = true; return;   // full redraw for the popup
                 case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
                 case 13: idleScreen = (idleScreen + 1) % 6; break;   // cycle no-data screen
+                case 14: infoPopup = true; return;                   // Web address → full system-info popup (shows IP + login)
+                case 15: strncpy(wifiPass, webUser, sizeof(wifiPass) - 1); wifiPass[sizeof(wifiPass) - 1] = 0; wifiPassLen = strlen(wifiPass); kbMode = 0; kbTarget = KBT_WUSER; kbActive = true; return;   // edit web username
+                case 16: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
@@ -1633,7 +1653,7 @@ static void handleTap(int x, int y) {
                 int ry2 = top + idx * WROW_STEP - wifiScroll;
                 if (idx >= 0 && idx < netCount && y >= ry2 && y < ry2 + WROW_H) {
                     wifiSel = idx;
-                    if (netEnc[wifiSel]) { wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbActive = true; }
+                    if (netEnc[wifiSel]) { wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WIFI; kbActive = true; }
                     else wifiTryConnect();
                 }
                 return;
@@ -2433,8 +2453,11 @@ void setup() {
     // offscreen canvases for the cached graphs
     powCv = lv_canvas_create(NULL);
     capCv = lv_canvas_create(NULL);
-    void *pb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(POW_W, POW_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    void *cb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(CAP_W, CAP_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    // graph canvases live in PSRAM (re-rendered only every few seconds, not per frame) →
+    // keeps ~59KB of internal heap free so the Open-Meteo TLS handshake (two ~16KB mbedTLS
+    // record buffers) can allocate without fragmenting against the 75KB internal draw buffer.
+    void *pb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(POW_W, POW_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    void *cb = heap_caps_malloc(LV_CANVAS_BUF_SIZE(CAP_W, CAP_H, 16, LV_DRAW_BUF_STRIDE_ALIGN), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!pb || !cb) { Serial.println("[lvgl] FATAL: graph canvas alloc failed"); while (1) delay(1000); }
     lv_canvas_set_buffer(powCv, pb, POW_W, POW_H, LV_COLOR_FORMAT_RGB565);
     lv_canvas_set_buffer(capCv, cb, CAP_W, CAP_H, LV_COLOR_FORMAT_RGB565);

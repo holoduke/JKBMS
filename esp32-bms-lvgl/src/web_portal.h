@@ -15,7 +15,7 @@ volatile bool otaActive = false;   // true during an OTA → loop() drops everyt
 // Digest auth → the password is never sent in cleartext over the LAN (unlike Basic),
 // without the self-signed-cert warnings/overhead that ESP32 TLS would bring.
 static bool webAuth() {
-    if (webServer.authenticate(WEB_USER, webPass)) return true;
+    if (webServer.authenticate(webUser, webPass)) return true;
     webServer.requestAuthentication(DIGEST_AUTH, "JK BMS");
     return false;
 }
@@ -27,8 +27,11 @@ static const char WEB_PAGE[] PROGMEM = R"HTML(<!doctype html><html><head><meta c
 .wrap{max-width:1100px;margin:0 auto;padding:10px}
 h1{font-size:18px;margin:6px 8px}
 .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px}
-.tab{padding:6px 16px;border-radius:8px;background:#1f2731;cursor:pointer;font-weight:600}
-.tab.on{background:#1f6feb}
+.seg{display:inline-flex;gap:3px;padding:3px;background:#0d1117;border:1px solid #2a3441;border-radius:10px}
+.tab{padding:6px 18px;border-radius:7px;color:#8b949e;cursor:pointer;font-weight:600}
+.tab.on{background:#1f6feb;color:#fff;box-shadow:0 1px 5px rgba(31,111,235,.55)}
+.bsingle{display:inline-flex;align-items:center;gap:7px;padding:6px 14px;border-radius:8px;background:#161b22;border:1px solid #2a3441;font-weight:600}
+.bsingle::before{content:"";width:8px;height:8px;border-radius:50%;background:#2ea043}
 .pill{padding:2px 10px;border-radius:10px;background:#1f2731;font-size:12px}
 .grid{display:flex;flex-direction:column;gap:10px}
 @media(min-width:760px){.grid{flex-direction:row;align-items:flex-start}}
@@ -54,7 +57,8 @@ img{width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-
 @keyframes sp{to{transform:rotate(360deg)}}
 </style></head><body><div class=wrap>
 <h1>JK BMS Controller <span class=mut id=fw></span></h1>
-<div class=bar><span class=tab id=t0 onclick=sel(0)>BAT 1</span><span class=tab id=t1 onclick=sel(1)>BAT 2</span>
+<div class=bar><span class=seg id=seg><span class="tab on" id=t0 onclick=sel(0)>BAT 1</span><span class=tab id=t1 onclick=sel(1)>BAT 2</span></span>
+<span class=bsingle id=single style=display:none>Battery 1</span>
 <span class=pill id=net style=margin-left:auto></span></div>
 <div class=grid>
  <div class=col>
@@ -92,7 +96,7 @@ function wh(w){return Math.abs(w)>=1000?(w/1000).toFixed(2)+'kWh':w.toFixed(0)+'
 function pc(w,t){return t>1?' ('+Math.round(w/t*100)+'%)':''}
 async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json();fw.textContent='v'+D.fw;
  net.style.color='';net.textContent=D.ip+' · up '+Math.floor(D.up/60)+'m';fwv.textContent='current: v'+D.fw;
- t1.style.display=D.n>1?'':'none';if(cur>=D.n)sel(0);
+ let multi=D.n>1;seg.style.display=multi?'':'none';single.style.display=multi?'none':'';if(!multi)cur=0;if(cur>=D.n)sel(0);
  mqe.checked=!!D.mqEn;mqst.textContent=D.mqEn?(D.mqUp?'connected ✓':'enabled, not connected'):'disabled';mqst.className=D.mqUp?'grn':D.mqEn?'amb':'mut';
  if(!mqInit){mqh.value=D.mqHost||'';mqp.value=D.mqPort||1883;mqu.value=D.mqUser||'';mqInit=true}
  render();if(!scrInit){scrInit=true;shot()}}catch(e){net.style.color='#f85149';net.textContent='disconnected — retrying…'}}
@@ -158,7 +162,8 @@ static String webJson() {
     String j; j.reserve(6500);   // one allocation; avoids a realloc cascade from the +='s below
     char clk[12] = "--:--:--"; { struct tm ti; if (getLocalTime(&ti, 0)) snprintf(clk, sizeof(clk), "%02d:%02d:%02d", ti.tm_hour, ti.tm_min, ti.tm_sec); }
     j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
-        "\",\"up\":" + String(millis() / 1000) + ",\"clk\":\"" + clk + "\",\"tsync\":" + String(timeSynced ? 1 : 0) + ",\"n\":" + String(numBms) +
+        "\",\"up\":" + String(millis() / 1000) + ",\"clk\":\"" + clk + "\",\"tsync\":" + String(timeSynced ? 1 : 0) +
+        ",\"heap\":" + String((unsigned long)ESP.getFreeHeap()) + ",\"heapBig\":" + String((unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)) + ",\"n\":" + String(numBms) +
         ",\"mqEn\":" + String(mqttEnabled ? 1 : 0) + ",\"mqUp\":" + String(mqttUp ? 1 : 0) +
         ",\"mqHost\":\"" + mqttHost + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + mqttUser + "\"" +
         ",\"wxOk\":" + String(wxOk ? 1 : 0) + ",\"wxHttp\":" + String(wxHttp) + ",\"wxCity\":\"" + wxCity + "\",\"wxT\":" + String(wxCurTemp) + ",\"wxC\":" + String(wxCurCode) + ",\"wxD\":[";
@@ -308,7 +313,7 @@ static void webBegin() {
             if (ok) { delay(400); ESP.restart(); }
         },
         []() {
-            if (!webServer.authenticate(WEB_USER, webPass)) { Update.abort(); webServer.requestAuthentication(DIGEST_AUTH, "JK BMS"); return; }
+            if (!webServer.authenticate(webUser, webPass)) { Update.abort(); webServer.requestAuthentication(DIGEST_AUTH, "JK BMS"); return; }
             HTTPUpload &up = webServer.upload();
             if (up.status == UPLOAD_FILE_START) { WiFi.setSleep(false); Update.begin(UPDATE_SIZE_UNKNOWN); }
             else if (up.status == UPLOAD_FILE_WRITE) { if (Update.write(up.buf, up.currentSize) != up.currentSize) Update.abort(); }
