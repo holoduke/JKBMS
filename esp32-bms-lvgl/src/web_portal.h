@@ -57,6 +57,7 @@ img{width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-
 <div class=grid>
  <div class=card><div class=ct>Status</div><div id=stat></div></div>
  <div class=card><div class=ct>Live</div><div class=met id=met></div></div>
+ <div class=card><div class=ct>Weather <span id=wxc class=mut></span></div><div id=wx></div></div>
  <div class=card><div class=ct>Cells <span id=cd class=mut></span></div><div class=cells id=cells></div></div>
  <div class=card><div class=ct>Temperatures</div><div id=temps></div></div>
  <div class=card><div class=ct>Session</div><div id=sess></div></div>
@@ -89,7 +90,13 @@ async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json()
  mqe.checked=!!D.mqEn;mqst.textContent=D.mqEn?(D.mqUp?'connected ✓':'enabled, not connected'):'disabled';mqst.className=D.mqUp?'grn':D.mqEn?'amb':'mut';
  if(!mqInit){mqh.value=D.mqHost||'';mqp.value=D.mqPort||1883;mqu.value=D.mqUser||'';mqInit=true}
  render()}catch(e){net.style.color='#f85149';net.textContent='disconnected — retrying…'}}
-function render(){if(!D.packs)return;let p=D.packs[cur];
+function wxcat(c){if(c<=0)return 0;if(c<=2)return 1;if(c==3||c==45||c==48)return 2;if((c>=71&&c<=77)||c==85||c==86)return 4;if(c>=95)return 5;return 3}
+function wxem(c){return ['☀️','⛅','☁️','🌧️','❄️','⛈️'][wxcat(c)]}
+function renderWx(){if(!D.wxOk){wx.innerHTML='<div class=mut>no data — needs internet</div>';wxc.textContent='';return}
+ wxc.textContent=D.wxCity||'';
+ let rows=(D.wxD||[]).map((d,i)=>`<div class=row><span>${i==0?'Today':i==1?'Tomorrow':'In '+i+' days'} ${wxem(d.c)}</span><b>${d.mx}° / ${d.mn}°</b></div>`).join('');
+ wx.innerHTML=`<div class=row><span class=big>${D.wxT}°</span><span style=font-size:32px>${wxem(D.wxC)}</span></div>${rows}`}
+function render(){renderWx();if(!D.packs)return;let p=D.packs[cur];
  let op=p.err>0?['⚠ Alarm','red']:['✓ Operational','grn'];
  let alarms=(p.al&&p.al.length)?`<div style=margin-top:6px>${p.al.map(a=>`<div class=red>• ${esc(a)}</div>`).join('')}</div>`:'';
  stat.innerHTML=`<div class="big ${op[1]}">${op[0]}</div>${alarms}
@@ -141,11 +148,14 @@ load();setInterval(load,2000);   // screenshot is heavy (blocks the server while
 // ---- JSON state ----
 static String webJson() {
     String j; j.reserve(6500);   // one allocation; avoids a realloc cascade from the +='s below
+    char clk[12] = "--:--:--"; { struct tm ti; if (getLocalTime(&ti, 0)) snprintf(clk, sizeof(clk), "%02d:%02d:%02d", ti.tm_hour, ti.tm_min, ti.tm_sec); }
     j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
-        "\",\"up\":" + String(millis() / 1000) + ",\"n\":" + String(numBms) +
+        "\",\"up\":" + String(millis() / 1000) + ",\"clk\":\"" + clk + "\",\"tsync\":" + String(timeSynced ? 1 : 0) + ",\"n\":" + String(numBms) +
         ",\"mqEn\":" + String(mqttEnabled ? 1 : 0) + ",\"mqUp\":" + String(mqttUp ? 1 : 0) +
         ",\"mqHost\":\"" + mqttHost + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + mqttUser + "\"" +
-        ",\"packs\":[";
+        ",\"wxOk\":" + String(wxOk ? 1 : 0) + ",\"wxHttp\":" + String(wxHttp) + ",\"wxCity\":\"" + wxCity + "\",\"wxT\":" + String(wxCurTemp) + ",\"wxC\":" + String(wxCurCode) + ",\"wxD\":[";
+    for (int i = 0; i < wxDays; i++) { if (i) j += ","; j += "{\"c\":" + String(wxDay[i].code) + ",\"mx\":" + String(wxDay[i].tmax) + ",\"mn\":" + String(wxDay[i].tmin) + "}"; }
+    j += "],\"packs\":[";
     for (int t = 0; t < numBms; t++) {
         const Bms &b = bms[t];
         bool live = demoMode || bmsLive[t];

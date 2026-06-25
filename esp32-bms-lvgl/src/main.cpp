@@ -168,6 +168,13 @@ static char mqttHost[64] = "", mqttUser[40] = "", mqttPass[40] = "";
 static bool mqttReconnect = false;  // web sets this when config changes → mqttLoop re-applies
 static bool mqttUp = false;         // current broker connection state (for the web portal)
 static void mqttLoop();             // defined in mqtt.h
+// Weather (geo-IP + Open-Meteo); fetched in weather.h, drawn in the top bar
+struct WxDay { int code; int tmax, tmin; };
+static bool wxOk = false; static int wxCurTemp = 0, wxCurCode = -1; static WxDay wxDay[4]; static int wxDays = 0;
+static char wxCity[28] = "";
+static int wxHttp = 0;              // diagnostic: last Open-Meteo HTTP code (negative = HTTPClient error)
+static void weatherLoop();          // defined in weather.h
+static bool timeSynced = false;     // NTP has produced a valid wall-clock
 static int sysScroll = 0;           // System-tab scroll offset (px)
 static int bmsScroll = 0;           // BMS-tab scroll offset (px)
 static bool infoPopup = false;
@@ -560,6 +567,26 @@ static void drawGear(int cx, int cy, int r, uint32_t col, uint32_t hole) {
     fCircle(cx, cy, r, col);
     fCircle(cx, cy, (int)(r * 0.42f), hole);
 }
+// WMO weather code → small glyph (sun / partly / cloud / rain / snow / storm)
+static int wxCat(int c) {
+    if (c <= 0) return 0; if (c <= 2) return 1; if (c == 3 || c == 45 || c == 48) return 2;
+    if ((c >= 71 && c <= 77) || c == 85 || c == 86) return 4; if (c >= 95) return 5; return 3;
+}
+static void wxSun(int x, int y, int r, uint32_t col) {
+    for (int a = 0; a < 8; a++) { float t = a * PI / 4; line(x + (int)((r + 1) * cosf(t)), y + (int)((r + 1) * sinf(t)), x + (int)((r + 3) * cosf(t)), y + (int)((r + 3) * sinf(t)), col); }
+    fCircle(x, y, r, col);
+}
+static void wxCloud(int x, int y, uint32_t col) { fCircle(x - 4, y, 3, col); fCircle(x + 4, y, 3, col); fCircle(x, y - 2, 4, col); fRect(x - 5, y, 11, 4, 2, col); }
+static void drawWxIcon(int x, int y, int code) {   // centred at (x,y), ~14px
+    const uint32_t SUN = 0xffd43b, CLD = 0xc9d1d9, RN = 0x4aa3ff, BOLT = 0xffd43b;
+    int cat = wxCat(code);
+    if (cat == 0) { wxSun(x, y, 4, SUN); return; }
+    if (cat == 1) { wxSun(x - 3, y - 2, 3, SUN); wxCloud(x + 2, y + 2, CLD); return; }
+    wxCloud(x, y - 1, CLD);
+    if (cat == 3) { for (int i = -1; i <= 1; i++) line(x + i * 4, y + 5, x + i * 4 - 1, y + 8, RN); }
+    else if (cat == 4) { for (int i = -1; i <= 1; i++) fCircle(x + i * 4, y + 6, 1, CLD); }
+    else if (cat == 5) { line(x, y + 4, x - 2, y + 8, BOLT); line(x - 2, y + 8, x + 1, y + 7, BOLT); line(x + 1, y + 7, x - 1, y + 11, BOLT); }
+}
 static void drawBed(int cx, int cy, uint32_t col) {
     int x = cx - 13, y = cy + 5;
     fRect(x + 1, y, 2, 4, 0, col);
@@ -615,7 +642,14 @@ static void drawTabs(bool autoActive, float prog) {
     // dot sits at the baseline, arcs fan ~9px up → place the dot below centre so the glyph centres
     int wifiX = (numBms >= 2 ? TAB2_X + TAB_W : TAB1_X + TAB_W) + 22;   // just right of the last battery tab
     drawWifiSmall(wifiX, y + h / 2 + 5, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
+    if (wxOk) {   // today's weather: glyph + temp, right of the wifi icon
+        int wx = wifiX + 22; drawWxIcon(wx, y + h / 2, wxCurCode);
+        char wt[6]; snprintf(wt, sizeof(wt), "%d", wxCurTemp);
+        int tx = wx + 12; lText(wt, tx, y + 5, F16, C_TEXT);
+        fCircle(tx + textW(wt, F16) + 2, y + 7, 1, C_TEXT);   // degree mark
+    }
     struct tm ti;
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1); tzset();   // TZ env is per-task in newlib; the render task needs its own tzset
     if (getLocalTime(&ti, 0)) {
         char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min);
         cText(ts, BED_X - 36, 20, F16, C_TEXT);
@@ -1384,11 +1418,18 @@ static bool wifiPoll() {
         if (st == WL_CONNECTED) {
             snprintf(wifiMsg, sizeof(wifiMsg), "Connected: %s", WiFi.SSID().c_str());
             webBegin();   // start the web portal + OTA once we have an IP
-            if (!ntpStarted) { configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.nist.gov"); ntpStarted = true; }
+            configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.nist.gov", "time.google.com");   // (re)start NTP on every (re)connect
+            ntpStarted = true;
             if (!wifiSaved && connSsid[0]) { prefs.begin("wifi", false); prefs.putString("ssid", connSsid); prefs.putString("pass", connPass); prefs.end(); wifiSaved = true; }
         } else if (st == WL_CONNECT_FAILED) snprintf(wifiMsg, sizeof(wifiMsg), "connect failed (password?)");
         else if (st == WL_NO_SSID_AVAIL) snprintf(wifiMsg, sizeof(wifiMsg), "network not found");
         else if (st == WL_CONNECTION_LOST) snprintf(wifiMsg, sizeof(wifiMsg), "connection lost");
+    }
+    if (!timeSynced && WiFi.status() == WL_CONNECTED) {   // keep retrying NTP until the clock is real
+        struct tm ti;
+        if (getLocalTime(&ti, 0) && ti.tm_year >= 125) timeSynced = true;   // year >= 2025
+        else { static uint32_t lastNtp = 0; if (!lastNtp || millis() - lastNtp > 20000) {
+            lastNtp = millis(); configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.google.com"); } }
     }
     return changed;
 }
@@ -2294,6 +2335,9 @@ static void dataTick_cb(lv_timer_t *t) {
     }
     if (autoSleepMin > 0 && !standby && idle > (uint32_t)autoSleepMin * 60000UL) { pendingSleep = true; return; }
     if (standby || view == V_SETTINGS || idleActiveNow()) return;   // idle screen owns the canvas
+    // the clock + weather glyph live outside any data-driven dirty region → repaint the strip on a slow tick
+    static uint32_t lastClkInv = 0;
+    if (now - lastClkInv >= 15000) { lastClkInv = now; invArea(226, 4, BED_X - 2, 35); }
     if (numBms >= 2 && autoSwitch && now >= manualUntil && now - lastSwitch >= intervalMs) {
         int other = view ^ 1;
         // only flip to the other pack if it's available (demo mode shows both;
@@ -2322,6 +2366,7 @@ static void wifiTick_cb(lv_timer_t *t) {
 
 #include "web_portal.h"   // monitor + controls + OTA (uses the globals/helpers above)
 #include "mqtt.h"         // MQTT + Home Assistant auto-discovery
+#include "weather.h"      // geo-IP location + Open-Meteo forecast
 
 void setup() {
     Serial.begin(115200);
@@ -2415,6 +2460,7 @@ void loop() {
     lv_task_handler();
     webLoop();   // serve the web portal + handle OTA (no-op until WiFi connects)
     mqttLoop();  // Home Assistant / MQTT (no-op unless enabled + connected)
+    weatherLoop();  // geo-IP + forecast refresh (every ~30 min once online)
     if (pendingSleep) {
         pendingSleep = false;
         playSleepAnimation();   // blocking, draws + flushes itself; sets standby
