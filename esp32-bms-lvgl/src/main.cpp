@@ -463,20 +463,30 @@ static uint32_t socRingColor(float soc) {
 }
 static uint32_t tempColor(float t) { return t >= 55 ? C_BAD : t >= 45 ? C_WARN : C_ACCENT; }
 #define PACK_AH 100.0f
-// estimated runtime (discharging) / time-to-full (charging), shorthand e.g. 8h30
-static void runtimeStr(float soc, float i, float fullAh, char *o, size_t n, uint32_t *col) {
-    if (i < -0.5f) {                                   // discharging → time left
-        int m = (int)((soc / 100.0f * fullAh) / (-i) * 60.0f + 0.5f);
-        if (m < 60) snprintf(o, n, "%dm", m);
-        else if (m < 1440) snprintf(o, n, "%dh%02d", m / 60, m % 60);
-        else snprintf(o, n, "%dd%dh", m / 1440, (m % 1440) / 60);
-        *col = C_TEXT;
-    } else if (i > 0.5f) {                             // charging → time to full
-        int m = (int)(((100.0f - soc) / 100.0f * fullAh) / i * 60.0f + 0.5f);
-        if (m < 60) snprintf(o, n, "+%dm", m);
-        else snprintf(o, n, "+%dh%02d", m / 60, m % 60);
-        *col = C_ACCENT;
-    } else { snprintf(o, n, "--"); *col = C_MUTED; }   // idle
+static float avgDrawW(int v, int nSamples);            // typical recent discharge power — defined after the history helpers
+static void fmtMins(char *o, size_t n, int m, const char *pfx) {   // minutes → "8h30" / "2d4h", with an optional prefix
+    if (m < 60) snprintf(o, n, "%s%dm", pfx, m);
+    else if (m < 1440) snprintf(o, n, "%s%dh%02d", pfx, m / 60, m % 60);
+    else snprintf(o, n, "%s%dd%dh", pfx, m / 1440, (m % 1440) / 60);
+}
+// estimated runtime (discharging) / time-to-full (charging), shorthand e.g. 8h30.
+// When the pack is idle (no meaningful current), fall back to an estimate from
+// recent average consumption (6h window, then 24h) — shown with a "~" prefix.
+static void runtimeStr(int v, float soc, float i, float fullAh, char *o, size_t n, uint32_t *col) {
+    if (i < -0.5f) {                                   // discharging → time left at the current rate
+        fmtMins(o, n, (int)((soc / 100.0f * fullAh) / (-i) * 60.0f + 0.5f), "");
+        *col = C_TEXT; return;
+    }
+    if (i > 0.5f) {                                    // charging → time to full
+        fmtMins(o, n, (int)(((100.0f - soc) / 100.0f * fullAh) / i * 60.0f + 0.5f), "+");
+        *col = C_ACCENT; return;
+    }
+    // idle → estimate from typical recent draw (prefer the 6h window, fall back to 24h)
+    float aw = avgDrawW(v, 72); if (aw < 1.0f) aw = avgDrawW(v, 288);
+    float packV = bms[v].v > 1.5f ? bms[v].v : 3.2f * NCELLS;
+    float remWh = soc / 100.0f * fullAh * packV;
+    if (aw >= 1.0f && remWh > 0) { fmtMins(o, n, (int)(remWh / aw * 60.0f + 0.5f), "~"); *col = C_TEXT; }
+    else { snprintf(o, n, "--"); *col = C_MUTED; }     // no recent usage history yet → unknown
 }
 static void timeLabel(char *out, size_t n, float daysAgo, float span) {
     float minsAgo = daysAgo * 1440.0f;
@@ -774,6 +784,15 @@ static float whGained(int v, int nSamples) {
     for (int i = start; i < cnt; i++) { int w = histPwr[v][i]; if (w > 0) wh += w * perH; }
     return wh;
 }
+// Average discharge power (W) over the last nSamples, divided by the *actual*
+// elapsed window (so a short history doesn't deflate the rate). Counts idle time
+// in the denominator → a realistic "typical net draw" for runtime estimates.
+static float avgDrawW(int v, int nSamples) {
+    int cnt = histCount[v]; if (cnt <= 0) return 0;
+    int span = cnt < nSamples ? cnt : nSamples;
+    float hours = span * (HIST_INTERVAL_MS / 3600000.0f);
+    return hours > 0.01f ? whSpent(v, nSamples) / hours : 0;
+}
 // Total pack energy (Wh) = full Ah × nominal 3.2V/cell, cell count inferred from voltage.
 static float packTotalWh(int t) {
     float fullAh = (!demoMode && bmsLive[t]) ? packFullAh[t] : PACK_AH;
@@ -984,7 +1003,7 @@ static void renderBms() {
     drawTile(rx, ty, vW, th, "VOLTAGE", vbuf, nullptr, stale ? C_MUTED : C_TEXT);
     char rt[10]; uint32_t rtCol;
     float fullAh = (!demoMode && bmsLive[view]) ? packFullAh[view] : PACK_AH;
-    runtimeStr(b.soc, b.i, fullAh, rt, sizeof(rt), &rtCol);
+    runtimeStr(view, b.soc, b.i, fullAh, rt, sizeof(rt), &rtCol);
     uint32_t upSec = (!demoMode && bmsLive[view] && b.uptimeOk) ? b.uptime : now / 1000;   // BMS runtime if live, else device uptime
     drawStatsTile(rx + vW + gap, ty, sW, th, b.peakChg, b.peakDis, upSec, rt, rtCol, stale);
     drawTempsTile(rx + vW + gap + sW + gap, ty, tpW, th, b.tMos, b.tp1, b.tp2, stale);
