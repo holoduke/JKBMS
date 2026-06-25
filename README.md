@@ -1,106 +1,91 @@
-# ⚡ JK BMS Controller — ESP32 touchscreen firmware
+# ⚡ JK BMS Controller
 
-Monitor and control your **JK-BMS** battery system (LiFePO₄ / Li-ion) from a standalone
-**ESP32 touchscreen** wired to the BMS over RS485/UART. A permanent panel with a built-in
-**web app**, **over-the-air updates** and **Home Assistant (MQTT)** — everything runs locally,
-nothing leaves your network. **One or two packs** supported.
+A standalone **ESP32 touchscreen** that monitors and controls your **JK-BMS** battery system
+(LiFePO₄ / Li-ion). Wire it to the BMS, mount it on the wall, and you get a live dashboard, a
+built-in web app, over-the-air updates, and a Home Assistant integration — all running locally,
+with nothing leaving your network. One or two battery packs are supported.
 
-<p align="center"><img src="docs/device-screen.png" width="70%" alt="LVGL dashboard captured from the device"></p>
-<p align="center"><em>The live dashboard, captured from the device framebuffer.</em></p>
-
----
-
-## ✨ Features
-
-- **Live dashboard**: SOC ring gauge, big W·A readout with charge/discharge arrow, status pill
-  (Charging / Discharging / Full / Idle / Balancing / FET-off / Alarm — from the BMS's real
-  state), voltage / peaks / temps tiles, per-cell bars, a **power-draw graph** (10-min window)
-  and a **capacity panel** (total kWh + energy used in the last 24 h / 6 h, with %).
-- **Today's weather** in the top bar (geo-located by IP, no key) with a 3-day forecast in the
-  web app, plus an NTP-synced clock.
-- **Two packs**: auto-switching tabs; both polled every second.
-- **Editable settings** written back to the BMS: capacity, cell count, current limits, cell
-  OVP/UVP, SOC calibration, balancing, charge profile, temperature protections — via an
-  on-screen numeric keypad, each write read-back-verified.
-- **Settings**: BMS / WiFi / System tabs, on-screen keyboard, the web address + login shown
-  and editable on-device, power-save (auto-dim / -sleep / eco), selectable "idle" screens.
-- **📶 Built-in web portal** at `http://<device-ip>/` — a responsive dashboard mirroring the
-  screen, with **controls**, the full **editable settings**, a **live screenshot** of the LCD,
-  and **firmware update**. Password-protected (HTTP Digest).
-- **🏠 Home Assistant**: optional **MQTT** with **auto-discovery** — each pack shows up
-  automatically as a device with SOC / voltage / current / power / temps / health / cycles /
-  status sensors plus Charge / Discharge / Balancer switches. Configure the broker in the web
-  portal's *Home Assistant (MQTT)* card; no YAML needed.
-- **🔄 OTA**: update over WiFi from the browser *or* PlatformIO — **no cable** after the first flash.
-
-See **[esp32-bms-lvgl/README.md](esp32-bms-lvgl/README.md)** for the deep dive (rendering
-pipeline, protocol map, web portal, OTA).
+<p align="center"><img src="docs/device-screen.png" width="70%" alt="The dashboard running on the device"></p>
+<p align="center"><em>The live dashboard, captured straight from the device.</em></p>
 
 ---
 
-## 🛒 Hardware you need
+## What it does
 
-| | Part | What to get | Buy |
-|---|------|-------------|-----|
-| 📟 | **Display board** | Guition **JC3248W535** — ESP32-S3-N16R8, 3.5″ 320×480 QSPI touch | **[AliExpress](https://nl.aliexpress.com/item/1005008495512979.html)** |
-| 🔋 | **BMS** | A **JK-BMS** with an **RS485** port (LiFePO₄ / Li-ion) | **[AliExpress](https://nl.aliexpress.com/item/1005008215378422.html)** |
-| 🔌 | **Buck converter** | Step the pack voltage down to a clean **5 V** for the board | **[AliExpress](https://nl.aliexpress.com/item/1005006537133858.html)** |
-| 🧵 | **Connector cables** | **4-pin** (RS485) and **8-pin** cables to tap the JK-BMS port | **[AliExpress](https://nl.aliexpress.com/item/1005007277110532.html)** |
+**On the screen** you get the essentials at a glance: a big SOC ring, the current power draw
+with a charge/discharge arrow, and a status pill that reflects the BMS's real state (charging,
+discharging, full, balancing, idle, alarm). Below that are voltage, peaks and temperatures,
+per-cell bars, a 10-minute power graph, and an energy panel showing total capacity and what
+you've used over the last 24 h and 6 h. The top bar also shows the time and today's weather.
 
-Full wiring + setup notes in [Recommended hardware](#-recommended-hardware) below.
+**You can change BMS settings right from the touchscreen** — capacity, cell count, current
+limits, cell OVP/UVP, SOC calibration, balancing, charge profile and temperature protections.
+Every value is entered on an on-screen keypad and read back from the BMS to confirm it stuck.
+
+**A built-in web app** lives at `http://<device-ip>/`. It mirrors the screen in your browser
+with the same controls and settings, shows a live snapshot of the LCD, and lets you flash new
+firmware — all behind a password. After the first USB flash, every update is wireless (from the
+browser or PlatformIO).
+
+**Home Assistant** is one checkbox away. Turn on MQTT in the web app and each pack appears
+automatically (auto-discovery) as a device with sensors for SOC, voltage, current, power,
+temperatures, health, cycles and status, plus switches for the charge/discharge MOSFETs and the
+balancer. No YAML to write.
+
+> For the full technical write-up — rendering pipeline, JK protocol map, web portal and OTA —
+> see **[esp32-bms-lvgl/README.md](esp32-bms-lvgl/README.md)**.
 
 ---
 
-## 🔌 Recommended hardware
+## What you'll need
 
-| Part | Notes |
-|------|-------|
-| **Display board** | **Guition JC3248W535** — ESP32-S3-N16R8, 3.5″ 320×480 QSPI (AXS15231B) capacitive touch. 👉 **[Get it on AliExpress](https://nl.aliexpress.com/item/1005008495512979.html)** |
-| **BMS** | Any JK-BMS with an **RS485 port** (e.g. JK-B2A8S20P). Set its protocol to **"JK BMS RS485 Modbus", 115200 baud**. 👉 **[Get it on AliExpress](https://nl.aliexpress.com/item/1005008215378422.html)** |
-| **Wiring** | BMS RS485/UART → ESP32. Defaults: **BMS1** RX `IO18` / TX `IO17`, **BMS2** RX `IO15` / TX `IO16`, shared GND. Pins are configurable in Settings → BMS. A **[4-pin (RS485) + 8-pin cable set](https://nl.aliexpress.com/item/1005007277110532.html)** makes tapping the JK port easy. |
-| **Power** | 5 V to the board, e.g. via a **[buck converter](https://nl.aliexpress.com/item/1005006537133858.html)** stepping down the pack voltage. ⚠️ Powering from a buck converter often disables the USB **data** port — flash over USB from a PC, then run from the buck. For switched installs, prefer **high-side** switching. |
+| | Part | Why | Buy |
+|---|------|-----|-----|
+| 📟 | **Guition JC3248W535** | The display board — ESP32-S3-N16R8 with a 3.5″ 320×480 touchscreen | **[AliExpress](https://nl.aliexpress.com/item/1005008495512979.html)** |
+| 🔋 | **JK-BMS** | Any JK-BMS with an **RS485** port (e.g. JK-B2A8S20P) | **[AliExpress](https://nl.aliexpress.com/item/1005008215378422.html)** |
+| 🔌 | **Buck converter** | Steps the pack voltage down to a clean 5 V for the board | **[AliExpress](https://nl.aliexpress.com/item/1005006537133858.html)** |
+| 🧵 | **4-pin + 8-pin cables** | To tap the JK-BMS RS485 port without splicing | **[AliExpress](https://nl.aliexpress.com/item/1005007277110532.html)** |
 
-> ⚠️ Always verify your own wiring and never connect VBAT to a logic pin. Set the JK's RS485
-> protocol correctly or the device won't read it.
+**Wiring.** Connect the BMS RS485/UART to the ESP32 with a shared ground. The defaults are
+`IO18`/`IO17` (RX/TX) for the first pack and `IO15`/`IO16` for the second — both changeable in
+**Settings → BMS**. Set the JK's protocol to **"JK BMS RS485 Modbus" at 115200 baud**, or the
+device won't read it.
+
+**Power.** Feed the board 5 V from the buck converter. Note that powering through the buck often
+disables the USB *data* port, so do the first flash over USB from a PC, then switch to the buck.
+For switched installs, prefer high-side switching — and never connect VBAT to a logic pin.
 
 ---
 
-## 🚀 Getting started
+## Getting started
 
-1. Install **[PlatformIO](https://platformio.org/)** (CLI or the VS Code extension).
-2. Clone this repo.
-3. First flash over USB:
+1. Install **[PlatformIO](https://platformio.org/)** (CLI or the VS Code extension) and clone this repo.
+2. Flash once over USB:
    ```sh
    cd esp32-bms-lvgl
    pio run -t upload
    ```
-4. On the device: **Settings → WiFi** → connect your network. **Settings → BMS** → set
-   **Batteries** (1 or 2) and the **UART pins**; make sure the JK's protocol is **RS485 Modbus**.
-5. Open the web portal at **`http://<device-ip>/`** (the IP + login are shown on the device's
-   **Settings → System** screen; login defaults to `admin` with a unique per-device password,
-   all editable on-device or in the portal).
-6. **Updates from now on are wireless** — no cable:
-   - **Browser:** portal → *Firmware update* → pick `firmware.bin` (`.pio/build/jc3248w535/firmware.bin`).
-   - **PlatformIO:** `pio run` then upload via `espota` to the device IP (hostname `jkbms`).
+3. On the device, open **Settings → WiFi** and join your network, then **Settings → BMS** to set
+   the number of packs and the UART pins.
+4. Open the web app at **`http://<device-ip>/`**. The IP and login are shown under
+   **Settings → System** — it's `admin` with a unique per-device password, both editable.
+5. From here, updates are wireless: use the web app's *Firmware update*, or `pio run` + `espota`
+   to the device (hostname `jkbms`).
 
-### Single vs. dual pack
-Default is **one** pack. For two, set **Settings → BMS → Batteries → 2** (on the device) and
-wire the second pack to BMS2's pins. The dashboard, tabs, web portal and API all adapt to the
-count automatically.
+Running two packs? Set **Settings → BMS → Batteries → 2** and wire the second pack to BMS2's
+pins. The whole UI — tabs, web app and API — adapts automatically.
 
 ---
 
 ## Also in this repo
 
-Two other front-ends speak the same JK protocol, if you want them:
+If you don't have the hardware yet, or want a quick check from a phone, two smaller front-ends
+speak the same JK protocol:
 
-- **🌐 Web Bluetooth dashboard** (`index.html`) — a single-file, zero-install browser dashboard
-  over BLE; handy for a quick check from a phone/laptop with no hardware. Serve it locally and
-  open in Chrome/Edge (`…/?demo=1` to try with simulated data).
-- **📟 Arduino_GFX firmware** (`esp32-bms/`) — the original, lighter build for the same board
-  (bitmap fonts, no LVGL), fewer features.
+- **🌐 Web Bluetooth dashboard** (`index.html`) — a single-file browser app that talks to the
+  BMS over Bluetooth, no install. Open it in Chrome/Edge; add `?demo=1` to try it with no hardware.
+- **📟 Arduino_GFX firmware** (`esp32-bms/`) — the original, lighter build for the same board.
 
 ---
 
-## License
 © 2025–2026 Gillis Haasnoot
