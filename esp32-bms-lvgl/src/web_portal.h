@@ -29,9 +29,10 @@ h1{font-size:18px;margin:6px 8px}
 .tab{padding:6px 16px;border-radius:8px;background:#1f2731;cursor:pointer;font-weight:600}
 .tab.on{background:#1f6feb}
 .pill{padding:2px 10px;border-radius:10px;background:#1f2731;font-size:12px}
-.grid{column-count:1;column-gap:10px}
-@media(min-width:760px){.grid{column-count:2}}
-.card{background:#11161d;border:1px solid #1f2731;border-radius:12px;padding:14px;margin-bottom:10px;break-inside:avoid}
+.grid{display:flex;flex-direction:column;gap:10px}
+@media(min-width:760px){.grid{flex-direction:row;align-items:flex-start}}
+.col{display:flex;flex-direction:column;gap:10px;flex:1;min-width:0}
+.card{background:#11161d;border:1px solid #1f2731;border-radius:12px;padding:14px}
 .ct{font-size:11px;color:#7d8590;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
 .row{display:flex;justify-content:space-between;align-items:center;padding:3px 0}
 .mut{color:#7d8590}.grn{color:#3fb950}.amb{color:#d29922}.red{color:#f85149}.cy{color:#39d0d8}
@@ -55,30 +56,34 @@ img{width:100%;max-width:480px;border:1px solid #1f2731;border-radius:8px;image-
 <div class=bar><span class=tab id=t0 onclick=sel(0)>BAT 1</span><span class=tab id=t1 onclick=sel(1)>BAT 2</span>
 <span class=pill id=net style=margin-left:auto></span></div>
 <div class=grid>
- <div class=card><div class=ct>Status</div><div id=stat></div></div>
- <div class=card><div class=ct>Live</div><div class=met id=met></div></div>
- <div class=card><div class=ct>Weather <span id=wxc class=mut></span></div><div id=wx></div></div>
- <div class=card><div class=ct>Cells <span id=cd class=mut></span></div><div class=cells id=cells></div></div>
- <div class=card><div class=ct>Temperatures</div><div id=temps></div></div>
- <div class=card><div class=ct>Session</div><div id=sess></div></div>
- <div class=card><div class=ct>Controls</div><div id=ctl></div></div>
- <div class=card><div class=ct>Device screen</div><button class=sm onclick=shot()>Refresh</button>
-  <div class=scrwrap><img id=scr style=display:none><div id=scrld class=spin style=display:none></div><span id=scrh class=mut>tap Refresh</span></div></div>
- <div class=card><div class=ct>Settings <span class=mut>(tap value to edit)</span></div><table id=params></table></div>
- <div class=card><div class=ct>Firmware update</div><p class=mut id=fwv></p>
-  <input type=file id=fwf accept=.bin> <button onclick=upl()>Upload &amp; flash</button>
-  <div id=prog><div id=pb></div></div><p id=ust></p></div>
- <div class=card><div class=ct>Security</div><div class=row><span>Change password</span>
-  <span><input type=password id=np placeholder="new password"><button class=sm onclick=chpw()>Save</button></span></div></div>
- <div class=card><div class=ct>Home Assistant (MQTT)</div>
-  <div class=row><span class=mut>Status</span><span id=mqst>—</span></div>
-  <div class=row><span>Broker host</span><input id=mqh placeholder=192.168.x.x></div>
-  <div class=row><span>Port</span><input id=mqp type=number placeholder=1883></div>
-  <div class=row><span>Username</span><input id=mqu placeholder=optional></div>
-  <div class=row><span>Password</span><input id=mqpw type=password placeholder="(unchanged)"></div>
-  <div class=row><span><label><input type=checkbox id=mqe> Enabled</label></span><button class=sm onclick=savemq()>Save</button></div></div>
+ <div class=col>
+  <div class=card><div class=ct>Status</div><div id=stat></div></div>
+  <div class=card><div class=ct>Live</div><div class=met id=met></div></div>
+  <div class=card><div class=ct>Weather <span id=wxc class=mut></span></div><div id=wx></div></div>
+  <div class=card><div class=ct>Cells <span id=cd class=mut></span></div><div class=cells id=cells></div></div>
+  <div class=card><div class=ct>Temperatures</div><div id=temps></div></div>
+  <div class=card><div class=ct>Session</div><div id=sess></div></div>
+  <div class=card><div class=ct>Controls</div><div id=ctl></div></div>
+ </div>
+ <div class=col>
+  <div class=card><div class=ct>Device screen</div><button class=sm onclick=shot()>Refresh</button>
+   <div class=scrwrap><img id=scr style=display:none><div id=scrld class=spin style=display:none></div><span id=scrh class=mut>loading…</span></div></div>
+  <div class=card><div class=ct>Settings <span class=mut>(tap value to edit)</span></div><table id=params></table></div>
+  <div class=card><div class=ct>Firmware update</div><p class=mut id=fwv></p>
+   <input type=file id=fwf accept=.bin> <button onclick=upl()>Upload &amp; flash</button>
+   <div id=prog><div id=pb></div></div><p id=ust></p></div>
+  <div class=card><div class=ct>Security</div><div class=row><span>Change password</span>
+   <span><input type=password id=np placeholder="new password"><button class=sm onclick=chpw()>Save</button></span></div></div>
+  <div class=card><div class=ct>Home Assistant (MQTT)</div>
+   <div class=row><span class=mut>Status</span><span id=mqst>—</span></div>
+   <div class=row><span>Broker host</span><input id=mqh placeholder=192.168.x.x></div>
+   <div class=row><span>Port</span><input id=mqp type=number placeholder=1883></div>
+   <div class=row><span>Username</span><input id=mqu placeholder=optional></div>
+   <div class=row><span>Password</span><input id=mqpw type=password placeholder="(unchanged)"></div>
+   <div class=row><span><label><input type=checkbox id=mqe> Enabled</label></span><button class=sm onclick=savemq()>Save</button></div></div>
+ </div>
 </div></div><script>
-let cur=0,D={},shotBusy=false,mqInit=false;
+let cur=0,D={},shotBusy=false,mqInit=false,scrInit=false;
 function esc(s){return String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}
 function sel(b){cur=b;t0.className='tab'+(b==0?' on':'');t1.className='tab'+(b==1?' on':'');render()}
 function tc(t){return(t<-50||t>120)?'--':t.toFixed(0)+'°C'}
@@ -89,7 +94,7 @@ async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json()
  t1.style.display=D.n>1?'':'none';if(cur>=D.n)sel(0);
  mqe.checked=!!D.mqEn;mqst.textContent=D.mqEn?(D.mqUp?'connected ✓':'enabled, not connected'):'disabled';mqst.className=D.mqUp?'grn':D.mqEn?'amb':'mut';
  if(!mqInit){mqh.value=D.mqHost||'';mqp.value=D.mqPort||1883;mqu.value=D.mqUser||'';mqInit=true}
- render()}catch(e){net.style.color='#f85149';net.textContent='disconnected — retrying…'}}
+ render();if(!scrInit){scrInit=true;shot()}}catch(e){net.style.color='#f85149';net.textContent='disconnected — retrying…'}}
 function wxcat(c){if(c<=0)return 0;if(c<=2)return 1;if(c==3||c==45||c==48)return 2;if((c>=71&&c<=77)||c==85||c==86)return 4;if(c>=95)return 5;return 3}
 function wxem(c){return ['☀️','⛅','☁️','🌧️','❄️','⛈️'][wxcat(c)]}
 function renderWx(){if(!D.wxOk){wx.innerHTML='<div class=mut>no data — needs internet</div>';wxc.textContent='';return}
@@ -133,9 +138,11 @@ async function chpw(){if(np.value.length<4){ust.textContent='password min 4 char
  np.value='';ust.textContent=r.ok?'password changed — re-login on next action':'change failed'}
 async function savemq(){let b='en='+(mqe.checked?1:0)+'&host='+encodeURIComponent(mqh.value)+'&port='+(mqp.value||1883)+'&user='+encodeURIComponent(mqu.value)+'&pass='+encodeURIComponent(mqpw.value);
  let r=await fetch('/setmqtt',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b});mqpw.value='';mqst.textContent=r.ok?'saved — connecting…':'save failed'}
-function shot(){shotBusy=true;scrld.style.display='block';scrh.style.display='none';
+function shot(retry){if(shotBusy&&!retry)return;shotBusy=true;scrld.style.display='block';scrh.style.display='none';
  scr.onload=()=>{shotBusy=false;scrld.style.display='none';scr.style.display='block'};
- scr.onerror=()=>{shotBusy=false;scrld.style.display='none';scrh.textContent='load failed — retry';scrh.style.display='inline'};
+ scr.onerror=()=>{shotBusy=false;
+   if(!retry){scrh.textContent='retrying…';scrh.style.display='inline';setTimeout(()=>shot(1),800);return}  // the BMP can truncate under load → one auto-retry
+   scrld.style.display='none';scrh.textContent='load failed — tap Refresh';scrh.style.display='inline'};
  scr.src='/screen.bmp?t='+Date.now()}
 function upl(){let f=fwf.files[0];if(!f){ust.textContent='pick a .bin first';return}
  let x=new XMLHttpRequest();x.open('POST','/update');prog.style.display='block';
