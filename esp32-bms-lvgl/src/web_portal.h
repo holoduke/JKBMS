@@ -101,11 +101,21 @@ async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json()
  if(!mqInit){mqh.value=D.mqHost||'';mqp.value=D.mqPort||1883;mqu.value=D.mqUser||'';mqInit=true}
  render();if(!scrInit){scrInit=true;shot()}}catch(e){net.style.color='#f85149';net.textContent='disconnected — retrying…'}}
 function wxcat(c){if(c<=0)return 0;if(c<=2)return 1;if(c==3||c==45||c==48)return 2;if((c>=71&&c<=77)||c==85||c==86)return 4;if(c>=95)return 5;return 3}
-function wxem(c){return ['☀️','⛅','☁️','🌧️','❄️','⛈️'][wxcat(c)]}
+function wxsvg(c,s){var cat=wxcat(c);
+ var cl='<g fill="#aeb8c4"><circle cx="9" cy="13" r="4.2"/><circle cx="14" cy="11" r="5.2"/><circle cx="18" cy="14" r="3.6"/><rect x="8" y="13" width="11" height="5.2" rx="2.6"/></g>';
+ var ray='<g stroke="#ffd43b" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.5" x2="12" y2="4.6"/><line x1="12" y1="17.4" x2="12" y2="19.5"/><line x1="2.5" y1="11" x2="4.6" y2="11"/><line x1="19.4" y1="11" x2="21.5" y2="11"/><line x1="5" y1="4" x2="6.5" y2="5.5"/><line x1="17.5" y1="16.5" x2="19" y2="18"/><line x1="19" y1="4" x2="17.5" y2="5.5"/><line x1="6.5" y1="16.5" x2="5" y2="18"/></g>';
+ var body;
+ if(cat==0)body=ray+'<circle cx="12" cy="11" r="4.6" fill="#ffd43b"/>';
+ else if(cat==1)body='<circle cx="8" cy="8" r="3.2" fill="#ffd43b"/><g stroke="#ffd43b" stroke-width="1.4" stroke-linecap="round"><line x1="8" y1="1.6" x2="8" y2="3"/><line x1="1.6" y1="8" x2="3" y2="8"/><line x1="3.4" y1="3.4" x2="4.5" y2="4.5"/><line x1="12.6" y1="3.4" x2="11.5" y2="4.5"/></g>'+cl;
+ else if(cat==2)body=cl;
+ else if(cat==3)body=cl+'<g stroke="#4aa3ff" stroke-width="1.8" stroke-linecap="round"><line x1="9" y1="19" x2="8" y2="22.5"/><line x1="13" y1="19" x2="12" y2="22.5"/><line x1="17" y1="19" x2="16" y2="22.5"/></g>';
+ else if(cat==4)body=cl+'<g fill="#cfe6ff"><circle cx="9" cy="21.5" r="1.2"/><circle cx="13" cy="21.5" r="1.2"/><circle cx="17" cy="21.5" r="1.2"/></g>';
+ else body=cl+'<polygon points="13,18 9.5,22.5 12,22.5 10.5,25.5 16,20 13,20" fill="#ffd43b"/>';
+ return '<svg width="'+s+'" height="'+s+'" viewBox="0 0 24 26" style="vertical-align:middle">'+body+'</svg>'}
 function renderWx(){if(!D.wxOk){wx.innerHTML='<div class=mut>no data — needs internet</div>';wxc.textContent='';return}
  wxc.textContent=D.wxCity||'';
- let rows=(D.wxD||[]).map((d,i)=>`<div class=row><span>${i==0?'Today':i==1?'Tomorrow':'In '+i+' days'} ${wxem(d.c)}</span><b>${d.mx}° / ${d.mn}°</b></div>`).join('');
- wx.innerHTML=`<div class=row><span class=big>${D.wxT}°</span><span style=font-size:32px>${wxem(D.wxC)}</span></div>${rows}`}
+ let rows=(D.wxD||[]).map((d,i)=>`<div class=row><span>${wxsvg(d.c,24)} ${i==0?'Today':i==1?'Tomorrow':'In '+i+' days'}</span><b>${d.mx}° / ${d.mn}°</b></div>`).join('');
+ wx.innerHTML=`<div class=row><span class=big>${D.wxT}°</span>${wxsvg(D.wxC,46)}</div>${rows}`}
 function render(){renderWx();if(!D.packs)return;let p=D.packs[cur];
  let op=p.err>0?['⚠ Alarm','red']:['✓ Operational','grn'];
  let alarms=(p.al&&p.al.length)?`<div style=margin-top:6px>${p.al.map(a=>`<div class=red>• ${esc(a)}</div>`).join('')}</div>`:'';
