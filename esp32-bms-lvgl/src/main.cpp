@@ -584,27 +584,35 @@ static int wxCat(int c) {
     if (c <= 0) return 0; if (c <= 2) return 1; if (c == 3 || c == 45 || c == 48) return 2;
     if ((c >= 71 && c <= 77) || c == 85 || c == 86) return 4; if (c >= 95) return 5; return 3;
 }
-static void wxSun(int x, int y, int r, uint32_t col) {            // filled disc + 8 clean rays
+// Weather glyphs drawn in the SAME geometry as the web SVG icons (a 24x26 space,
+// centred at 12,13), mapped to the screen by a scale `gK` about (gCx,gCy). This makes
+// the on-device icons identical in shape to the web dashboard's.
+static int gCx, gCy; static float gK;
+static inline int wpx(float wx) { return gCx + (int)lroundf((wx - 12.0f) * gK); }
+static inline int wpy(float wy) { return gCy + (int)lroundf((wy - 13.0f) * gK); }
+static inline int wpr(float r)  { int v = (int)lroundf(r * gK); return v < 1 ? 1 : v; }
+static void wxSunAt(float scx, float scy, float r, uint32_t col) {   // disc + 8 rays (web sun)
     for (int a = 0; a < 8; a++) { float t = a * PI / 4;
-        line(x + (int)((r + 2) * cosf(t)), y + (int)((r + 2) * sinf(t)),
-             x + (int)((r + 4) * cosf(t)), y + (int)((r + 4) * sinf(t)), col); }
-    fCircle(x, y, r, col);
+        line(wpx(scx + (r + 2.0f) * cosf(t)), wpy(scy + (r + 2.0f) * sinf(t)),
+             wpx(scx + (r + 4.5f) * cosf(t)), wpy(scy + (r + 4.5f) * sinf(t)), col); }
+    fCircle(wpx(scx), wpy(scy), wpr(r), col);
 }
-static void wxCloud(int x, int y, int s, uint32_t col) {           // rounded top bumps + flat base
-    fCircle(x - s + 1, y, s - 1, col);
-    fCircle(x + s - 1, y, s - 2, col);
-    fCircle(x, y - 2, s, col);
-    fRect(x - s, y - 1, 2 * s, s + 1, 2, col);
+static void wxCloudAt(uint32_t col) {   // web cloud: 3 bumps (small-left, big-mid, small-right) + flat base
+    fCircle(wpx(9), wpy(13), wpr(4.2f), col);
+    fCircle(wpx(14), wpy(11), wpr(5.2f), col);
+    fCircle(wpx(18), wpy(14), wpr(3.6f), col);
+    fRect(wpx(8), wpy(13), wpr(11), wpr(5.2f), wpr(2.6f), col);
 }
-static void drawWxIcon(int x, int y, int code) {   // centred at (x,y), ~18px
+static void drawWxIcon(int cx, int cy, int code) {   // centred at (cx,cy)
     const uint32_t SUN = 0xffd43b, CLD = 0xc9d1d9, RN = 0x4aa3ff, SNW = 0xcfe6ff, BOLT = 0xffd43b;
+    gCx = cx; gCy = cy; gK = 0.82f;   // ~20px glyph from the 24-unit web space
     int cat = wxCat(code);
-    if (cat == 0) { wxSun(x, y, 5, SUN); return; }                                   // clear
-    if (cat == 1) { wxSun(x - 4, y - 3, 3, SUN); wxCloud(x + 2, y + 3, 4, CLD); return; }  // partly
-    wxCloud(x, y - 1, 5, CLD);                                                       // cloud base for 2..5
-    if (cat == 3) for (int i = -1; i <= 1; i++) { int dx = x + i * 5; for (int o = 0; o < 2; o++) line(dx + o, y + 5, dx - 2 + o, y + 9, RN); }        // rain: thick drops
-    else if (cat == 4) for (int i = -1; i <= 1; i++) { int dx = x + i * 5, dy = y + 7; fCircle(dx, dy, 1, SNW); line(dx - 1, dy, dx + 1, dy, SNW); line(dx, dy - 1, dx, dy + 1, SNW); }  // snow: flakes
-    else if (cat == 5) for (int o = 0; o < 2; o++) { line(x + 1 + o, y + 4, x - 2 + o, y + 9, BOLT); line(x - 2 + o, y + 9, x + 2 + o, y + 8, BOLT); line(x + 2 + o, y + 8, x - 1 + o, y + 13, BOLT); }  // thunder: bold bolt
+    if (cat == 0) { wxSunAt(12, 11, 4.6f, SUN); return; }                   // clear
+    if (cat == 1) { wxSunAt(8, 8, 3.0f, SUN); wxCloudAt(CLD); return; }     // partly (sun peeks, cloud over)
+    wxCloudAt(CLD);                                                         // cloud base for 2..5
+    if (cat == 3) for (int i = 0; i < 3; i++) { float bx = 9 + i * 4; for (int o = 0; o < 2; o++) line(wpx(bx) + o, wpy(19), wpx(bx - 1) + o, wpy(22.5f), RN); }   // rain streaks
+    else if (cat == 4) for (int i = 0; i < 3; i++) { float bx = 9 + i * 4; fCircle(wpx(bx), wpy(21.5f), wpr(1.4f), SNW); }                                        // snow dots
+    else if (cat == 5) { tri(wpx(13), wpy(18), wpx(9.5f), wpy(22.5f), wpx(13), wpy(20), BOLT); tri(wpx(13), wpy(20), wpx(16), wpy(20), wpx(10.5f), wpy(25.5f), BOLT); }    // filled bolt
 }
 static void drawBed(int cx, int cy, uint32_t col) {
     int x = cx - 13, y = cy + 5;
