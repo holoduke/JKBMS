@@ -54,7 +54,7 @@ default is derived from the eFuse MAC, e.g. `jk-xxxx`):
 - **Live dashboard** for both packs (SOC/V/A/W/temps/cells/status), responsive
   (two columns on desktop, stacked on mobile).
 - **Controls:** toggle charge/discharge/balancer, tap any setting to edit it.
-- **Device screen** — a live screenshot of the LCD framebuffer (`/screen.bmp`).
+- **Device screen** — a live screenshot of the LCD framebuffer, JPEG-encoded on the device (`/screen.jpg`, ~30 KB).
 - **Firmware update** — drag a `.bin` and flash it; the device reboots into it.
 - **Security** — change the portal/OTA password (stored in NVS).
 

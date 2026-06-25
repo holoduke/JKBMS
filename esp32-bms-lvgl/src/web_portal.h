@@ -5,6 +5,7 @@
 #include <WebServer.h>
 #include <ArduinoOTA.h>
 #include <Update.h>
+#include <JPEGENC.h>
 
 static WebServer webServer(80);
 static bool webStarted = false;
@@ -143,13 +144,13 @@ function shot(retry){if(shotBusy&&!retry)return;shotBusy=true;scrld.style.displa
  scr.onerror=()=>{shotBusy=false;
    if(!retry){scrh.textContent='retrying…';scrh.style.display='inline';setTimeout(()=>shot(1),800);return}  // the BMP can truncate under load → one auto-retry
    scrld.style.display='none';scrh.textContent='load failed — tap Refresh';scrh.style.display='inline'};
- scr.src='/screen.bmp?t='+Date.now()}
+ scr.src='/screen.jpg?t='+Date.now()}
 function upl(){let f=fwf.files[0];if(!f){ust.textContent='pick a .bin first';return}
  let x=new XMLHttpRequest();x.open('POST','/update');prog.style.display='block';
  x.upload.onprogress=e=>{pb.style.width=(e.loaded/e.total*100)+'%'};
  x.onload=()=>{ust.textContent=x.status==200?'OK — device rebooting…':'failed: '+x.responseText};
  let fd=new FormData();fd.append('f',f);x.send(fd)}
-load();setInterval(load,2000);   // screenshot is heavy (blocks the server while it streams) → load on Refresh only
+load();setInterval(load,2000);   // /api every 2s; the JPEG snapshot auto-loads once then on Refresh
 </script></body></html>)HTML";
 
 // ---- JSON state ----
@@ -208,8 +209,6 @@ static String webJson() {
     return j;
 }
 
-// Stream the live LVGL framebuffer as a 24-bit BMP. The canvas is rotated/column-major:
-// landscape pixel (lx,ly) lives at fb[lx*Ht + (Ht-1-ly)]. BMP is top-down (negative height), BGR.
 // WiFiClient.write() can do partial sends when the TCP buffer is full; loop until all sent
 static void clientWriteAll(WiFiClient &c, const uint8_t *p, size_t n) {
     size_t sent = 0; uint32_t t0 = millis();
@@ -219,44 +218,45 @@ static void clientWriteAll(WiFiClient &c, const uint8_t *p, size_t n) {
         else { if (millis() - t0 > 3000) break; delay(1); }
     }
 }
+// Stream the live LVGL framebuffer as a JPEG (~20-30KB vs the old 460KB BMP → far
+// faster, no truncation). The canvas is rotated/column-major: landscape pixel (lx,ly)
+// lives at fb[lx*Ht + (Ht-1-ly)], so de-rotate into a row-major RGB565 buffer first.
+// Both scratch buffers live in PSRAM; JPEGENC is static (its state struct is large).
+static JPEGENC jpgEnc;
 static void handleScreen() {
     if (!webAuth()) return;
     const uint16_t *fb = gfx->getFramebuffer();
     if (!fb) { webServer.send(500, "text/plain", "no framebuffer"); return; }
     const int W = Wd, H = Ht;
-    const uint32_t imgSize = (uint32_t)W * H * 3, fileSize = 54 + imgSize;
-    uint8_t hdr[54]; memset(hdr, 0, sizeof(hdr));
-    hdr[0] = 'B'; hdr[1] = 'M';
-    hdr[2] = fileSize; hdr[3] = fileSize >> 8; hdr[4] = fileSize >> 16; hdr[5] = fileSize >> 24;
-    hdr[10] = 54; hdr[14] = 40;
-    hdr[18] = W & 0xFF; hdr[19] = W >> 8;
-    int32_t nh = -H; hdr[22] = nh; hdr[23] = nh >> 8; hdr[24] = nh >> 16; hdr[25] = nh >> 24;
-    hdr[26] = 1; hdr[28] = 24;
-    hdr[34] = imgSize; hdr[35] = imgSize >> 8; hdr[36] = imgSize >> 16; hdr[37] = imgSize >> 24;
-    webServer.setContentLength(fileSize);
-    webServer.send(200, "image/bmp", "");
-    WiFiClient client = webServer.client();
-    WiFi.setSleep(false);          // modem-sleep latency stalls the 460KB stream → truncation; disable while sending
-    clientWriteAll(client, hdr, 54);
-    static uint8_t row[Wd * 3];
+    uint16_t *land = (uint16_t *)ps_malloc((size_t)W * H * 2);   // de-rotated row-major landscape
+    const int outCap = 96 * 1024;
+    uint8_t *out = (uint8_t *)ps_malloc(outCap);
+    if (!land || !out) { free(land); free(out); webServer.send(500, "text/plain", "oom"); return; }
     for (int ly = 0; ly < H; ly++) {
-        int o = 0;
-        for (int lx = 0; lx < W; lx++) {
-            uint16_t px = fb[(int32_t)lx * H + (H - 1 - ly)];
-            uint8_t r = (px >> 11) & 0x1f, g = (px >> 5) & 0x3f, b = px & 0x1f;
-            row[o++] = (b << 3) | (b >> 2);   // BMP pixel order is B,G,R
-            row[o++] = (g << 2) | (g >> 4);
-            row[o++] = (r << 3) | (r >> 2);
-        }
-        clientWriteAll(client, row, W * 3);
+        uint16_t *d = land + (size_t)ly * W;
+        for (int lx = 0; lx < W; lx++) d[lx] = fb[(int32_t)lx * H + (H - 1 - ly)];
     }
+    JPEGENCODE jpe; int sz = 0;
+    if (jpgEnc.open(out, outCap) == JPEGE_SUCCESS) {
+        if (jpgEnc.encodeBegin(&jpe, W, H, JPEGE_PIXEL_RGB565, JPEGE_SUBSAMPLE_420, JPEGE_Q_HIGH) == JPEGE_SUCCESS)
+            jpgEnc.addFrame(&jpe, (uint8_t *)land, W * 2);
+        sz = jpgEnc.close();
+    }
+    free(land);
+    if (sz <= 0) { free(out); webServer.send(500, "text/plain", "encode failed"); return; }
+    webServer.setContentLength(sz);
+    webServer.send(200, "image/jpeg", "");
+    WiFiClient client = webServer.client();
+    WiFi.setSleep(false);                  // modem-sleep latency can stall the stream; disable while sending
+    clientWriteAll(client, out, (size_t)sz);
     if (!otaActive) WiFi.setSleep(true);   // don't re-enable sleep if an OTA just started mid-send
+    free(out);
 }
 
 static void webBegin() {
     if (webStarted) return;
     webServer.on("/", []() { if (!webAuth()) return; webServer.send_P(200, "text/html", WEB_PAGE); });
-    webServer.on("/screen.bmp", handleScreen);
+    webServer.on("/screen.jpg", handleScreen);
     webServer.on("/api", []() { if (!webAuth()) return; webServer.send(200, "application/json", webJson()); });
     webServer.on("/toggle", HTTP_POST, []() {
         if (!webAuth()) return;
