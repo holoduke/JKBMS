@@ -584,20 +584,27 @@ static int wxCat(int c) {
     if (c <= 0) return 0; if (c <= 2) return 1; if (c == 3 || c == 45 || c == 48) return 2;
     if ((c >= 71 && c <= 77) || c == 85 || c == 86) return 4; if (c >= 95) return 5; return 3;
 }
-static void wxSun(int x, int y, int r, uint32_t col) {
-    for (int a = 0; a < 8; a++) { float t = a * PI / 4; line(x + (int)((r + 1) * cosf(t)), y + (int)((r + 1) * sinf(t)), x + (int)((r + 3) * cosf(t)), y + (int)((r + 3) * sinf(t)), col); }
+static void wxSun(int x, int y, int r, uint32_t col) {            // filled disc + 8 clean rays
+    for (int a = 0; a < 8; a++) { float t = a * PI / 4;
+        line(x + (int)((r + 2) * cosf(t)), y + (int)((r + 2) * sinf(t)),
+             x + (int)((r + 4) * cosf(t)), y + (int)((r + 4) * sinf(t)), col); }
     fCircle(x, y, r, col);
 }
-static void wxCloud(int x, int y, uint32_t col) { fCircle(x - 4, y, 3, col); fCircle(x + 4, y, 3, col); fCircle(x, y - 2, 4, col); fRect(x - 5, y, 11, 4, 2, col); }
-static void drawWxIcon(int x, int y, int code) {   // centred at (x,y), ~14px
-    const uint32_t SUN = 0xffd43b, CLD = 0xc9d1d9, RN = 0x4aa3ff, BOLT = 0xffd43b;
+static void wxCloud(int x, int y, int s, uint32_t col) {           // rounded top bumps + flat base
+    fCircle(x - s + 1, y, s - 1, col);
+    fCircle(x + s - 1, y, s - 2, col);
+    fCircle(x, y - 2, s, col);
+    fRect(x - s, y - 1, 2 * s, s + 1, 2, col);
+}
+static void drawWxIcon(int x, int y, int code) {   // centred at (x,y), ~18px
+    const uint32_t SUN = 0xffd43b, CLD = 0xc9d1d9, RN = 0x4aa3ff, SNW = 0xcfe6ff, BOLT = 0xffd43b;
     int cat = wxCat(code);
-    if (cat == 0) { wxSun(x, y, 4, SUN); return; }
-    if (cat == 1) { wxSun(x - 3, y - 2, 3, SUN); wxCloud(x + 2, y + 2, CLD); return; }
-    wxCloud(x, y - 1, CLD);
-    if (cat == 3) { for (int i = -1; i <= 1; i++) line(x + i * 4, y + 5, x + i * 4 - 1, y + 8, RN); }
-    else if (cat == 4) { for (int i = -1; i <= 1; i++) fCircle(x + i * 4, y + 6, 1, CLD); }
-    else if (cat == 5) { line(x, y + 4, x - 2, y + 8, BOLT); line(x - 2, y + 8, x + 1, y + 7, BOLT); line(x + 1, y + 7, x - 1, y + 11, BOLT); }
+    if (cat == 0) { wxSun(x, y, 5, SUN); return; }                                   // clear
+    if (cat == 1) { wxSun(x - 4, y - 3, 3, SUN); wxCloud(x + 2, y + 3, 4, CLD); return; }  // partly
+    wxCloud(x, y - 1, 5, CLD);                                                       // cloud base for 2..5
+    if (cat == 3) for (int i = -1; i <= 1; i++) { int dx = x + i * 5; for (int o = 0; o < 2; o++) line(dx + o, y + 5, dx - 2 + o, y + 9, RN); }        // rain: thick drops
+    else if (cat == 4) for (int i = -1; i <= 1; i++) { int dx = x + i * 5, dy = y + 7; fCircle(dx, dy, 1, SNW); line(dx - 1, dy, dx + 1, dy, SNW); line(dx, dy - 1, dx, dy + 1, SNW); }  // snow: flakes
+    else if (cat == 5) for (int o = 0; o < 2; o++) { line(x + 1 + o, y + 4, x - 2 + o, y + 9, BOLT); line(x - 2 + o, y + 9, x + 2 + o, y + 8, BOLT); line(x + 2 + o, y + 8, x - 1 + o, y + 13, BOLT); }  // thunder: bold bolt
 }
 static void drawBed(int cx, int cy, uint32_t col) {
     int x = cx - 13, y = cy + 5;
@@ -655,9 +662,9 @@ static void drawTabs(bool autoActive, float prog) {
     int wifiX = (numBms >= 2 ? TAB2_X + TAB_W : TAB1_X + TAB_W) + 22;   // just right of the last battery tab
     drawWifiSmall(wifiX, y + h / 2 + 5, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
     if (wxOk) {   // today's weather: glyph + temp, right of the wifi icon
-        int wx = wifiX + 22; drawWxIcon(wx, y + h / 2, wxCurCode);
+        int wx = wifiX + 24; drawWxIcon(wx, y + h / 2, wxCurCode);
         char wt[6]; snprintf(wt, sizeof(wt), "%d", wxCurTemp);
-        int tx = wx + 12; lText(wt, tx, y + 5, F16, C_TEXT);
+        int tx = wx + 15; lText(wt, tx, y + 5, F16, C_TEXT);
         fCircle(tx + textW(wt, F16) + 2, y + 7, 1, C_TEXT);   // degree mark
     }
     struct tm ti;
