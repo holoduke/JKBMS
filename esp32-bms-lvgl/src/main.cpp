@@ -637,16 +637,18 @@ static void drawWifi(int cx, int cy, uint32_t color) {
         }
     }
 }
-// compact wifi glyph for the top bar (dot at bottom, arcs fanning up)
+// compact wifi glyph for the top bar; cy is the VISUAL centre (dot below, arcs fanning up),
+// so it lines up with the weather glyph / temperature / clock which all centre on the same y.
 static void drawWifiSmall(int cx, int cy, uint32_t color) {
-    fCircle(cx, cy, 1, color);
+    int by = cy + 4;   // dot baseline: arcs reach ~9px up → +4 centres the glyph on cy
+    fCircle(cx, by, 1, color);
     const float a0 = 50.0f * (PI / 180.0f), a1 = 130.0f * (PI / 180.0f), yScale = 0.72f;
     int radii[3] = {4, 8, 12};
     for (int k = 0; k < 3; k++) {
         int r = radii[k], px = -1, py = -1;
         for (int s = 0; s <= 8; s++) {
             float a = a0 + (a1 - a0) * s / 8.0f;
-            int x = cx + (int)(r * cosf(a)), y = cy - (int)(r * sinf(a) * yScale);
+            int x = cx + (int)(r * cosf(a)), y = by - (int)(r * sinf(a) * yScale);
             if (px >= 0) line(px, py, x, y, color);
             px = x; py = y;
         }
@@ -666,9 +668,9 @@ static void drawTabs(bool autoActive, float prog) {
         if (on && autoActive && numBms >= 2) fRect(x + 6, y + h - 3, (int)((TAB_W - 12) * prog), 2, 0, C_BG);
     }
     // wifi status icon, just right of the battery buttons (green = connected, grey = not)
-    // dot sits at the baseline, arcs fan ~9px up → place the dot below centre so the glyph centres
+    // centred on y+h/2 — same vertical centre as the weather glyph, temperature and clock
     int wifiX = (numBms >= 2 ? TAB2_X + TAB_W : TAB1_X + TAB_W) + 22;   // just right of the last battery tab
-    drawWifiSmall(wifiX, y + h / 2 + 5, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
+    drawWifiSmall(wifiX, y + h / 2, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
     if (wxOk) {   // today's weather: glyph + temp, right of the wifi icon
         int wx = wifiX + 24; drawWxIcon(wx, y + h / 2, wxCurCode);
         char wt[6]; snprintf(wt, sizeof(wt), "%d", wxCurTemp);
