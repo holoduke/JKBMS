@@ -30,9 +30,9 @@ builds (apps 2 & 3) you need:
 | 📟 | **Display board** | Guition **JC3248W535** — ESP32-S3-N16R8, 3.5″ 320×480 QSPI touch | **[AliExpress](https://nl.aliexpress.com/item/1005008495512979.html)** |
 | 🔋 | **BMS** | A **JK-BMS** with an **RS485** port (LiFePO₄ / Li-ion) | **[AliExpress](https://nl.aliexpress.com/item/1005008215378422.html)** |
 | 🔌 | **Buck converter** | Step the pack voltage down to a clean **5 V** for the board | **[AliExpress](https://nl.aliexpress.com/item/1005006537133858.html)** |
+| 🧵 | **Connector cables** | **4-pin** (RS485) and **8-pin** cables to tap the JK-BMS port | **[AliExpress](https://nl.aliexpress.com/item/1005007277110532.html)** |
 
-Plus a few jumper wires (RS485/UART + GND). Full wiring + setup notes in
-[Recommended hardware](#-recommended-hardware) below.
+Full wiring + setup notes in [Recommended hardware](#-recommended-hardware) below.
 
 ---
 
@@ -103,7 +103,7 @@ you want maximum headroom or to port the dashboard elsewhere.
 |------|-------|
 | **Display board** | **Guition JC3248W535** — ESP32-S3-N16R8, 3.5″ 320×480 QSPI (AXS15231B) capacitive touch. Both firmware builds target this exact board. 👉 **[Get it on AliExpress](https://nl.aliexpress.com/item/1005008495512979.html)** |
 | **BMS** | Any JK-BMS with an **RS485 port** (e.g. JK-B2A8S20P). Set its protocol to **"JK BMS RS485 Modbus", 115200 baud**. 👉 **[Get it on AliExpress](https://nl.aliexpress.com/item/1005008215378422.html)** |
-| **Wiring** | BMS RS485/UART → ESP32. Defaults: **BMS1** RX `IO18` / TX `IO17`, **BMS2** RX `IO15` / TX `IO16`, shared GND. Pins are configurable in Settings → BMS. |
+| **Wiring** | BMS RS485/UART → ESP32. Defaults: **BMS1** RX `IO18` / TX `IO17`, **BMS2** RX `IO15` / TX `IO16`, shared GND. Pins are configurable in Settings → BMS. A **[4-pin (RS485) + 8-pin cable set](https://nl.aliexpress.com/item/1005007277110532.html)** makes tapping the JK port easy. |
 | **Power** | 5 V to the board, e.g. via a **[buck converter](https://nl.aliexpress.com/item/1005006537133858.html)** stepping down the pack voltage. ⚠️ Powering from a buck converter often disables the USB **data** port — flash over USB from a PC, then run from the buck. For switched installs, prefer **high-side** switching. |
 | **Web dashboard** | A Chromium browser (Chrome/Edge) with Web Bluetooth — nothing else. |
 
