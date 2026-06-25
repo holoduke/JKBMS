@@ -85,7 +85,7 @@ you want maximum headroom or to port the dashboard elsewhere.
 
 | Part | Notes |
 |------|-------|
-| **Display board** | **Guition JC3248W535** — ESP32-S3-N16R8, 3.5″ 320×480 QSPI (AXS15231B) capacitive touch. Both firmware builds target this exact board. |
+| **Display board** | **Guition JC3248W535** — ESP32-S3-N16R8, 3.5″ 320×480 QSPI (AXS15231B) capacitive touch. Both firmware builds target this exact board. 👉 **[Get it on AliExpress](https://nl.aliexpress.com/item/1005008495512979.html)** |
 | **BMS** | Any JK-BMS with an **RS485 port** (e.g. JK-B2A8S20P). Set its protocol to **"JK BMS RS485 Modbus", 115200 baud**. |
 | **Wiring** | BMS RS485/UART → ESP32. Defaults: **BMS1** RX `IO18` / TX `IO17`, **BMS2** RX `IO15` / TX `IO16`, shared GND. Pins are configurable in Settings → BMS. |
 | **Power** | 5 V to the board. ⚠️ Powering from a buck converter often disables the USB **data** port — flash over USB from a PC, then run from the buck. For switched installs, prefer **high-side** switching. |

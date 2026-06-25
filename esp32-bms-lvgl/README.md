@@ -6,7 +6,7 @@ A rebuild of the `esp32-bms/` dashboard using **LVGL 9** for anti-aliased fonts,
 smooth scrolling, gestures, and real widgets. Same hardware, nicer UI.
 *(The clip above is captured straight from the device's framebuffer over serial.)*
 
-- **Board:** Guition JC3248W535 (ESP32-S3-N16R8, 320×480 QSPI AXS15231B)
+- **Board:** Guition JC3248W535 (ESP32-S3-N16R8, 320×480 QSPI AXS15231B) — [get it on AliExpress](https://nl.aliexpress.com/item/1005008495512979.html)
 - **Stack:** PlatformIO + pioarduino (arduino-esp32 3.3.x) + Arduino_GFX (display
   driver) + **LVGL 9.5** + AXS15231B touch
 - LVGL renders into a partial buffer; `my_disp_flush` blits dirty areas to an
