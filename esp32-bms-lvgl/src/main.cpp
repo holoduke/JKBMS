@@ -2701,19 +2701,20 @@ static void invArea(int x1, int y1, int x2, int y2) {
 }
 // Poll the live BMSes; when a pack's online/offline state flips, repaint the tab
 // row (red ↔ accent) and the body (stale ↔ live) so the UI tracks reconnects.
+// Core-1 reaction to the core-0 poll: the actual Modbus read happens in netTask; here we
+// only repaint when the cached state the user sees has changed (no blocking work).
 static void bmsPoll_cb(lv_timer_t *t) {
-    if (uiBusy()) return;                      // don't block touch/scroll with a Modbus read mid-gesture
-    bool was0 = bmsLive[0], was1 = numBms >= 2 ? bmsLive[1] : false;
+    static bool was0 = false, was1 = false; static int lastHc = -1;
+    bool l0 = bmsLive[0], l1 = numBms >= 2 ? bmsLive[1] : false;
     int hc = histCount[view];
-    bmsRead();
-    histSample();                              // append a real point when one is due
-    energyIntegrate();                         // accumulate lifetime kWh in/out
-    if (standby || view == V_SETTINGS) return;
-    if (bmsLive[0] != was0 || (numBms >= 2 && bmsLive[1] != was1)) {
+    if (standby || view == V_SETTINGS) { was0 = l0; was1 = l1; lastHc = hc; return; }   // track silently; view switch repaints in full
+    if (l0 != was0 || l1 != was1) {            // a pack went online/offline
+        was0 = l0; was1 = l1;
         invArea(6, 4, TAB2_X + TAB_W, 36);     // tab colours
         invArea(0, 36, Wd - 1, Ht - 1);        // body: stale ↔ live values
     }
-    if (histCount[view] != hc) {               // a new sample landed → refresh the graphs
+    if (hc != lastHc) {                         // a new history sample landed → refresh the graphs
+        lastHc = hc;
         renderGraphs();
         invArea(196, 118, Wd - 1, 313);        // power + capacity graph slots
     }
@@ -2800,10 +2801,19 @@ static void wifiTick_cb(lv_timer_t *t) {
 // one that touches the Modbus bus, and that's serialised against the core-1 poll by busMux.
 // Good home for any future blocking/background job (extra sensors, cloud sync, etc.).
 static void netTask(void *) {
+    uint32_t lastPoll = 0;
     for (;;) {
         mqttLoop();     // HA / MQTT — connect, keepalive, publish, handle commands
         weatherLoop();  // geo-IP + Open-Meteo forecast (self-throttled)
         alertLoop();    // threshold push alerts (self-throttled)
+        // BMS Modbus poll lives here too — its blocking UART reads (≤~150ms for an
+        // offline pack) used to stall the render core every second; now core 1 only
+        // reacts to the cached results (see bmsPoll_cb). busMux keeps the bus exclusive.
+        uint32_t now = millis();
+        if (now - lastPoll >= 1000) {
+            lastPoll = now;
+            bmsRead(); histSample(); energyIntegrate();
+        }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
@@ -2899,7 +2909,7 @@ void setup() {
     dataTimer = lv_timer_create(dataTick_cb, 220, NULL);  // live values (+ power-save supervisor)
     lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
     lv_timer_create(wifiTick_cb, 500, NULL);
-    lv_timer_create(bmsPoll_cb, 1000, NULL);              // poll live BMSes (+ repaint on reconnect)
+    lv_timer_create(bmsPoll_cb, 500, NULL);               // react to core-0 poll results (reconnect repaint, graph refresh)
     // Blocking network I/O on core 0, away from the render/touch core (1). 10 KB stack
     // covers the mbedTLS handshake; low priority so it never preempts the UI.
     xTaskCreatePinnedToCore(netTask, "net", 10240, NULL, 1, NULL, 0);
