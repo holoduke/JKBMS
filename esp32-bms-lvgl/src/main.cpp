@@ -714,18 +714,20 @@ static void drawTabs(bool autoActive, float prog) {
     // wifi status icon, just right of the battery buttons (green = connected, grey = not)
     // centred on y+h/2 — same vertical centre as the weather glyph, temperature and clock
     int wifiX = (numBms >= 2 ? TAB2_X + TAB_W : TAB1_X + TAB_W) + 22;   // just right of the last battery tab
-    drawWifiSmall(wifiX, y + h / 2, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
+    int midY = y + h / 2;   // shared vertical centre for the whole top-bar row
+    drawWifiSmall(wifiX, midY, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
     if (wxOk) {   // today's weather: glyph + temp, right of the wifi icon
-        int wx = wifiX + 24; drawWxIcon(wx, y + h / 2, wxCurCode);
+        int wx = wifiX + 24; drawWxIcon(wx, midY + 1, wxCurCode);   // +1 centres the sun glyph (its art sits slightly high)
         char wt[6]; snprintf(wt, sizeof(wt), "%d", wxCurTemp);
-        int tx = wx + 15; lText(wt, tx, y + 5, F16, C_TEXT);
-        fCircle(tx + textW(wt, F16) + 2, y + 7, 1, C_TEXT);   // degree mark
+        int tw = textW(wt, F16), tx = wx + 15;
+        cText(wt, tx + tw / 2, midY, F16, C_TEXT);                  // centred on midY, same as the clock
+        fCircle(tx + tw + 3, midY - 5, 1, C_TEXT);                  // degree mark, upper-right of the digits
     }
     struct tm ti;
     setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1); tzset();   // TZ env is per-task in newlib; the render task needs its own tzset
     if (getLocalTime(&ti, 0)) {
         char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min);
-        cText(ts, BED_X - 36, 20, F16, C_TEXT);
+        cText(ts, BED_X - 36, midY, F16, C_TEXT);
     }
     fRect(BED_X, y, BED_W, h, 8, C_CARD);
     dRect(BED_X, y, BED_W, h, 8, C_BORDER);
