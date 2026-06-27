@@ -11,12 +11,18 @@
 #pragma once
 #include <stdint.h>
 
-enum { LANG_EN, LANG_FR, LANG_DE, LANG_NL, LANG_PL, LANG_PT, LANG_ES, LANG_VI, LANG_COUNT };
+// First 8 (LANG_EN..LANG_VI) share the Montserrat extended-Latin+Cyrillic font and live in the
+// STR[][LANG_LATIN8] table. Languages added after share that font too (Russian) or bring their
+// own (Chinese, via curFont) and live in flat STR_<lang>[] arrays — so adding a language doesn't
+// require editing all 161 rows of STR.
+enum { LANG_EN, LANG_FR, LANG_DE, LANG_NL, LANG_PL, LANG_PT, LANG_ES, LANG_VI, LANG_RU, LANG_COUNT };
+#define LANG_LATIN8 (LANG_VI + 1)   // languages held in the STR[][] table
 static uint8_t g_lang = 0;   // index into the columns below; persisted in NVS ("lang")
 
 // Native names for the picker (never translated).
 static const char *const LANG_NAME[LANG_COUNT] = {
-    "English", "Français", "Deutsch", "Nederlands", "Polski", "Português", "Español", "Tiếng Việt"};
+    "English", "Français", "Deutsch", "Nederlands", "Polski", "Português", "Español", "Tiếng Việt",
+    "Русский"};
 
 enum {
     // ---- status pill (bmsStatusStr) ----
@@ -65,7 +71,7 @@ enum {
     K_COUNT
 };
 
-static const char *const STR[K_COUNT][LANG_COUNT] = {
+static const char *const STR[K_COUNT][LANG_LATIN8] = {
     //                        EN                FR                 DE               NL              PL               PT               ES                 VI
     /*K_OFFLINE*/        {"Offline",        "Hors ligne",      "Offline",       "Offline",      "Offline",       "Offline",       "Sin conexión",    "Ngoại tuyến"},
     /*K_ALARM*/          {"Alarm",          "Alarme",          "Alarm",         "Alarm",        "Alarm",         "Alarme",        "Alarma",          "Báo động"},
@@ -248,4 +254,42 @@ static const char *const STR[K_COUNT][LANG_COUNT] = {
     /*K_E_GPS_LOCK*/     {"GPS remote lock", "Verrou GPS dist.", "GPS-Fernsperre","GPS afst.-slot","Blok. GPS zdal.","Bloq. GPS rem.","Bloqueo GPS rem.","Khóa GPS từ xa"},
 };
 
-static inline const char *T(int k) { return STR[k][g_lang]; }
+// Russian (Cyrillic) — flat array in StrKey order; uses the same font (Cyrillic added to mont1).
+static const char *const STR_RU[K_COUNT] = {
+    /*status*/ "Не в сети", "Тревога", "FET выкл", "Баланс.", "Зарядка", "Разрядка", "Полный", "Простой",
+    /*tiles*/ "НАПРЯЖ.", "ПИК ЗАР", "ПИК РАЗ", "ВРЕМЯ", "ОСТАЛОСЬ", "ЯЧЕЙКИ", "МОЩНОСТЬ", "ЁМКОСТЬ",
+    "сбор данных...", "дн", "ч",
+    /*system*/ "НАСТРОЙКИ", "Авто-переключ.", "Интервал", "Яркость", "Авто-сон", "Эко-режим",
+    "Затемн. через", "Ед. темп.", "Формат врем.", "WiFi авто", "Скор. демо", "О системе",
+    "Прошивка", "Демо-режим", "Заставка", "Заставка через", "Веб-адрес", "Веб-логин", "Веб-пароль", "Язык",
+    /*values*/ "ВКЛ", "ВЫКЛ", "Никогда", "Цельсий", "Фаренг.", "12-час", "24-час", "смотр.",
+    /*subtabs*/ "WiFi", "Система",
+    /*bms config*/ "Батареи", "Настроить", "UART TX", "UART RX", "Параметры", "не в сети", "демо-режим",
+    "чтение...", "MOSFET заряда", "MOSFET разряда", "Балансир",
+    /*wifi*/ "Скан.", "Скан. снова", "нажмите Скан.", "сканирование...", "сетей найдено", "сети не найдены",
+    "ошибка скан.", "подключение к", "Подключено:", "сбой (пароль?)", "сеть не найдена", "связь потеряна",
+    "не подключено",
+    /*keyboard*/ "введите пароль", "введите логин", "новый пароль", "Логин веб-интерфейса",
+    "Пароль веб-интерфейса", "пробел", "Отмена", "Сохр.",
+    /*info*/ "О СИСТЕМЕ", "Плата", "Flash", "PSRAM своб.", "Heap своб.", "Веб-вход", "Время работы",
+    "нажмите чтобы закрыть", "BMS: скоро",
+    /*params*/ "Ном. ёмкость", "Кол-во яч.", "Макс заряд A", "Макс разряд A", "Яч. OVP", "OVP возврат",
+    "Яч. UVP", "UVP возврат", "SOC 100% В", "SOC 0% В", "Старт бал. В", "Порог бал. dV", "Макс бал. A",
+    "Напр. заряда", "Напр. подд.", "Напр. откл.", "OCP зар. задерж", "OCP зар. возвр", "OCP раз. задерж",
+    "OCP раз. возвр", "SCP задержка", "SCP возврат", "OTP заряда", "OTP зар. возвр", "OTP разряда",
+    "OTP раз. возвр", "UTP заряда", "UTP зар. возвр", "MOS OTP", "MOS OTP возвр", "Умный сон В",
+    "Старт нагр. T", "Умный сон ч",
+    /*bit flags*/ "Нагрев", "Откл. датчик T", "Экран всегда вкл", "Умный сон", "Откл. PCL",
+    "Данные по врем.", "Заряд подд.", "Кнопка авар.", "Сухой контакт", "OCP2 разряда",
+    /*errors*/ "Сопрот. провода", "MOSFET перегрев", "Несоответ. яч.", "Полный заряд", "Перенапр. пакета",
+    "Перегруз заряда", "КЗ заряда", "Перегрев заряда", "Недогрев заряда", "Ошибка сопроц.",
+    "Недонапр. яч.", "Недонапр. пакета", "Перегруз разряда", "КЗ разряда", "Перегрев разряда",
+    "Сбой MOSFET зар.", "Сбой MOSFET раз.", "GPS отключён", "Смена пароля", "Сбой вкл. разряда",
+    "Перегрев батареи", "Аномалия датч. T", "Аномалия мод. PL", "Сбой сброса SCP", "OCP2 разряда",
+    "OCP3 разряда", "Недогрев разряда", "Удал. блок. GPS",
+};
+
+static inline const char *T(int k) {
+    if (g_lang == LANG_RU) return STR_RU[k];
+    return STR[k][g_lang];   // LANG_EN..LANG_VI
+}
