@@ -555,10 +555,14 @@ static inline const lv_font_t *curFont(int sz) {
 #define F28 curFont(28)
 #define F48 curFont(48)
 
-// pooled label text so the string outlives LVGL's deferred draw dispatch
-static char tpool[80][24];
+// Pooled label text so the string outlives LVGL's deferred draw dispatch. Slots must hold the
+// longest drawn string (incl. multibyte UTF-8): Russian labels reach ~40 bytes and WiFi status
+// with an SSID can hit ~57 → 64-byte slots. Slot count covers the busiest frame (dashboard ~60).
+#define TPOOL_N 96
+#define TPOOL_W 64
+static char tpool[TPOOL_N][TPOOL_W];
 static int tpi = 0;
-static const char *pool(const char *s) { char *d = tpool[tpi]; tpi = (tpi + 1) % 80; snprintf(d, 24, "%s", s); return d; }
+static const char *pool(const char *s) { char *d = tpool[tpi]; tpi = (tpi + 1) % TPOOL_N; snprintf(d, TPOOL_W, "%s", s); return d; }
 
 static void fRect(int x, int y, int w, int h, int r, uint32_t col, lv_opa_t opa = LV_OPA_COVER) {
     lv_draw_rect_dsc_t d; lv_draw_rect_dsc_init(&d);
@@ -2551,7 +2555,7 @@ static void dataTick_cb(lv_timer_t *t) {
     uint32_t idle = now - lastActivity;
     // auto-lock: arm after the inactivity timeout (needs a PIN set). The pad appears
     // automatically, or after the screensaver is touched (see lockShowing/press_cb).
-    if (lockAfterSec > 0 && lockPin[0] && !locked && idle > (uint32_t)lockAfterSec * 1000UL) {
+    if (lockAfterSec > 0 && lockPin[0] && !locked && !lockSetMode && idle > (uint32_t)lockAfterSec * 1000UL) {
         locked = true; lockEntryLen = 0; lockEntry[0] = 0; lockWrongUntil = 0; lv_obj_invalidate(scr);
     }
     if (!standby) {                                                 // (sleep keeps the backlight off)
