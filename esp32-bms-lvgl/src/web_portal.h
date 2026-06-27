@@ -231,6 +231,17 @@ function upl(){let f=fwf.files[0];if(!f){ust.textContent=t('pickbin');return}
 load();setInterval(load,2000);   // /api every 2s; the JPEG snapshot auto-loads once then on Refresh
 </script></body></html>)HTML";
 
+// Minimal JSON string escaper for free-text values (host/user/URL/city) that could
+// contain a quote/backslash/control char and otherwise break JSON.parse on the client.
+static String jesc(const char *s) {
+    String o; for (; *s; s++) {
+        char c = *s;
+        if (c == '"' || c == '\\') { o += '\\'; o += c; }
+        else if ((uint8_t)c < 0x20) { char b[8]; snprintf(b, sizeof(b), "\\u%04x", c); o += b; }
+        else o += c;
+    }
+    return o;
+}
 // ---- JSON state ----
 static String webJson() {
     String j; j.reserve(6500);   // one allocation; avoids a realloc cascade from the +='s below
@@ -239,10 +250,10 @@ static String webJson() {
         "\",\"up\":" + String(millis() / 1000) + ",\"clk\":\"" + clk + "\",\"tsync\":" + String(timeSynced ? 1 : 0) +
         ",\"heap\":" + String((unsigned long)ESP.getFreeHeap()) + ",\"heapBig\":" + String((unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)) + ",\"n\":" + String(numBms) +
         ",\"mqEn\":" + String(mqttEnabled ? 1 : 0) + ",\"mqUp\":" + String(mqttUp ? 1 : 0) +
-        ",\"mqHost\":\"" + mqttHost + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + mqttUser + "\"" +
-        ",\"alEn\":" + String(alertEnabled ? 1 : 0) + ",\"alUrl\":\"" + alertUrl + "\"" +
+        ",\"mqHost\":\"" + jesc(mqttHost) + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + jesc(mqttUser) + "\"" +
+        ",\"alEn\":" + String(alertEnabled ? 1 : 0) + ",\"alUrl\":\"" + jesc(alertUrl) + "\"" +
         ",\"alSoc\":" + String(alSocLo) + ",\"alTmp\":" + String(alTempHi) + ",\"alDlt\":" + String(alDeltaHi) + ",\"alFlt\":" + String(alOnFault ? 1 : 0) +
-        ",\"wxOk\":" + String(wxOk ? 1 : 0) + ",\"wxHttp\":" + String(wxHttp) + ",\"wxCity\":\"" + wxCity + "\",\"wxT\":" + String(wxCurTemp) + ",\"wxC\":" + String(wxCurCode) + ",\"wxD\":[";
+        ",\"wxOk\":" + String(wxOk ? 1 : 0) + ",\"wxHttp\":" + String(wxHttp) + ",\"wxCity\":\"" + jesc(wxCity) + "\",\"wxT\":" + String(wxCurTemp) + ",\"wxC\":" + String(wxCurCode) + ",\"wxD\":[";
     for (int i = 0; i < wxDays; i++) { if (i) j += ","; j += "{\"c\":" + String(wxDay[i].code) + ",\"mx\":" + String(wxDay[i].tmax) + ",\"mn\":" + String(wxDay[i].tmin) + "}"; }
     j += "],\"packs\":[";
     for (int t = 0; t < numBms; t++) {

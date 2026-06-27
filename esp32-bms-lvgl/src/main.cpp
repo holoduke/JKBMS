@@ -13,6 +13,7 @@
 #include <math.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include <esp_random.h>
 #include "pincfg.h"
 #include "dispcfg.h"
 #include "AXS15231B_touch.h"
@@ -145,6 +146,7 @@ static uint32_t pwrWinLast[2] = {0, 0};
 static bool bmsLive[2] = {false, false};   // per-BMS: real device responded over Modbus this poll
 static bool demoMode = false;              // ON = both BMSes simulated; OFF = poll real BMS 1 (addr 1) & 2 (addr 2)
 static float packFullAh[2] = {100.0f, 100.0f};   // full-charge capacity from each BMS (Ah)
+// Both packs are Modbus slave address 1, each on its OWN UART (no shared bus).
 HardwareSerial bmsSerial(1);           // BMS1 UART: RX=IO18, TX=IO17, 115200
 HardwareSerial bmsSerial2(2);          // BMS2 UART: RX=IO15, TX=IO16, 115200
 static HardwareSerial &bmsPort(int idx) { return idx == 0 ? bmsSerial : bmsSerial2; }   // each pack on its own bus
@@ -178,6 +180,7 @@ static bool tempF = false, fmt12 = false, wifiAuto = true;
 static int simSpeed = 1;            // demo data speed (1/2/5x)
 static char webUser[24] = "admin";  // web portal + OTA login name (editable from device Settings, stored in NVS)
 static char webPass[24] = "jkbms";  // default; change it from device Settings or the web page's Security section
+static bool freshWebPass = false;   // set when loadSettings generated a random default → persist it once
 static void webBegin();             // defined in web_portal.h (started on first WiFi connect)
 static void webLoop();
 // MQTT / Home Assistant config (set from the web portal, persisted in NVS)
@@ -349,7 +352,9 @@ static uint16_t mbCrc(const uint8_t *d, int n) {
     return c;
 }
 // Read the 0x1200 status block from one BMS (Modbus addr) into bms[idx]. Sets bmsLive[idx].
-static void bmsReadAddr(uint8_t addr, int idx) {
+// One realtime-block read attempt. Returns true (and sets bmsLive) on a fully valid
+// frame; false on no/short/corrupt reply (leaves bmsLive untouched — the caller retries).
+static bool bmsTryReadAddr(uint8_t addr, int idx) {
     HardwareSerial &S = bmsPort(idx);
     uint8_t req[8] = {addr, 3, 0x12, 0x00, 0x00, 0x71, 0, 0};
     uint16_t crc = mbCrc(req, 6); req[6] = crc & 0xFF; req[7] = crc >> 8;
@@ -359,8 +364,10 @@ static void bmsReadAddr(uint8_t addr, int idx) {
     // instant a full frame lands, so this timeout only bites when a pack is silent.
     static uint8_t r[260]; int n = 0; uint32_t t0 = millis();
     while (millis() - t0 < 70) { while (S.available() && n < 260) r[n++] = S.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
-    if (n < 5 || r[0] != addr || r[1] != 3) { bmsLive[idx] = false; return; }
-    int bc = r[2]; if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) { bmsLive[idx] = false; return; }
+    if (n < 5 || r[0] != addr || r[1] != 3) return false;
+    int bc = r[2];
+    if (bc < 196) return false;   // a short but CRC-valid frame would decode stale buffer bytes → reject (we read up to offset 0xC3)
+    if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) return false;
     uint8_t *p = r + 3;
     auto U16 = [&](int o) { return (uint16_t)(p[o] << 8 | p[o + 1]); };
     auto U32 = [&](int o) { return (uint32_t)((uint32_t)p[o] << 24 | p[o + 1] << 16 | p[o + 2] << 8 | p[o + 3]); };
@@ -391,6 +398,15 @@ static void bmsReadAddr(uint8_t addr, int idx) {
     b.soh = p[0xB8];                   // state of health % (web 190)
     b.bmsOk = (b.errFlags == 0);       // operational unless the BMS reports a fault
     bmsLive[idx] = true;
+    return true;
+}
+// Realtime read with one retry — a single dropped/corrupt frame shouldn't flap a pack to
+// "offline" (which clears its data row + settings and loses a history sample).
+static void bmsReadAddr(uint8_t addr, int idx) {
+    bool wasLive = bmsLive[idx];
+    if (bmsTryReadAddr(addr, idx)) return;
+    if (wasLive) { delay(6); if (bmsTryReadAddr(addr, idx)) return; }   // a live pack glitched → one retry (avoids flap); a silent pack isn't retried
+    bmsLive[idx] = false;
 }
 // Poll both real BMSes (addr 1 → BMS 1, addr 2 → BMS 2). Skipped in demo mode.
 // A pack that's offline is retried only every BMS_RETRY polls, not every poll, so
@@ -780,8 +796,7 @@ static void drawTabs(bool autoActive, float prog) {
         wxBoxL = wx - 16; wxBoxR = tx + tw + 8;                     // tap zone → opens the forecast popup
     } else { wxBoxL = wxBoxR = 0; }
     struct tm ti;
-    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1); tzset();   // TZ env is per-task in newlib; the render task needs its own tzset
-    if (getLocalTime(&ti, 0)) {
+    if (getLocalTime(&ti, 0)) {   // TZ already set once for this task in setup()
         char ts[6]; snprintf(ts, sizeof(ts), "%02d:%02d", ti.tm_hour, ti.tm_min);
         cText(ts, BED_X - 36, midY, F16, C_TEXT);
     }
@@ -1593,8 +1608,7 @@ static void renderWeatherPopup() {
     lText(T(K_TAP_CLOSE), x + w - 92, y + h - 18, F12, C_MUTED);
     int n = wxDays < 1 ? 1 : wxDays;
     int colW = (w - 16) / n;
-    // base date for the per-day header (Today + D/M for the rest)
-    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1); tzset();
+    // base date for the per-day header (Today + D/M for the rest); TZ set once in setup()
     struct tm ti; time_t base = 0; bool haveDate = false;
     if (getLocalTime(&ti, 0)) { base = mktime(&ti); haveDate = base > 0; }
     const int wdY = y + 38, dateY = y + 54, icoY = y + 98, mxY = y + 138, mnY = y + 160, condY = y + 184, popY = y + 208;
@@ -1750,7 +1764,12 @@ static void loadSettings() {
     if (prefs.isKey("pins")) prefs.getBytes("pins", bmsPin, sizeof(bmsPin));
     if (prefs.isKey("wuser")) { String wu = prefs.getString("wuser", webUser); strncpy(webUser, wu.c_str(), sizeof(webUser) - 1); webUser[sizeof(webUser) - 1] = 0; }
     if (prefs.isKey("wpass")) { String wp = prefs.getString("wpass", webPass); strncpy(webPass, wp.c_str(), sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0; }
-    else { uint8_t mac[6] = {0}; esp_read_mac(mac, ESP_MAC_WIFI_STA); snprintf(webPass, sizeof(webPass), "jk-%02x%02x", mac[4], mac[5]); }   // fresh install → unique default (from eFuse MAC), not the public 'jkbms'
+    else {   // fresh install → a RANDOM default (not derivable from the MAC, which any LAN peer can read);
+        const char *cs = "abcdefghijkmnpqrstuvwxyz23456789";   // 32 unambiguous chars (no 0/o/1/l)
+        char p[10] = "jk-"; for (int i = 3; i < 9; i++) p[i] = cs[esp_random() & 31]; p[9] = 0;
+        strncpy(webPass, p, sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0;
+        freshWebPass = true;   // persist it once in setup() so it's stable across reboots
+    }
     mqttEnabled = prefs.getBool("mqEn", false); mqttPort = prefs.getInt("mqPort", 1883);
     { String s = prefs.getString("mqHost", ""); strncpy(mqttHost, s.c_str(), sizeof(mqttHost) - 1); mqttHost[sizeof(mqttHost) - 1] = 0;
       s = prefs.getString("mqUser", ""); strncpy(mqttUser, s.c_str(), sizeof(mqttUser) - 1); mqttUser[sizeof(mqttUser) - 1] = 0;
@@ -2712,7 +2731,12 @@ static void dataTick_cb(lv_timer_t *t) {
     }
     if (!uiBusy()) {   // NVS writes block for tens of ms — never mid-scroll/fling
         if (cfgDirty && now - cfgDirtyAt > 1500) { cfgDirty = false; saveSettings(); }   // persist settings
-        if (histDirty && now - histDirtyAt > 2000) { histDirty = false; saveHistory(); } // persist graph history
+        // History rides a ~30-min cadence (not every 5-min sample) to spare NVS flash —
+        // the full ring stays in RAM, so we only lose the last <30 min on an unclean reboot.
+        static uint32_t lastHistSave = 0;
+        if (histDirty && now - histDirtyAt > 2000 && (!lastHistSave || now - lastHistSave > 1800000UL)) {
+            histDirty = false; lastHistSave = now; saveHistory();   // ~12 KB write: was 288×/day, now ~48×/day
+        }
     }
     // ---- power saving (escalates with idle time; any touch resets it) ----
     uint32_t idle = now - lastActivity;
@@ -2725,13 +2749,15 @@ static void dataTick_cb(lv_timer_t *t) {
         int tB = (dimAfterSec && idle > (uint32_t)dimAfterSec * 1000UL) ? DIM_LEVEL : brightness;
         if (tB != appliedB) { setBrightness(tB); appliedB = tB; }   // auto-dim
     }
-    // eco throttles the UI to 1fps when idle — but NOT while auto-switch is rotating,
-    // or the cycling display lags (each switch/value only repaints once a second).
-    bool eco = ecoMode && !standby && !(autoSwitch && numBms >= 2) && idle > ECO_IDLE_MS;
+    // eco throttles the UI to 1fps when idle. While auto-switch is rotating we keep full
+    // fps so the cycling stays smooth — UNTIL the screen auto-dims (truly idle), then we
+    // throttle anyway to stop flushing the panel continuously for nobody.
+    bool eco = ecoMode && !standby && idle > ECO_IDLE_MS &&
+               (!(autoSwitch && numBms >= 2) || appliedB <= DIM_LEVEL);
     if (eco != ecoActive) {                                          // low-fps when idle
         ecoActive = eco;
         if (dataTimer) lv_timer_set_period(dataTimer, eco ? 1000 : 220);
-        if (barTimer) lv_timer_set_period(barTimer, eco ? 1000 : 130);
+        if (barTimer) lv_timer_set_period(barTimer, eco ? 1000 : 250);
     }
     if (autoSleepMin > 0 && !standby && idle > (uint32_t)autoSleepMin * 60000UL) { pendingSleep = true; return; }
     if (standby || view == V_SETTINGS || idleActiveNow()) return;   // idle screen owns the canvas
@@ -2750,15 +2776,13 @@ static void dataTick_cb(lv_timer_t *t) {
         }
         return;
     }
-    // Spread the heavy AA repaint over several ticks — one section per tick keeps
-    // each frame small so the auto-switch bar stays smooth between updates.
-    static int sec = 0;
-    switch (sec) {
-        case 0: invArea(0, 40, 195, 305); break;   // left: SOC ring + power readout
-        case 1: invArea(196, 36, 479, 112); break; // tiles row (V / stats / temps)
-        case 2: invArea(196, 114, 338, 207); break;// cells card
-    }
-    sec = (sec + 1) % 3;
+    // Repaint the whole value area in ONE coherent frame every other tick (~440 ms).
+    // The panel flushes the full canvas regardless of dirty size, so batching the three
+    // sections costs the same one flush instead of three staggered ones — fewer flushes
+    // and every field shares the same timestamp. The auto-switch bar (y<36) is outside
+    // this region and keeps animating on its own faster timer.
+    static uint8_t vtick = 0;
+    if (++vtick >= 2) { vtick = 0; invArea(0, 36, Wd - 1, 313); }
 }
 static void wifiTick_cb(lv_timer_t *t) {
     if (wifiPoll() && view == V_SETTINGS && !standby) lv_obj_invalidate(scr);
@@ -2789,7 +2813,9 @@ void setup() {
     Serial.setTxTimeoutMs(0);   // never block the loop when no USB host is reading
     delay(300);
     Serial.printf("\n[lvgl] boot — LVGL %d.%d.%d\n", lv_version_major(), lv_version_minor(), lv_version_patch());
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1); tzset();   // set once for this (render/loop) task — newlib TZ is per-task
     loadSettings();             // restore saved settings before they're used (brightness, wifi, …)
+    if (freshWebPass) saveSettings();   // first boot → lock in the randomly-generated default password
     if (lockAfterSec > 0 && lockPin[0]) locked = true;
     loadHistory();              // restore the persisted graph history (survives reboot)
 
@@ -2869,7 +2895,7 @@ void setup() {
     // Refresh rates kept modest so the panel isn't flushed at max rate (each full
     // flush ~40ms blocks touch polling). Between ticks lv_task_handler runs every
     // ~1ms and polls touch → responsive input.
-    barTimer = lv_timer_create(barTick_cb, 130, NULL);    // auto-switch progress bar
+    barTimer = lv_timer_create(barTick_cb, 250, NULL);    // auto-switch progress bar (250ms is smooth enough at the 24fps ceiling)
     dataTimer = lv_timer_create(dataTick_cb, 220, NULL);  // live values (+ power-save supervisor)
     lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
     lv_timer_create(wifiTick_cb, 500, NULL);

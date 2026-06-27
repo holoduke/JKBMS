@@ -54,8 +54,8 @@ static void alertLoop() {
         int deltaMv = (b.nCells > 0) ? (int)((mx - mn) * 1000.0f) : 0;
         if (deltaMv > alDeltaHi) cur |= AL_DELTA;
 
-        uint8_t fresh = cur & ~alState[t];      // conditions that just became active
-        alState[t] = cur;
+        alState[t] &= cur;                      // a condition that cleared re-arms (drop its latched bit)
+        uint8_t fresh = cur & ~alState[t];      // newly-active, not-yet-notified conditions
         if (!fresh) continue;
 
         char msg[200]; int n = snprintf(msg, sizeof(msg), "BMS %d: ", t + 1); bool first = true;
@@ -68,6 +68,6 @@ static void alertLoop() {
         if (fresh & AL_SOCLO)  { n += snprintf(msg + n, sizeof(msg) - n, "%slow SOC %.0f%%", first ? "" : ", ", b.soc); first = false; }
         if (fresh & AL_TEMPHI) { n += snprintf(msg + n, sizeof(msg) - n, "%shigh temp %.0f\xC2\xB0""C", first ? "" : ", ", tMax); first = false; }
         if (fresh & AL_DELTA)  { n += snprintf(msg + n, sizeof(msg) - n, "%scell delta %dmV", first ? "" : ", ", deltaMv); first = false; }
-        alertSend(msg);
+        if (alertSend(msg)) alState[t] |= fresh;   // latch only what we actually delivered → a failed POST retries next cycle
     }
 }
