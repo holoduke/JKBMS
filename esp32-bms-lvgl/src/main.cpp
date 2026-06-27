@@ -664,7 +664,7 @@ static void wxCloudAt(uint32_t col) {   // web cloud: 3 bumps (small-left, big-m
 }
 static void drawWxIcon(int cx, int cy, int code) {   // centred at (cx,cy)
     const uint32_t SUN = 0xffd43b, CLD = 0xc9d1d9, RN = 0x4aa3ff, SNW = 0xcfe6ff, BOLT = 0xffd43b;
-    gCx = cx; gCy = cy; gK = 0.95f;   // ~23px glyph from the 24-unit web space
+    gCx = cx; gCy = cy; gK = 1.15f;   // ~28px glyph from the 24-unit web space
     int cat = wxCat(code);
     if (cat == 0) { wxSunAt(12, 11, 4.6f, SUN); return; }                   // clear
     if (cat == 1) { wxSunAt(8, 8, 3.0f, SUN); wxCloudAt(CLD); return; }     // partly (sun peeks, cloud over)
@@ -699,10 +699,10 @@ static void drawWifi(int cx, int cy, uint32_t color) {
 // compact wifi glyph for the top bar; cy is the VISUAL centre (dot below, arcs fanning up),
 // so it lines up with the weather glyph / temperature / clock which all centre on the same y.
 static void drawWifiSmall(int cx, int cy, uint32_t color) {
-    int by = cy + 5;   // dot baseline: arcs reach ~10px up → +5 centres the glyph on cy
-    fCircle(cx, by, 1, color);
+    int by = cy + 6;   // dot baseline: arcs reach ~13px up → +6 centres the glyph on cy
+    fCircle(cx, by, 2, color);
     const float a0 = 50.0f * (PI / 180.0f), a1 = 130.0f * (PI / 180.0f), yScale = 0.72f;
-    int radii[3] = {5, 10, 15};   // slightly larger
+    int radii[3] = {6, 12, 18};   // larger
     for (int k = 0; k < 3; k++) {
         int r = radii[k], px = -1, py = -1;
         for (int s = 0; s <= 8; s++) {
@@ -732,9 +732,9 @@ static void drawTabs(bool autoActive, float prog) {
     int midY = y + h / 2;   // shared vertical centre for the whole top-bar row
     drawWifiSmall(wifiX, midY, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
     if (wxOk) {   // today's weather: glyph + temp, right of the wifi icon
-        int wx = wifiX + 24; drawWxIcon(wx, midY + 1, wxCurCode);   // +1 centres the sun glyph (its art sits slightly high)
+        int wx = wifiX + 30; drawWxIcon(wx, midY + 1, wxCurCode);   // +1 centres the sun glyph (its art sits slightly high)
         char wt[6]; snprintf(wt, sizeof(wt), "%d", wxCurTemp);
-        int tw = textW(wt, F16), tx = wx + 15;
+        int tw = textW(wt, F16), tx = wx + 18;
         cText(wt, tx + tw / 2, midY, F16, C_TEXT);                  // centred on midY, same as the clock
         fCircle(tx + tw + 3, midY - 5, 1, C_TEXT);                  // degree mark, upper-right of the digits
     }
@@ -1048,8 +1048,8 @@ static void renderBms() {
     const char *st = T(stk);
     int pw2 = textW(st, F12) + 28, px2 = cx - pw2 / 2, py2 = 52;
     fRect(px2, py2, pw2, 20, 10, C_CARD); dRect(px2, py2, pw2, 20, 10, C_BORDER);
-    fCircle(px2 + 13, py2 + 10, 4, sc);
-    lText(st, px2 + 22, py2 + 3, F12, sc);   // vertically centred on the dot (py2+10)
+    fCircle(px2 + 13, py2 + 11, 4, sc);
+    lText(st, px2 + 22, py2 + 3, F12, sc);   // dot at +11 sits on the text's optical centre (lowercase x-height)
     if (b.errFlags && (demoMode || bmsLive[view])) {   // name the active protection(s) under the pill
         char al[44] = ""; int shown = 0;
         for (int bit = 0; bit < 29 && shown < 2; bit++)
