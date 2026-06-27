@@ -1587,16 +1587,16 @@ static void renderWeatherPopup() {
     setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1); tzset();
     struct tm ti; time_t base = 0; bool haveDate = false;
     if (getLocalTime(&ti, 0)) { base = mktime(&ti); haveDate = base > 0; }
-    const int hdrY = y + 40, icoY = y + 92, mxY = y + 132, mnY = y + 154, condY = y + 180, popY = y + 206;
+    const int wdY = y + 38, dateY = y + 54, icoY = y + 98, mxY = y + 138, mnY = y + 160, condY = y + 184, popY = y + 208;
     for (int i = 0; i < wxDays; i++) {
         int cxo = x + 8 + i * colW, cx = cxo + colW / 2;
         if (i) dRect(cxo, y + 36, 1, h - 56, 0, C_BORDER);            // column separator
-        if (i == 0) dRect(cxo + 2, y + 34, colW - 3, h - 52, 8, C_ACCENT);   // highlight today
-        char dh[14];
-        if (i == 0) snprintf(dh, sizeof(dh), "%s", T(K_TODAY));
-        else if (haveDate) { time_t e = base + (time_t)i * 86400; struct tm dt; localtime_r(&e, &dt); snprintf(dh, sizeof(dh), "%d/%d", dt.tm_mday, dt.tm_mon + 1); }
-        else snprintf(dh, sizeof(dh), "+%dd", i);
-        cText(dh, cx, hdrY, F12, i == 0 ? C_ACCENT : C_MUTED);
+        // header: weekday (or "Today") on top, the date below
+        struct tm dt; bool gotDt = false;
+        if (haveDate) { time_t e = base + (time_t)i * 86400; localtime_r(&e, &dt); gotDt = true; }
+        const char *top = (i == 0) ? T(K_TODAY) : (gotDt ? wday(dt.tm_wday) : "");
+        cText(top, cx, wdY, F12, i == 0 ? C_ACCENT : C_TEXT);
+        if (gotDt) { char ds[8]; snprintf(ds, sizeof(ds), "%d/%d", dt.tm_mday, dt.tm_mon + 1); cText(ds, cx, dateY, F10, C_MUTED); }
         drawWxIcon(cx, icoY, wxDay[i].code, 2.5f);
         char tb[10];
         snprintf(tb, sizeof(tb), "%d°", wxDay[i].tmax); cText(tb, cx, mxY, F16, C_TEXT);

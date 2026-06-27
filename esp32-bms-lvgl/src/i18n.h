@@ -425,3 +425,21 @@ static inline const char *T(int k) {
     if (g_lang == LANG_HI) { const char *s = kvFind(HI_KV, (int)(sizeof(HI_KV)/sizeof(HI_KV[0])), k); return s ? s : STR[k][LANG_EN]; }
     return STR[k][g_lang];   // LANG_EN..LANG_VI
 }
+
+// Short weekday names for the weather popup. Index = tm_wday (0=Sun .. 6=Sat); rows
+// follow the LANG_* order. Kept separate from the K-table (it's a 7-wide grid, not a key).
+static const char *const WDAY[LANG_COUNT][7] = {
+    /*EN*/ {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"},
+    /*FR*/ {"Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"},
+    /*DE*/ {"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"},
+    /*NL*/ {"Zo", "Ma", "Di", "Wo", "Do", "Vr", "Za"},
+    /*PL*/ {"Nd", "Pn", "Wt", "Śr", "Cz", "Pt", "So"},
+    /*PT*/ {"Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"},
+    /*ES*/ {"Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"},
+    /*VI*/ {"CN", "T2", "T3", "T4", "T5", "T6", "T7"},
+    /*RU*/ {"Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"},
+    /*ZH*/ {"日", "一", "二", "三", "四", "五", "六"},
+    /*AR*/ {"أحد", "إثن", "ثلا", "أرب", "خمي", "جمع", "سبت"},
+    /*HI*/ {"रवि", "सोम", "मंगल", "बुध", "गुरु", "शुक्र", "शनि"},
+};
+static inline const char *wday(int wd) { return WDAY[g_lang][((wd % 7) + 7) % 7]; }
