@@ -74,6 +74,8 @@ enum {
     K_MOS, K_T1, K_T2,
     // ---- PIN lock ----
     K_AUTO_LOCK, K_LOCK_PIN, K_ENTER_PIN, K_SET_PIN, K_WRONG_PIN, K_PIN_SET, K_PIN_NONE,
+    // ---- MOSFET status (voltage tile) — kept short to fit the narrow tile ----
+    K_M_CHG, K_M_DIS, K_M_BAL,
     K_COUNT
 };
 
@@ -269,6 +271,9 @@ static const char *const STR[K_COUNT][LANG_LATIN8] = {
     /*K_WRONG_PIN*/      {"Wrong PIN",      "PIN incorrect",   "Falsche PIN",   "Onjuiste pincode","Błędny PIN", "PIN errado",    "PIN incorrecto",  "Sai mã PIN"},
     /*K_PIN_SET*/        {"set",            "défini",          "gesetzt",       "ingesteld",    "ustawiony",     "definido",      "definido",        "đã đặt"},
     /*K_PIN_NONE*/       {"none",           "aucun",           "keine",         "geen",         "brak",          "nenhum",        "ninguno",         "chưa đặt"},
+    /*K_M_CHG*/          {"Charge",         "Charge",          "Laden",         "Laden",        "Ład.",          "Carga",         "Carga",           "Sạc"},
+    /*K_M_DIS*/          {"Discharge",      "Décharge",        "Entladen",      "Ontladen",     "Rozład.",       "Descarga",      "Descarga",        "Xả"},
+    /*K_M_BAL*/          {"Balance",        "Équil.",          "Balance",       "Balans",       "Balans",        "Equilíb.",      "Balance",         "Cân bằng"},
 };
 
 // Russian (Cyrillic) — flat array in StrKey order; uses the same font (Cyrillic added to mont1).
@@ -308,6 +313,7 @@ static const char *const STR_RU[K_COUNT] = {
     /*K_AUTO_LOCK*/ "Автоблок.", /*K_LOCK_PIN*/ "PIN-код", /*K_ENTER_PIN*/ "Введите PIN",
     /*K_SET_PIN*/ "Задайте PIN из 6 цифр", /*K_WRONG_PIN*/ "Неверный PIN",
     /*K_PIN_SET*/ "задан", /*K_PIN_NONE*/ "нет",
+    /*K_M_CHG*/ "Заряд", /*K_M_DIS*/ "Разряд", /*K_M_BAL*/ "Баланс",
 };
 
 // Chinese (Simplified) — flat array in StrKey order; rendered via the CJK font (see curFont).
@@ -347,6 +353,7 @@ static const char *const STR_ZH[K_COUNT] = {
     /*K_AUTO_LOCK*/ "自动锁定", /*K_LOCK_PIN*/ "锁定密码", /*K_ENTER_PIN*/ "输入密码",
     /*K_SET_PIN*/ "设置6位密码", /*K_WRONG_PIN*/ "密码错误",
     /*K_PIN_SET*/ "已设置", /*K_PIN_NONE*/ "无",
+    /*K_M_CHG*/ "充电", /*K_M_DIS*/ "放电", /*K_M_BAL*/ "均衡",
 };
 
 // Arabic (RTL; LVGL bidi + Arabic shaping). Designated initializers — any key left out
@@ -370,6 +377,7 @@ static const KV AR_KV[] = {
     {K_E_WIRE_RES,"مقاومة السلك"},{K_E_MOS_OT,"MOSFET ساخن"},{K_E_CELL_MISMATCH,"عدد خلايا خاطئ"},{K_E_FULLY_CHARGED,"مشحون بالكامل"},{K_E_PACK_OV,"جهد زائد"},{K_E_CHG_OC,"تيار شحن زائد"},{K_E_CHG_SC,"قصر شحن"},{K_E_CHG_OT,"حرارة شحن زائدة"},{K_E_CHG_UT,"حرارة شحن منخفضة"},{K_E_COPROC,"خطأ المعالج المساعد"},{K_E_CELL_UV,"جهد خلية منخفض"},{K_E_PACK_UV,"جهد حزمة منخفض"},{K_E_DIS_OC,"تيار تفريغ زائد"},{K_E_DIS_SC,"قصر تفريغ"},{K_E_DIS_OT,"حرارة تفريغ زائدة"},{K_E_CHG_MOS_FAULT,"عطل MOSFET الشحن"},{K_E_DIS_MOS_FAULT,"عطل MOSFET التفريغ"},{K_E_GPS_DISC,"GPS مفصول"},{K_E_CHG_PWD,"تغيير كلمة المرور"},{K_E_DIS_ON_FAIL,"فشل تشغيل التفريغ"},{K_E_BAT_OT,"بطارية ساخنة"},{K_E_TEMP_ANOM,"خلل مستشعر الحرارة"},{K_E_PL_ANOM,"خلل وحدة PL"},{K_E_SCP_REL_FAIL,"فشل تحرير SCP"},{K_E_DIS_OCP2,"OCP2 تفريغ"},{K_E_DIS_OCP3,"OCP3 تفريغ"},{K_E_DIS_UT,"حرارة تفريغ منخفضة"},{K_E_GPS_LOCK,"قفل GPS عن بُعد"},
     {K_BAT,"بطارية"},
     {K_AUTO_LOCK,"قفل تلقائي"},{K_LOCK_PIN,"رمز القفل"},{K_ENTER_PIN,"أدخل الرمز"},{K_SET_PIN,"حدد رمزاً من 6 أرقام"},{K_WRONG_PIN,"رمز خاطئ"},{K_PIN_SET,"محدد"},{K_PIN_NONE,"لا يوجد"},
+    {K_M_CHG,"شحن"},{K_M_DIS,"تفريغ"},{K_M_BAL,"موازنة"},
 };
 
 // Hindi (Devanagari). NOTE: LVGL can't shape Devanagari → glyphs render unjoined (best-effort, as agreed).
@@ -391,6 +399,7 @@ static const KV HI_KV[] = {
     {K_E_FULLY_CHARGED,"पूर्ण चार्ज"},{K_E_PACK_OV,"अधिक वोल्टेज"},{K_E_CHG_OC,"चार्ज अधिक धारा"},{K_E_DIS_OC,"डिस्च अधिक धारा"},{K_E_CELL_UV,"सेल कम वोल्टेज"},{K_E_BAT_OT,"बैटरी अधिक ताप"},{K_E_CHG_MOS_FAULT,"चार्ज MOSFET दोष"},{K_E_DIS_MOS_FAULT,"डिस्च MOSFET दोष"},
     {K_BAT,"बैटरी"},
     {K_AUTO_LOCK,"ऑटो-लॉक"},{K_LOCK_PIN,"लॉक पिन"},{K_ENTER_PIN,"पिन दर्ज करें"},{K_SET_PIN,"6 अंकों का पिन सेट करें"},{K_WRONG_PIN,"गलत पिन"},{K_PIN_SET,"सेट"},{K_PIN_NONE,"कोई नहीं"},
+    {K_M_CHG,"चार्ज"},{K_M_DIS,"डिस्चार्ज"},{K_M_BAL,"बैलेंस"},
 };
 
 static inline const char *kvFind(const KV *a, int n, int k) { for (int i = 0; i < n; i++) if (a[i].k == k) return a[i].s; return 0; }

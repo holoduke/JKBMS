@@ -804,6 +804,23 @@ static void drawTile(int x, int y, int w, int h, const char *label, const char *
         lText(val, x + 8, top + (bot - top - sz.y) / 2, F20, valCol);
     }
 }
+// Voltage tile: no title — the big "%.2fV" sits at the top, with the three MOSFET/balancer
+// statuses below, each a short translated label + a state dot (green = on, red = off; the
+// balancer's off state is muted since idle is normal).
+static void drawVoltTile(int x, int y, int w, int h, const Bms &b, bool stale = false) {
+    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    char vbuf[10]; if (stale) snprintf(vbuf, sizeof(vbuf), "--"); else snprintf(vbuf, sizeof(vbuf), "%.2fV", b.v);
+    lText(vbuf, x + 8, y + 7, F20, stale ? C_MUTED : C_TEXT);
+    const int key[3] = {K_M_CHG, K_M_DIS, K_M_BAL};
+    const bool on[3] = {b.chgMos, b.disMos, b.balWork};
+    const uint32_t offCol[3] = {C_BAD, C_BAD, C_MUTED};   // chg/dis off is notable (red); balancer off is normal (grey)
+    for (int r = 0; r < 3; r++) {
+        int ry = y + 32 + r * 13;
+        lText(T(key[r]), x + 8, ry, F10, C_MUTED);
+        uint32_t dc = stale ? C_MUTED : (on[r] ? C_ACCENT : offCol[r]);
+        fCircle(x + w - 10, ry + 4, 3, dc);
+    }
+}
 static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float t2, bool stale = false) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     const char *lbl[3] = {T(K_MOS), T(K_T1), T(K_T2)}; float v[3] = {mos, t1, t2};
@@ -1110,10 +1127,9 @@ static void renderBms() {
     }
 
     const int rx = 200, rw = Wd - rx - 8;
-    char vbuf[10]; if (stale) snprintf(vbuf, sizeof(vbuf), "--"); else snprintf(vbuf, sizeof(vbuf), "%.2fV", b.v);
     const int ty = 40, th = 70, gap = 8;
     const int vW = 78, sW = 102, tpW = rw - vW - sW - 2 * gap;  // stats wider, temps + voltage narrower
-    drawTile(rx, ty, vW, th, T(K_VOLTAGE), vbuf, nullptr, stale ? C_MUTED : C_TEXT);
+    drawVoltTile(rx, ty, vW, th, b, stale);
     char rt[10]; uint32_t rtCol;
     float fullAh = (!demoMode && bmsLive[view]) ? packFullAh[view] : PACK_AH;
     runtimeStr(view, b.soc, b.i, fullAh, rt, sizeof(rt), &rtCol);
