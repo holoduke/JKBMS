@@ -206,6 +206,13 @@ static bool ecoActive = false;      // eco (low-fps) state active
 static int idleScreen = 0;           // screensaver: 0=Off 1=HUD 2=Init 3=Radar 4=Arcade 5=Security
 static int saverAfterSec = 0;        // inactivity before the screensaver kicks in (0 = off; only the no-data fallback applies)
 #define IDLE_DELAY 8000UL            // offline + no touch this long → show the screensaver (no-data fallback)
+// ---- PIN lock (separate from the screensaver) ----
+static int lockAfterSec = 0;         // inactivity before auto-lock (0 = Never); else 30/60/300/1800/3600
+static char lockPin[7] = "";         // 6-digit PIN; empty = lock disabled even if the timer is set
+static bool locked = false;          // PIN required to use the device
+static bool lockSetMode = false;     // settings is capturing a NEW PIN (modal numpad)
+static char lockEntry[8] = ""; static int lockEntryLen = 0;
+static uint32_t lockWrongUntil = 0;  // brief "wrong PIN" feedback window
 static lv_timer_t *barTimer = nullptr, *dataTimer = nullptr;
 static bool cfgDirty = false; static uint32_t cfgDirtyAt = 0;   // debounced settings save
 // wifi
@@ -1103,7 +1110,8 @@ static void srowToggle(int y, const char *label, bool on) {
 static const uint8_t SYS_KEY[] = {
     K_AUTO_SWITCH, K_SWITCH_INTERVAL, K_BRIGHTNESS, K_AUTO_SLEEP, K_ECO_MODE, K_DIM_AFTER,
     K_TEMP_UNIT, K_TIME_FORMAT, K_WIFI_AUTO, K_DEMO_SPEED, K_SYSTEM_INFO, K_FIRMWARE, K_DEMO_MODE,
-    K_SCREENSAVER, K_SCREENSAVER_AFTER, K_WEB_ADDRESS, K_WEB_USERNAME, K_WEB_PASSWORD, K_LANGUAGE};
+    K_SCREENSAVER, K_SCREENSAVER_AFTER, K_AUTO_LOCK, K_LOCK_PIN,
+    K_WEB_ADDRESS, K_WEB_USERNAME, K_WEB_PASSWORD, K_LANGUAGE};
 #define SYS_ROWS ((int)(sizeof(SYS_KEY) / sizeof(SYS_KEY[0])))
 static const char *sysLabel(int i) {            // localized row label; brightness keeps its "- / +" hint
     if (i == 2) { static char b[28]; snprintf(b, sizeof(b), "%s   - / +", T(K_BRIGHTNESS)); return b; }
@@ -1136,10 +1144,12 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 12: snprintf(o, n, "%s", demoMode ? T(K_ON) : T(K_OFF)); *vc = demoMode ? C_ACCENT : C_MUTED; break;
         case 13: { const char *IN[6] = {T(K_OFF), "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = idleScreen ? C_CYAN : C_MUTED; break; }
         case 14: saverStr(o, n); *vc = saverAfterSec ? C_CYAN : C_MUTED; break;
-        case 15: if (WiFi.status() == WL_CONNECTED) { snprintf(o, n, "%s", WiFi.localIP().toString().c_str()); *vc = C_ACCENT; } else { snprintf(o, n, "no WiFi"); *vc = C_MUTED; } break;
-        case 16: snprintf(o, n, "%s", webUser); *vc = C_CYAN; break;
-        case 17: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
-        case 18: snprintf(o, n, "%s", LANG_NAME[g_lang]); *vc = C_CYAN; break;
+        case 15: if (lockAfterSec == 0) snprintf(o, n, "%s", T(K_NEVER)); else if (lockAfterSec < 60) snprintf(o, n, "%ds", lockAfterSec); else if (lockAfterSec < 3600) snprintf(o, n, "%d min", lockAfterSec / 60); else snprintf(o, n, "%d hr", lockAfterSec / 3600); *vc = lockAfterSec ? C_CYAN : C_MUTED; break;
+        case 16: snprintf(o, n, "%s", lockPin[0] ? T(K_PIN_SET) : T(K_PIN_NONE)); *vc = lockPin[0] ? C_CYAN : C_MUTED; break;
+        case 17: if (WiFi.status() == WL_CONNECTED) { snprintf(o, n, "%s", WiFi.localIP().toString().c_str()); *vc = C_ACCENT; } else { snprintf(o, n, "no WiFi"); *vc = C_MUTED; } break;
+        case 18: snprintf(o, n, "%s", webUser); *vc = C_CYAN; break;
+        case 19: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
+        case 20: snprintf(o, n, "%s", LANG_NAME[g_lang]); *vc = C_CYAN; break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
@@ -1472,7 +1482,9 @@ static void renderInfoPopup() {
     lText(T(K_BMS_SOON), lx, ly + 3, F12, C_MUTED);
     lText(T(K_TAP_CLOSE), x + w - 92, y + h - 18, F12, C_MUTED);
 }
+static void renderLockPad(bool setMode);   // defined below (near the lock screen)
 static void renderSettings() {
+    if (lockSetMode) { renderLockPad(true); return; }   // setting a new PIN (modal numpad)
     if (kbActive) { renderKeyboard(); return; }
     if (editIdx >= 0) { renderEditor(); return; }   // full-screen modal stepper
     // content first, then mask the header strip so overscrolled rows don't bleed
@@ -1563,6 +1575,8 @@ static void saveSettings() {
     prefs.putBool("demo", demoMode);
     prefs.putInt("idle", idleScreen);
     prefs.putInt("saver", saverAfterSec);
+    prefs.putInt("lockAft", lockAfterSec);
+    prefs.putString("lockPin", lockPin);
     prefs.putUChar("lang", g_lang);
     prefs.putInt("nbms", numBms);
     prefs.putBytes("pins", bmsPin, sizeof(bmsPin));
@@ -1585,6 +1599,8 @@ static void loadSettings() {
     demoMode = prefs.getBool("demo", demoMode);
     idleScreen = prefs.getInt("idle", idleScreen);
     saverAfterSec = prefs.getInt("saver", saverAfterSec);
+    lockAfterSec = prefs.getInt("lockAft", lockAfterSec);
+    { String p = prefs.getString("lockPin", ""); strncpy(lockPin, p.c_str(), sizeof(lockPin) - 1); lockPin[sizeof(lockPin) - 1] = 0; }
     g_lang = prefs.getUChar("lang", g_lang); if (g_lang >= LANG_COUNT) g_lang = 0;
     if (prefs.isKey("nbms")) numBms = prefs.getInt("nbms", 2);
     else numBms = prefs.isKey("autosw") ? 2 : 1;   // existing install (ran the old hardcoded-dual build) → keep 2; fresh flash → default 1
@@ -1699,10 +1715,12 @@ static void handleTap(int x, int y) {
                 case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
                 case 13: idleScreen = (idleScreen + 1) % 6; break;   // cycle screensaver (Off / HUD / Init / Radar / Arcade / Security)
                 case 14: saverAfterSec = saverAfterSec == 0 ? 30 : saverAfterSec == 30 ? 60 : saverAfterSec == 60 ? 300 : saverAfterSec == 300 ? 1800 : saverAfterSec == 1800 ? 3600 : 0; break;   // 30s/1m/5m/30m/1h
-                case 15: infoPopup = true; return;                   // Web address → full system-info popup (shows IP + login)
-                case 16: strncpy(wifiPass, webUser, sizeof(wifiPass) - 1); wifiPass[sizeof(wifiPass) - 1] = 0; wifiPassLen = strlen(wifiPass); kbMode = 0; kbTarget = KBT_WUSER; kbActive = true; return;   // edit web username
-                case 17: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
-                case 18: g_lang = (g_lang + 1) % LANG_COUNT; markCfg(); return;   // cycle UI language (dirtyFull already set → full repaint)
+                case 15: lockAfterSec = lockAfterSec == 0 ? 30 : lockAfterSec == 30 ? 60 : lockAfterSec == 60 ? 300 : lockAfterSec == 300 ? 1800 : lockAfterSec == 1800 ? 3600 : 0; break;   // auto-lock: 30s/1m/5m/30m/1h
+                case 16: lockSetMode = true; lockEntry[0] = 0; lockEntryLen = 0; lockWrongUntil = 0; markCfg(); return;   // set a new PIN (modal numpad)
+                case 17: infoPopup = true; return;                   // Web address → full system-info popup (shows IP + login)
+                case 18: strncpy(wifiPass, webUser, sizeof(wifiPass) - 1); wifiPass[sizeof(wifiPass) - 1] = 0; wifiPassLen = strlen(wifiPass); kbMode = 0; kbTarget = KBT_WUSER; kbActive = true; return;   // edit web username
+                case 19: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
+                case 20: g_lang = (g_lang + 1) % LANG_COUNT; markCfg(); return;   // cycle UI language (dirtyFull already set → full repaint)
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
@@ -2320,9 +2338,65 @@ static void my_touchpad_read(lv_indev_t *indev, lv_indev_data_t *data) {
 
 static lv_obj_t *scr;
 static void invArea(int x1, int y1, int x2, int y2);
+
+// ============================================================================
+//  PIN lock — 6-digit numpad. Shows automatically once auto-lock arms; while the
+//  screensaver is up it stays until a touch, then this appears (lockShowing()).
+// ============================================================================
+static bool lockShowing() { return locked && !idleActiveNow(); }   // armed + not behind the screensaver
+static void lockKeyRect(int k, int *kx, int *ky, int *kw, int *kh) {
+    const int x0 = 138, y0 = 96, gap = 8, gw = Wd - 2 * x0, gh = Ht - y0 - 10;
+    int cw = (gw - 2 * gap) / 3, ch = (gh - 3 * gap) / 4;
+    *kx = x0 + (k % 3) * (cw + gap); *ky = y0 + (k / 3) * (ch + gap); *kw = cw; *kh = ch;
+}
+static const char *lockKeyLabel(int k) {   // 0-8 → "1".."9", 9 → del, 10 → "0", 11 → cancel
+    static const char *L9[9] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
+    if (k < 9) return L9[k]; if (k == 10) return "0"; if (k == 9) return "<"; return "X";
+}
+static void renderLockPad(bool setMode) {
+    fRect(0, 0, Wd, Ht, 0, C_BG);
+    uint32_t now = millis();
+    bool wrong = lockWrongUntil > now;
+    const char *title = wrong ? T(K_WRONG_PIN) : setMode ? T(K_SET_PIN) : T(K_ENTER_PIN);
+    cText(title, Wd / 2, 30, F16, wrong ? C_BAD : C_TEXT);
+    for (int i = 0; i < 6; i++) {           // PIN dots
+        int dx = Wd / 2 - 5 * 14 + i * 28, dy = 62;
+        if (i < lockEntryLen) fCircle(dx, dy, 6, C_ACCENT);
+        else { dRect(dx - 6, dy - 6, 12, 12, 6, C_BORDER); }
+    }
+    int nKeys = setMode ? 12 : 11;          // cancel (k=11) only when setting a new PIN
+    for (int k = 0; k < nKeys; k++) {
+        int kx, ky, kw, kh; lockKeyRect(k, &kx, &ky, &kw, &kh);
+        bool special = (k == 9 || k == 11);
+        fRect(kx, ky, kw, kh, 8, C_CARD); dRect(kx, ky, kw, kh, 8, C_BORDER);
+        cText(lockKeyLabel(k), kx + kw / 2, ky + kh / 2 - 9, F20, special ? (k == 11 ? C_BAD : C_MUTED) : C_TEXT);
+    }
+}
+static void lockCommit(bool setMode) {      // called when the 6th digit lands
+    if (setMode) { strncpy(lockPin, lockEntry, sizeof(lockPin) - 1); lockPin[sizeof(lockPin) - 1] = 0;
+                   lockSetMode = false; lockEntryLen = 0; lockEntry[0] = 0; saveSettings(); }
+    else if (strcmp(lockEntry, lockPin) == 0) { locked = false; lockEntryLen = 0; lockEntry[0] = 0; }
+    else { lockWrongUntil = millis() + 1500; lockEntryLen = 0; lockEntry[0] = 0; }   // wrong → clear, retry
+}
+static void handleLockKey(int x, int y, bool setMode) {
+    lockWrongUntil = 0;
+    int nKeys = setMode ? 12 : 11;
+    for (int k = 0; k < nKeys; k++) {
+        int kx, ky, kw, kh; lockKeyRect(k, &kx, &ky, &kw, &kh);
+        if (x < kx || x >= kx + kw || y < ky || y >= ky + kh) continue;
+        if (k == 11) { lockSetMode = false; lockEntryLen = 0; lockEntry[0] = 0; return; }   // cancel (set mode)
+        if (k == 9) { if (lockEntryLen > 0) lockEntry[--lockEntryLen] = 0; return; }         // backspace
+        char d = (k == 10) ? '0' : (char)('1' + k);
+        if (lockEntryLen < 6) { lockEntry[lockEntryLen++] = d; lockEntry[lockEntryLen] = 0; }
+        if (lockEntryLen == 6) lockCommit(setMode);
+        return;
+    }
+}
+
 static void draw_cb(lv_event_t *e) {
     L = lv_event_get_layer(e);
     tpi = 0;
+    if (lockShowing()) { renderLockPad(false); return; }   // unlock screen takes over the whole display
     if (view == V_SETTINGS) renderSettings();
     else renderBms();
 }
@@ -2356,6 +2430,10 @@ static void press_cb(lv_event_t *e) {
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
     gMoved = false; gAnchored = false; gSettle = false; gVel = 0; flingVel = 0;   // grab cancels any momentum
+    // PIN lock takes all taps as numpad input. While the screensaver is up (saverShowing),
+    // this tap only wakes it — the lock pad appears on the next touch.
+    if (locked && !saverShowing) { handleLockKey(p.x, p.y, false); pressHandled = true; lv_obj_invalidate(scr); return; }
+    if (lockSetMode) { handleLockKey(p.x, p.y, true); pressHandled = true; lv_obj_invalidate(scr); return; }
     // keyboards handle on press (not release): a tap with touch jitter would set
     // gMoved and get dropped as a "scroll" — but a keypad has nothing to scroll.
     if (view == V_SETTINGS && (kbActive || editIdx >= 0)) { handleTap(p.x, p.y); pressHandled = true; lv_obj_invalidate(scr); }
@@ -2456,6 +2534,11 @@ static void dataTick_cb(lv_timer_t *t) {
     if (histDirty && now - histDirtyAt > 2000) { histDirty = false; saveHistory(); } // persist graph history
     // ---- power saving (escalates with idle time; any touch resets it) ----
     uint32_t idle = now - lastActivity;
+    // auto-lock: arm after the inactivity timeout (needs a PIN set). The pad appears
+    // automatically, or after the screensaver is touched (see lockShowing/press_cb).
+    if (lockAfterSec > 0 && lockPin[0] && !locked && idle > (uint32_t)lockAfterSec * 1000UL) {
+        locked = true; lockEntryLen = 0; lockEntry[0] = 0; lockWrongUntil = 0; lv_obj_invalidate(scr);
+    }
     if (!standby) {                                                 // (sleep keeps the backlight off)
         int tB = (dimAfterSec && idle > (uint32_t)dimAfterSec * 1000UL) ? DIM_LEVEL : brightness;
         if (tB != appliedB) { setBrightness(tB); appliedB = tB; }   // auto-dim
@@ -2509,6 +2592,7 @@ void setup() {
     delay(300);
     Serial.printf("\n[lvgl] boot — LVGL %d.%d.%d\n", lv_version_major(), lv_version_minor(), lv_version_patch());
     loadSettings();             // restore saved settings before they're used (brightness, wifi, …)
+    if (lockAfterSec > 0 && lockPin[0]) locked = true;   // require the PIN on power-up when auto-lock is configured
     loadHistory();              // restore the persisted graph history (survives reboot)
 
     // 40 MHz QSPI — 80 MHz caused pixel-offset artifacts on this AXS15231B panel.

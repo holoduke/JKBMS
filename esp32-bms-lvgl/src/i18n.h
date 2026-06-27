@@ -72,6 +72,8 @@ enum {
     K_BAT,
     // ---- temperature tile labels (MOSFET temp + two probes) ----
     K_MOS, K_T1, K_T2,
+    // ---- PIN lock ----
+    K_AUTO_LOCK, K_LOCK_PIN, K_ENTER_PIN, K_SET_PIN, K_WRONG_PIN, K_PIN_SET, K_PIN_NONE,
     K_COUNT
 };
 
@@ -260,6 +262,13 @@ static const char *const STR[K_COUNT][LANG_LATIN8] = {
     /*K_MOS*/            {"MOS",            "MOS",             "MOS",           "MOS",          "MOS",           "MOS",           "MOS",             "MOS"},
     /*K_T1*/             {"T1",             "T1",              "T1",            "T1",           "T1",            "T1",            "T1",              "T1"},
     /*K_T2*/             {"T2",             "T2",              "T2",            "T2",           "T2",            "T2",            "T2",              "T2"},
+    /*K_AUTO_LOCK*/      {"Auto-lock",      "Verrou auto",     "Auto-Sperre",   "Auto-vergr.",  "Auto-blokada",  "Bloq. autom.",  "Bloqueo auto",    "Tự khóa"},
+    /*K_LOCK_PIN*/       {"Lock PIN",       "Code PIN",        "Sperr-PIN",     "Vergr.-pincode","PIN blokady",  "PIN bloqueio",  "PIN bloqueo",     "Mã PIN khóa"},
+    /*K_ENTER_PIN*/      {"Enter PIN",      "Saisir le PIN",   "PIN eingeben",  "Pincode invoeren","Wpisz PIN",  "Digite o PIN",  "Introduce PIN",   "Nhập mã PIN"},
+    /*K_SET_PIN*/        {"Set a 6-digit PIN","Définir un PIN à 6 chiffres","6-stellige PIN festlegen","Stel 6-cijferige pincode in","Ustaw 6-cyfrowy PIN","Defina um PIN de 6 dígitos","Define un PIN de 6 dígitos","Đặt mã PIN 6 số"},
+    /*K_WRONG_PIN*/      {"Wrong PIN",      "PIN incorrect",   "Falsche PIN",   "Onjuiste pincode","Błędny PIN", "PIN errado",    "PIN incorrecto",  "Sai mã PIN"},
+    /*K_PIN_SET*/        {"set",            "défini",          "gesetzt",       "ingesteld",    "ustawiony",     "definido",      "definido",        "đã đặt"},
+    /*K_PIN_NONE*/       {"none",           "aucun",           "keine",         "geen",         "brak",          "nenhum",        "ninguno",         "chưa đặt"},
 };
 
 // Russian (Cyrillic) — flat array in StrKey order; uses the same font (Cyrillic added to mont1).
@@ -296,6 +305,9 @@ static const char *const STR_RU[K_COUNT] = {
     "Перегрев батареи", "Аномалия датч. T", "Аномалия мод. PL", "Сбой сброса SCP", "OCP2 разряда",
     "OCP3 разряда", "Недогрев разряда", "Удал. блок. GPS",
     /*K_BAT*/ "БАТ", /*K_MOS*/ "MOS", /*K_T1*/ "T1", /*K_T2*/ "T2",
+    /*K_AUTO_LOCK*/ "Автоблок.", /*K_LOCK_PIN*/ "PIN-код", /*K_ENTER_PIN*/ "Введите PIN",
+    /*K_SET_PIN*/ "Задайте PIN из 6 цифр", /*K_WRONG_PIN*/ "Неверный PIN",
+    /*K_PIN_SET*/ "задан", /*K_PIN_NONE*/ "нет",
 };
 
 // Chinese (Simplified) — flat array in StrKey order; rendered via the CJK font (see curFont).
@@ -332,6 +344,9 @@ static const char *const STR_ZH[K_COUNT] = {
     "电池过温", "温度传感异常", "PL模块异常", "SCP释放失败", "放电OCP2",
     "放电OCP3", "放电低温", "GPS远程锁定",
     /*K_BAT*/ "电池", /*K_MOS*/ "管温", /*K_T1*/ "温1", /*K_T2*/ "温2",
+    /*K_AUTO_LOCK*/ "自动锁定", /*K_LOCK_PIN*/ "锁定密码", /*K_ENTER_PIN*/ "输入密码",
+    /*K_SET_PIN*/ "设置6位密码", /*K_WRONG_PIN*/ "密码错误",
+    /*K_PIN_SET*/ "已设置", /*K_PIN_NONE*/ "无",
 };
 
 static inline const char *T(int k) {
