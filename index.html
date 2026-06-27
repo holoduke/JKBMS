@@ -316,11 +316,11 @@
                 <span class="demo-chip" id="demoChip" style="display:none">DEMO <a href="?" title="Exit demo mode">exit</a></span>
             </div>
             <div class="flex items-center gap-2 flex-wrap" id="statusPills">
-                <span class="pill"><span class="dot" id="chargeIndicator"></span>Charge</span>
-                <span class="pill"><span class="dot" id="dischargeIndicator"></span>Discharge</span>
-                <span class="pill"><span class="dot" id="balancingIndicator"></span>Balance</span>
-                <span class="pill"><span class="dot" id="tempIndicator"></span>Temp</span>
-                <span class="pill"><span class="dot" id="heatingIndicator"></span>Heating</span>
+                <span class="pill"><span class="dot" id="chargeIndicator"></span><span data-i18n="Charge">Charge</span></span>
+                <span class="pill"><span class="dot" id="dischargeIndicator"></span><span data-i18n="Discharge">Discharge</span></span>
+                <span class="pill"><span class="dot" id="balancingIndicator"></span><span data-i18n="Balance">Balance</span></span>
+                <span class="pill"><span class="dot" id="tempIndicator"></span><span data-i18n="Temp">Temp</span></span>
+                <span class="pill"><span class="dot" id="heatingIndicator"></span><span data-i18n="Heating">Heating</span></span>
             </div>
             <div id="batterySelection" class="flex items-center gap-2"></div>
         </div>
@@ -330,7 +330,7 @@
         <div class="max-w-7xl mx-auto py-6 px-4">
 
             <div id="staleBanner" style="display:none" class="mb-4 px-4 py-2 rounded-lg text-sm font-semibold"
-                 role="status">⚠️ No recent data from the battery — values below may be stale.</div>
+                 role="status" data-i18n="stale">⚠️ No recent data from the battery — values below may be stale.</div>
 
             <section class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 fade-in" id="gaugesTopContainer"> </section>
             <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4 fade-in" id="additionalMetrics"> </section>
@@ -346,7 +346,7 @@
                 <details class="card p-5" id="devPanel">
                     <summary class="cursor-pointer font-semibold select-none flex items-center gap-2">
                         <span class="chev" aria-hidden="true">▸</span>
-                        <span class="font-display">Developer · capture, replay &amp; gap-analyse frames</span>
+                        <span class="font-display" data-i18n="devtitle">Developer · capture, replay &amp; gap-analyse frames</span>
                     </summary>
 
                     <!-- Live frame capture: records every RX frame / TX command while connected -->
@@ -357,11 +357,11 @@
                             latest frame straight into the analyser below.
                         </div>
                         <div class="flex gap-3 items-center flex-wrap">
-                            <button id="capToggle" class="btn btn-ghost">⏺ Start capture</button>
-                            <span id="capCount" class="text-sm metric" style="color:var(--muted)">0 entries</span>
-                            <button id="capDownload" class="btn btn-ghost">⬇ Download log</button>
-                            <button id="capAnalyse" class="btn btn-ghost">Analyse last RX frame</button>
-                            <button id="capClear" class="btn btn-ghost">Clear</button>
+                            <button id="capToggle" class="btn btn-ghost" data-i18n="startcap">⏺ Start capture</button>
+                            <span id="capCount" class="text-sm metric" style="color:var(--muted)">0</span>
+                            <button id="capDownload" class="btn btn-ghost" data-i18n="dllog">⬇ Download log</button>
+                            <button id="capAnalyse" class="btn btn-ghost" data-i18n="analyse">Analyse last RX frame</button>
+                            <button id="capClear" class="btn btn-ghost" data-i18n="clear">Clear</button>
                         </div>
                     </div>
 
@@ -374,7 +374,7 @@
                         style="background:rgba(0,0,0,.35);border:1px solid var(--border);color:var(--text)"
                         placeholder="55 AA EB 90 03 ..."></textarea>
                     <div class="flex gap-3 mt-3 items-center">
-                        <button id="replayBtn" class="btn btn-primary">Decode &amp; analyse</button>
+                        <button id="replayBtn" class="btn btn-primary" data-i18n="decode">Decode &amp; analyse</button>
                         <span id="replayMeta" class="text-sm" style="color:var(--muted)"></span>
                     </div>
                     <div id="replayOutput" class="mt-3"></div>
@@ -390,7 +390,7 @@
             <div class="card overflow-hidden">
                 <div class="flex items-center gap-2 px-4 py-2 logdock-bar">
                     <span class="dot off" id="logDot" title="Connection state"></span>
-                    <span class="text-xs font-semibold metric" style="color:var(--muted);letter-spacing:.14em">EVENT LOG</span>
+                    <span class="text-xs font-semibold metric" style="color:var(--muted);letter-spacing:.14em" data-i18n="eventlog">EVENT LOG</span>
                 </div>
                 <pre id="log" style="max-height: 92px; background:transparent; color:var(--muted)" class="px-4 py-2 text-xs overflow-y-auto whitespace-pre-wrap"></pre>
             </div>
@@ -398,7 +398,7 @@
     </section>
 
     <footer class="py-5 text-center text-sm" style="color:var(--muted-2)">
-        JK BMS Controller · © 2025–2026 Gillis Haasnoot · runs entirely in your browser, no data leaves your device
+        JK BMS Controller · © 2025–2026 Gillis Haasnoot · <span data-i18n="footer">runs entirely in your browser, no data leaves your device</span>
     </footer>
 
     <!-- Confirmation modal for any write to the BMS -->
@@ -414,8 +414,8 @@
                 <span class="text-sm" style="color:var(--muted)" id="confirmInputUnit"></span>
             </div>
             <div class="flex justify-end gap-2">
-                <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
-                <button class="btn btn-danger" id="confirmOk">Confirm &amp; write</button>
+                <button class="btn btn-ghost" id="confirmCancel" data-i18n="cancel">Cancel</button>
+                <button class="btn btn-danger" id="confirmOk" data-i18n="confirmwrite">Confirm &amp; write</button>
             </div>
         </div>
     </div>
@@ -425,7 +425,35 @@
 
 
 <script>
+    // ---- i18n (client-side, 10 languages; choice persists in localStorage) ----
+    const I18N = {
+      en:{Charge:"Charge",Discharge:"Discharge",Balance:"Balance",Temp:"Temp",Heating:"Heating",eventlog:"EVENT LOG",stale:"⚠️ No recent data from the battery — values below may be stale.",connectTitle:"Your battery, live in the browser",connectBtn:"⚡ Connect a battery",demoBtn:"View live demo",cells:"Cells",trends:"Trends",samples:"samples",sessionstats:"Session stats",noalarms:"No active alarms",cancel:"Cancel",confirmwrite:"Confirm & write",devtitle:"Developer · capture, replay & gap-analyse frames",livecap:"Live capture",startcap:"⏺ Start capture",dllog:"⬇ Download log",analyse:"Analyse last RX frame",clear:"Clear",decode:"Decode & analyse",entries:"entries",stopcap:"⏹ Stop capture",footer:"runs entirely in your browser, no data leaves your device"},
+      fr:{Charge:"Charge",Discharge:"Décharge",Balance:"Équilibrage",Temp:"Temp.",Heating:"Chauffage",eventlog:"JOURNAL",stale:"⚠️ Aucune donnée récente — les valeurs peuvent être périmées.",connectTitle:"Votre batterie, en direct dans le navigateur",connectBtn:"⚡ Connecter une batterie",demoBtn:"Voir la démo",cells:"Cellules",trends:"Tendances",samples:"échantillons",sessionstats:"Stats de session",noalarms:"Aucune alarme active",cancel:"Annuler",confirmwrite:"Confirmer & écrire",devtitle:"Développeur · capture, relecture & analyse",livecap:"Capture en direct",startcap:"⏺ Démarrer",dllog:"⬇ Télécharger",analyse:"Analyser la dernière trame",clear:"Effacer",decode:"Décoder & analyser",entries:"entrées",footer:"fonctionne entièrement dans votre navigateur, aucune donnée ne sort"},
+      de:{Charge:"Laden",Discharge:"Entladen",Balance:"Balance",Temp:"Temp.",Heating:"Heizung",eventlog:"EREIGNISPROTOKOLL",stale:"⚠️ Keine aktuellen Daten — Werte könnten veraltet sein.",connectTitle:"Dein Akku, live im Browser",connectBtn:"⚡ Akku verbinden",demoBtn:"Demo ansehen",cells:"Zellen",trends:"Verläufe",samples:"Werte",sessionstats:"Sitzungsstatistik",noalarms:"Keine aktiven Alarme",cancel:"Abbrechen",confirmwrite:"Bestätigen & schreiben",devtitle:"Entwickler · Frames erfassen, abspielen & analysieren",livecap:"Live-Erfassung",startcap:"⏺ Erfassung starten",dllog:"⬇ Log laden",analyse:"Letzten RX-Frame analysieren",clear:"Löschen",decode:"Dekodieren & analysieren",entries:"Einträge",footer:"läuft komplett im Browser, keine Daten verlassen dein Gerät"},
+      nl:{Charge:"Laden",Discharge:"Ontladen",Balance:"Balans",Temp:"Temp.",Heating:"Verwarming",eventlog:"GEBEURTENISLOG",stale:"⚠️ Geen recente data — waarden kunnen verouderd zijn.",connectTitle:"Je accu, live in de browser",connectBtn:"⚡ Accu verbinden",demoBtn:"Demo bekijken",cells:"Cellen",trends:"Trends",samples:"metingen",sessionstats:"Sessiestatistieken",noalarms:"Geen actieve alarmen",cancel:"Annuleren",confirmwrite:"Bevestigen & schrijven",devtitle:"Ontwikkelaar · frames vastleggen, afspelen & analyseren",livecap:"Live-opname",startcap:"⏺ Opname starten",dllog:"⬇ Log downloaden",analyse:"Laatste RX-frame analyseren",clear:"Wissen",decode:"Decoderen & analyseren",entries:"items",footer:"draait volledig in je browser, geen data verlaat je apparaat"},
+      pl:{Charge:"Ładow.",Discharge:"Rozład.",Balance:"Balans",Temp:"Temp.",Heating:"Grzanie",eventlog:"DZIENNIK",stale:"⚠️ Brak świeżych danych — wartości mogą być nieaktualne.",connectTitle:"Twoja bateria, na żywo w przeglądarce",connectBtn:"⚡ Połącz baterię",demoBtn:"Zobacz demo",cells:"Ogniwa",trends:"Trendy",samples:"próbek",sessionstats:"Statystyki sesji",noalarms:"Brak aktywnych alarmów",cancel:"Anuluj",confirmwrite:"Potwierdź i zapisz",devtitle:"Deweloper · przechwytywanie, odtwarzanie i analiza",livecap:"Przechwytywanie",startcap:"⏺ Start",dllog:"⬇ Pobierz log",analyse:"Analizuj ostatnią ramkę",clear:"Wyczyść",decode:"Dekoduj i analizuj",entries:"wpisów",footer:"działa w całości w przeglądarce, żadne dane nie opuszczają urządzenia"},
+      pt:{Charge:"Carga",Discharge:"Descarga",Balance:"Equilíbrio",Temp:"Temp.",Heating:"Aquec.",eventlog:"REGISTO",stale:"⚠️ Sem dados recentes — os valores podem estar desatualizados.",connectTitle:"A sua bateria, ao vivo no navegador",connectBtn:"⚡ Ligar bateria",demoBtn:"Ver demo",cells:"Células",trends:"Tendências",samples:"amostras",sessionstats:"Estatísticas da sessão",noalarms:"Sem alarmes ativos",cancel:"Cancelar",confirmwrite:"Confirmar e gravar",devtitle:"Programador · capturar, repetir e analisar tramas",livecap:"Captura ao vivo",startcap:"⏺ Iniciar",dllog:"⬇ Transferir",analyse:"Analisar última trama RX",clear:"Limpar",decode:"Descodificar e analisar",entries:"entradas",footer:"funciona inteiramente no navegador, nenhum dado sai do dispositivo"},
+      es:{Charge:"Carga",Discharge:"Descarga",Balance:"Balance",Temp:"Temp.",Heating:"Calef.",eventlog:"REGISTRO",stale:"⚠️ Sin datos recientes — los valores pueden estar obsoletos.",connectTitle:"Tu batería, en vivo en el navegador",connectBtn:"⚡ Conectar batería",demoBtn:"Ver demo",cells:"Celdas",trends:"Tendencias",samples:"muestras",sessionstats:"Estadísticas de sesión",noalarms:"Sin alarmas activas",cancel:"Cancelar",confirmwrite:"Confirmar y escribir",devtitle:"Desarrollador · capturar, reproducir y analizar tramas",livecap:"Captura en vivo",startcap:"⏺ Iniciar",dllog:"⬇ Descargar",analyse:"Analizar última trama RX",clear:"Borrar",decode:"Decodificar y analizar",entries:"entradas",footer:"funciona enteramente en tu navegador, ningún dato sale de tu dispositivo"},
+      vi:{Charge:"Sạc",Discharge:"Xả",Balance:"Cân bằng",Temp:"Nhiệt",Heating:"Sưởi",eventlog:"NHẬT KÝ",stale:"⚠️ Không có dữ liệu mới — giá trị có thể đã cũ.",connectTitle:"Pin của bạn, trực tiếp trong trình duyệt",connectBtn:"⚡ Kết nối pin",demoBtn:"Xem demo",cells:"Ô pin",trends:"Xu hướng",samples:"mẫu",sessionstats:"Thống kê phiên",noalarms:"Không có báo động",cancel:"Hủy",confirmwrite:"Xác nhận & ghi",devtitle:"Nhà phát triển · ghi, phát lại & phân tích khung",livecap:"Ghi trực tiếp",startcap:"⏺ Bắt đầu",dllog:"⬇ Tải nhật ký",analyse:"Phân tích khung RX cuối",clear:"Xóa",decode:"Giải mã & phân tích",entries:"mục",footer:"chạy hoàn toàn trong trình duyệt, không dữ liệu nào rời thiết bị"},
+      ru:{Charge:"Заряд",Discharge:"Разряд",Balance:"Баланс",Temp:"Темп.",Heating:"Нагрев",eventlog:"ЖУРНАЛ",stale:"⚠️ Нет свежих данных — значения могут быть устаревшими.",connectTitle:"Ваша батарея, вживую в браузере",connectBtn:"⚡ Подключить батарею",demoBtn:"Посмотреть демо",cells:"Ячейки",trends:"Графики",samples:"измерений",sessionstats:"Статистика сессии",noalarms:"Нет активных тревог",cancel:"Отмена",confirmwrite:"Подтвердить и записать",devtitle:"Разработчик · захват, воспроизведение и анализ кадров",livecap:"Живой захват",startcap:"⏺ Старт",dllog:"⬇ Скачать лог",analyse:"Анализ последнего RX-кадра",clear:"Очистить",decode:"Декодировать и анализировать",entries:"записей",footer:"работает полностью в браузере, данные не покидают устройство"},
+      zh:{Charge:"充电",Discharge:"放电",Balance:"均衡",Temp:"温度",Heating:"加热",eventlog:"事件日志",stale:"⚠️ 电池无最新数据 — 下方数值可能已过时。",connectTitle:"在浏览器中实时查看电池",connectBtn:"⚡ 连接电池",demoBtn:"查看演示",cells:"电芯",trends:"趋势",samples:"个样本",sessionstats:"会话统计",noalarms:"无活动报警",cancel:"取消",confirmwrite:"确认并写入",devtitle:"开发者 · 捕获、回放与分析帧",livecap:"实时捕获",startcap:"⏺ 开始捕获",dllog:"⬇ 下载日志",analyse:"分析最后的 RX 帧",clear:"清除",decode:"解码并分析",entries:"条",footer:"完全在您的浏览器中运行，数据不会离开您的设备"}};
+    const LNAMES = {en:"English",fr:"Français",de:"Deutsch",nl:"Nederlands",pl:"Polski",pt:"Português",es:"Español",vi:"Tiếng Việt",ru:"Русский",zh:"中文"};
+    let L = localStorage.getItem('lang') || (navigator.language || 'en').slice(0,2).toLowerCase();
+    if (!I18N[L]) L = 'en';
+    function t(k){ return (I18N[L] && I18N[L][k]) || I18N.en[k] || k; }
+    function applyI18n(){ document.documentElement.lang = L;
+      document.querySelectorAll('[data-i18n]').forEach(e => e.textContent = t(e.dataset.i18n)); }
     document.addEventListener('DOMContentLoaded', () => {
+        // language selector in the top bar
+        const lw = document.createElement('select'); lw.id = 'langSel'; lw.title = 'Language';
+        lw.style.cssText = 'background:var(--card,#11161d);color:var(--text,#e6edf3);border:1px solid var(--border,#2a3441);border-radius:9px;padding:6px 10px;font-size:13px;cursor:pointer';
+        lw.innerHTML = Object.keys(LNAMES).map(k => `<option value="${k}"${k===L?' selected':''}>${LNAMES[k]}</option>`).join('');
+        lw.onchange = () => { L = lw.value; localStorage.setItem('lang', L); applyI18n();
+            const g = document.getElementById('gaugesTopContainer'); if (g) g.dataset.empty = '';   // let the hero re-render translated
+        };
+        const bs = document.getElementById('batterySelection');
+        if (bs && bs.parentNode) bs.parentNode.insertBefore(lw, bs);
+        applyI18n();
         const fadeIns = document.querySelectorAll('.fade-in');
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
@@ -1493,12 +1521,12 @@
                             <path d="M13 2 4.5 13.5h5.6L11 22l8.5-11.5h-5.6L13 2Z" fill="currentColor"/>
                         </svg>
                     </div>
-                    <h2>Your battery, live in the browser</h2>
+                    <h2>${t('connectTitle')}</h2>
                     <p class="sub">JK BMS Controller talks to JK-BMS packs over Web Bluetooth — realtime cells, trends,
                        protection settings and MOSFET control. No app, no cloud, nothing leaves your device.</p>
                     <div class="flex items-center justify-center gap-3 flex-wrap">
-                        <button class="btn btn-primary" data-action="connect">⚡ Connect a battery</button>
-                        <a class="btn btn-ghost" href="?demo=1">View live demo</a>
+                        <button class="btn btn-primary" data-action="connect">${t('connectBtn')}</button>
+                        <a class="btn btn-ghost" href="?demo=1">${t('demoBtn')}</a>
                     </div>
                 </div>`;
             if (target.dataset.heroWired !== '1') {
@@ -1840,7 +1868,7 @@
 
             const header = `
                 <div class="flex items-center justify-between flex-wrap gap-2" style="grid-column:1/-1">
-                    <h2 class="text-base font-semibold">Cells <span class="text-sm font-normal" style="color:var(--muted)">· ${cells.length}</span></h2>
+                    <h2 class="text-base font-semibold">${t('cells')} <span class="text-sm font-normal" style="color:var(--muted)">· ${cells.length}</span></h2>
                     <div class="flex items-center gap-3 text-sm">
                         <span class="pill"><span class="dot ${balanced ? 'on' : 'warnc'}"></span>Δ ${(delta * 1000).toFixed(0)} mV</span>
                         <span style="color:var(--muted)" class="metric">min ${min.toFixed(3)} · max ${max.toFixed(3)} V</span>
@@ -1913,7 +1941,7 @@
             const dur = Utils.formatUptime(Math.floor((history[history.length - 1].t - history[0].t) / 1000));
             const row = (k, v) => `<div class="kv"><span class="k">${k}</span><span class="v">${v}</span></div>`;
             return `<div class="card p-5">
-                <div class="card-title mb-3">Session stats</div>
+                <div class="card-title mb-3">${t('sessionstats')}</div>
                 <div class="grid sm:grid-cols-2 gap-x-8">
                     <div>
                         ${row('Duration', dur)}
@@ -1965,7 +1993,7 @@
             const h = battery.history || [];
             const header = `
                 <div class="flex items-center justify-between mb-2">
-                    <h2 class="text-base font-semibold">Trends <span class="text-sm font-normal" style="color:var(--muted)">· ${h.length} samples</span></h2>
+                    <h2 class="text-base font-semibold">${t('trends')} <span class="text-sm font-normal" style="color:var(--muted)">· ${h.length} samples</span></h2>
                     <button class="edit-btn" data-clear-history title="Clear history">clear</button>
                 </div>`;
 
@@ -2025,7 +2053,7 @@
                 <div class="text-2xl font-bold" style="color:${hasErr ? 'var(--bad)' : 'var(--ok)'}">${hasErr ? '⚠ Alarm' : '✓ Operational'}</div>
                 ${hasErr
                     ? `<ul class="mt-2 text-sm leading-relaxed" style="color:var(--bad)">${d.errors.map(e => `<li>• ${escapeHtml(e)}</li>`).join('')}</ul>`
-                    : `<div class="text-sm mt-1" style="color:var(--muted)">No active alarms</div>`}</div>`;
+                    : `<div class="text-sm mt-1" style="color:var(--muted)">${t('noalarms')}</div>`}</div>`;
 
             const stat = (title, val, sub) => `<div class="card p-5"><div class="card-title mb-2">${title}</div>
                 <div class="text-3xl font-bold metric">${val}</div>
@@ -3269,8 +3297,8 @@
         updateUi() {
             const t = document.getElementById('capToggle');
             const c = document.getElementById('capCount');
-            if (t) t.textContent = this.enabled ? '⏹ Stop capture' : '⏺ Start capture';
-            if (c) c.textContent = `${this.entries.length} entries${this.enabled ? ' · recording…' : ''}`;
+            if (t) t.textContent = this.enabled ? t('stopcap') : t('startcap');
+            if (c) c.textContent = `${this.entries.length} ${t('entries')}${this.enabled ? ' …' : ''}`;
         },
 
         download() {
