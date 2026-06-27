@@ -523,13 +523,30 @@ static lv_layer_t *L = nullptr;
 LV_FONT_DECLARE(mont1_10) LV_FONT_DECLARE(mont1_12) LV_FONT_DECLARE(mont1_14)
 LV_FONT_DECLARE(mont1_16) LV_FONT_DECLARE(mont1_20) LV_FONT_DECLARE(mont1_28)
 LV_FONT_DECLARE(mont1_48)
-#define F10 &mont1_10
-#define F12 &mont1_12
-#define F14 &mont1_14
-#define F16 &mont1_16
-#define F20 &mont1_20
-#define F28 &mont1_28
-#define F48 &mont1_48
+// Chinese needs CJK glyphs (Montserrat has none): a subset Hiragino font at the label sizes
+// (10-20). The big sizes (28/48) only ever render digits, so they stay Montserrat.
+LV_FONT_DECLARE(cjk_10) LV_FONT_DECLARE(cjk_12) LV_FONT_DECLARE(cjk_14)
+LV_FONT_DECLARE(cjk_16) LV_FONT_DECLARE(cjk_20)
+// Pick the font for a size given the active language. F10..F48 resolve through this so every
+// existing call site automatically uses the CJK font in Chinese mode (no per-call changes).
+static inline const lv_font_t *curFont(int sz) {
+    if (g_lang == LANG_ZH) switch (sz) {
+        case 10: return &cjk_10; case 12: return &cjk_12; case 14: return &cjk_14;
+        case 16: return &cjk_16; case 20: return &cjk_20;   // 28/48 fall through → Montserrat (digits only)
+    }
+    switch (sz) {
+        case 10: return &mont1_10; case 12: return &mont1_12; case 14: return &mont1_14;
+        case 16: return &mont1_16; case 20: return &mont1_20; case 28: return &mont1_28;
+        default: return &mont1_48;
+    }
+}
+#define F10 curFont(10)
+#define F12 curFont(12)
+#define F14 curFont(14)
+#define F16 curFont(16)
+#define F20 curFont(20)
+#define F28 curFont(28)
+#define F48 curFont(48)
 
 // pooled label text so the string outlives LVGL's deferred draw dispatch
 static char tpool[80][24];
@@ -678,7 +695,7 @@ static void drawTabs(bool autoActive, float prog) {
         uint32_t bg = on ? (offline ? C_BAD : C_ACCENT) : C_CARD;
         fRect(x, y, TAB_W, h, 8, bg);
         if (!on) dRect(x, y, TAB_W, h, 8, offline ? C_BAD : C_BORDER);
-        char lbl[8]; snprintf(lbl, sizeof(lbl), "BAT %d", t + 1);
+        char lbl[20]; snprintf(lbl, sizeof(lbl), "%s %d", T(K_BAT), t + 1);
         cText(lbl, x + TAB_W / 2, y + h / 2, F16, on ? C_BG : (offline ? C_BAD : C_MUTED));
         if (on && autoActive && numBms >= 2) fRect(x + 6, y + h - 3, (int)((TAB_W - 12) * prog), 2, 0, C_BG);
     }
@@ -1138,7 +1155,8 @@ static void drawCloseBtn() {
     for (int o = -1; o <= 1; o++) { line(cx - 6, cy - 6 + o, cx + 6, cy + 6 + o, C_BAD); line(cx - 6, cy + 6 + o, cx + 6, cy - 6 + o, C_BAD); }
 }
 static void drawSubTabs() {
-    const char *nm[3] = {cfgBms ? "BAT 2" : "BAT 1", T(K_TAB_WIFI), T(K_TAB_SYSTEM)};
+    static char bn[20]; snprintf(bn, sizeof(bn), "%s %d", T(K_BAT), cfgBms ? 2 : 1);
+    const char *nm[3] = {bn, T(K_TAB_WIFI), T(K_TAB_SYSTEM)};
     for (int i = 0; i < 3; i++) {
         int x, w; subTabGeom(i, &x, &w); bool on = (subTab == i);
         fRect(x, 44, w, 30, 8, on ? C_ACCENT : C_CARD); if (!on) dRect(x, 44, w, 30, 8, C_BORDER);
@@ -1328,7 +1346,7 @@ static void renderBmsTab() {
         int y = LIST_TOP + i * SROW_STEP - bmsScroll;
         if (y + SROW_H < LIST_TOP || y > Ht) continue;
         if (i == 0) srowAt(y, T(K_BATTERIES), numBms == 2 ? "2  >" : "1  >", C_CYAN);
-        else if (i == 1) srowAt(y, T(K_CONFIGURE), cfgBms ? "BAT 2  >" : "BAT 1  >", numBms == 2 ? C_CYAN : C_MUTED);
+        else if (i == 1) { char cv[20]; snprintf(cv, sizeof(cv), "%s %d  >", T(K_BAT), cfgBms ? 2 : 1); srowAt(y, T(K_CONFIGURE), cv, numBms == 2 ? C_CYAN : C_MUTED); }
         else if (i == 2) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2]);     srowAt(y, T(K_UART_TX), v, C_CYAN); }
         else if (i == 3) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2 + 1]); srowAt(y, T(K_UART_RX), v, C_CYAN); }
         else if (!live) srowAt(y, T(K_PARAMETERS), demoMode ? T(K_DEMO_LC) : T(K_OFFLINE_LC), C_MUTED);

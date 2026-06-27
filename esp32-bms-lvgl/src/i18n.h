@@ -15,14 +15,14 @@
 // STR[][LANG_LATIN8] table. Languages added after share that font too (Russian) or bring their
 // own (Chinese, via curFont) and live in flat STR_<lang>[] arrays — so adding a language doesn't
 // require editing all 161 rows of STR.
-enum { LANG_EN, LANG_FR, LANG_DE, LANG_NL, LANG_PL, LANG_PT, LANG_ES, LANG_VI, LANG_RU, LANG_COUNT };
+enum { LANG_EN, LANG_FR, LANG_DE, LANG_NL, LANG_PL, LANG_PT, LANG_ES, LANG_VI, LANG_RU, LANG_ZH, LANG_COUNT };
 #define LANG_LATIN8 (LANG_VI + 1)   // languages held in the STR[][] table
 static uint8_t g_lang = 0;   // index into the columns below; persisted in NVS ("lang")
 
 // Native names for the picker (never translated).
 static const char *const LANG_NAME[LANG_COUNT] = {
     "English", "Français", "Deutsch", "Nederlands", "Polski", "Português", "Español", "Tiếng Việt",
-    "Русский"};
+    "Русский", "中文"};
 
 enum {
     // ---- status pill (bmsStatusStr) ----
@@ -68,6 +68,8 @@ enum {
     K_E_DIS_SC, K_E_DIS_OT, K_E_CHG_MOS_FAULT, K_E_DIS_MOS_FAULT, K_E_GPS_DISC, K_E_CHG_PWD,
     K_E_DIS_ON_FAIL, K_E_BAT_OT, K_E_TEMP_ANOM, K_E_PL_ANOM, K_E_SCP_REL_FAIL, K_E_DIS_OCP2,
     K_E_DIS_OCP3, K_E_DIS_UT, K_E_GPS_LOCK,
+    // ---- battery tab label (formatted "BAT %d") ----
+    K_BAT,
     K_COUNT
 };
 
@@ -252,6 +254,7 @@ static const char *const STR[K_COUNT][LANG_LATIN8] = {
     /*K_E_DIS_OCP3*/     {"Discharge OCP3",  "OCP3 décharge",   "Entlade-OCP3",  "Ontlaad-OCP3", "OCP3 rozł.",    "OCP3 desc.",    "OCP3 desc.",      "OCP3 xả"},
     /*K_E_DIS_UT*/       {"Discharge under-temp","Sous-temp. décharge","Entl.-Untertemp.","Ontl-ondertemp","NiedoT rozł.","Subtemp desc.","Subtemp desc.","Thiếu nhiệt xả"},
     /*K_E_GPS_LOCK*/     {"GPS remote lock", "Verrou GPS dist.", "GPS-Fernsperre","GPS afst.-slot","Blok. GPS zdal.","Bloq. GPS rem.","Bloqueo GPS rem.","Khóa GPS từ xa"},
+    /*K_BAT*/            {"BAT",            "BAT",             "AKKU",          "ACCU",         "AKU",           "BAT",           "BAT",             "PIN"},
 };
 
 // Russian (Cyrillic) — flat array in StrKey order; uses the same font (Cyrillic added to mont1).
@@ -287,9 +290,47 @@ static const char *const STR_RU[K_COUNT] = {
     "Сбой MOSFET зар.", "Сбой MOSFET раз.", "GPS отключён", "Смена пароля", "Сбой вкл. разряда",
     "Перегрев батареи", "Аномалия датч. T", "Аномалия мод. PL", "Сбой сброса SCP", "OCP2 разряда",
     "OCP3 разряда", "Недогрев разряда", "Удал. блок. GPS",
+    /*K_BAT*/ "БАТ",
+};
+
+// Chinese (Simplified) — flat array in StrKey order; rendered via the CJK font (see curFont).
+static const char *const STR_ZH[K_COUNT] = {
+    /*status*/ "离线", "报警", "FET关", "均衡中", "充电中", "放电中", "满电", "空闲",
+    /*tiles*/ "电压", "峰值充", "峰值放", "运行", "剩余", "电芯", "功率", "容量",
+    "采集中...", "天", "时",
+    /*system*/ "设置", "自动切换", "切换间隔", "亮度", "自动休眠", "节能模式",
+    "变暗延时", "温度单位", "时间格式", "WiFi自动", "演示速度", "系统信息",
+    "固件", "演示模式", "屏保", "屏保延时", "网页地址", "网页用户", "网页密码", "语言",
+    /*values*/ "开", "关", "从不", "摄氏", "华氏", "12小时", "24小时", "查看",
+    /*subtabs*/ "WiFi", "系统",
+    /*bms config*/ "电池数", "配置", "UART TX", "UART RX", "参数", "离线", "演示模式",
+    "读取中...", "充电MOSFET", "放电MOSFET", "均衡器",
+    /*wifi*/ "扫描", "重新扫描", "点击扫描查找网络", "扫描中...", "个网络", "无网络",
+    "扫描失败", "连接到", "已连接:", "失败(密码?)", "未找到网络", "连接丢失",
+    "未连接",
+    /*keyboard*/ "输入密码", "输入用户名", "输入新密码", "网页界面用户名",
+    "网页界面密码", "空格", "取消", "保存",
+    /*info*/ "系统信息", "主板", "闪存", "PSRAM可用", "Heap可用", "网页登录", "运行时间",
+    "点击关闭", "BMS信息: 即将推出",
+    /*params*/ "标称容量", "电芯数", "最大充电A", "最大放电A", "电芯OVP", "OVP恢复",
+    "电芯UVP", "UVP恢复", "SOC100%电压", "SOC0%电压", "均衡起始V", "均衡压差dV", "最大均衡A",
+    "充电电压", "浮充电压", "关机电压", "OCP充延时", "OCP充恢复", "OCP放延时",
+    "OCP放恢复", "SCP延时", "SCP恢复", "OTP充电", "OTP充恢复", "OTP放电",
+    "OTP放恢复", "UTP充电", "UTP充恢复", "MOS OTP", "MOS OTP恢复", "智能休眠V",
+    "加热起始T", "智能休眠时",
+    /*bit flags*/ "加热", "禁用温度传感", "屏幕常亮", "智能休眠", "禁用PCL",
+    "定时存储数据", "浮充", "紧急按钮", "干接点间歇", "放电OCP2",
+    /*errors*/ "线缆电阻", "MOSFET过温", "电芯数不符", "充满", "组过压",
+    "充电过流", "充电短路", "充电过温", "充电低温", "协处理器错误",
+    "电芯欠压", "组欠压", "放电过流", "放电短路", "放电过温",
+    "充电MOSFET故障", "放电MOSFET故障", "GPS断开", "更改密码", "放电开启失败",
+    "电池过温", "温度传感异常", "PL模块异常", "SCP释放失败", "放电OCP2",
+    "放电OCP3", "放电低温", "GPS远程锁定",
+    /*K_BAT*/ "电池",
 };
 
 static inline const char *T(int k) {
     if (g_lang == LANG_RU) return STR_RU[k];
+    if (g_lang == LANG_ZH) return STR_ZH[k];
     return STR[k][g_lang];   // LANG_EN..LANG_VI
 }
