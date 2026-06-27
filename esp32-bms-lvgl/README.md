@@ -37,14 +37,23 @@ LVGL config: `include/lv_conf.h` (Montserrat 12/14/16/20/28 enabled, 16-bit colo
 readout with charge/discharge arrow, status pill (Charging/Discharging/Full/
 Idle/Balancing/FET off/Offline), voltage/stats/temps cards, per-cell bars,
 **power-draw graph** (10-min window) and **capacity panel** (total Wh + energy
-used last 24h/6h) beside a 7-day SOC graph. WiFi status icon + clock.
+used last 24h/6h) beside a 7-day SOC graph (SOC **and** power persisted to NVS).
+Top bar: WiFi icon, **NTP clock**, and **today's weather + 3-day forecast**
+(geo-located by IP via Open-Meteo, drawn with custom glyphs).
 
-**Settings:** BMS / WiFi / System sub-tabs; scrollable lists with drag-scroll;
-full-screen numeric keypad editor (handled on press, jitter-proof); WiFi
-scan/connect with on-screen keyboard + NVS persist/auto-reconnect; System Info
-popup (shows the web-portal login); brightness PWM, power-save (eco/auto-dim/
-auto-sleep), a selectable **screensaver** with an inactivity timeout
-(30 s / 1 / 5 / 30 min / 1 h); 3D sleep animation.
+**12 languages:** EN · FR · DE · NL · PL · PT · ES · VI · RU · ZH · AR (RTL,
+LVGL bidi + Arabic shaping) · HI — picked in Settings → System → Language,
+saved to NVS. Every dashboard/settings/alarm string is translated. Fonts are
+open-source (Montserrat for Latin/Cyrillic; subset Noto Sans Arabic/SC/
+Devanagari with a Montserrat fallback for digits).
+
+**Settings:** BMS / WiFi / System sub-tabs; scrollable lists with drag-scroll
+(stale-touch-anchor fix); full-screen numeric keypad editor (handled on press,
+jitter-proof); WiFi scan/connect with on-screen keyboard + NVS persist/auto-
+reconnect; web address + editable login shown on-device; System Info popup;
+brightness PWM, power-save (eco/auto-dim/auto-sleep); a selectable **screensaver**
+with an inactivity timeout (30 s / 1 / 5 / 30 min / 1 h); an optional **PIN lock**
+(auto-lock timeout + full-screen 6-digit unlock pad, boots locked); 3D sleep animation.
 
 ## Web portal & OTA (over WiFi)
 

@@ -2,11 +2,23 @@
 
 A standalone **ESP32 touchscreen** that monitors and controls your **JK-BMS** battery system
 (LiFePO₄ / Li-ion). Wire it to the BMS, mount it on the wall, and you get a live dashboard, a
-built-in web app, over-the-air updates, and a Home Assistant integration — all running locally,
-with nothing leaving your network. One or two battery packs are supported.
+built-in web app, over-the-air updates, a Home Assistant integration, and a **12-language UI** —
+all running locally, with nothing leaving your network. One or two battery packs are supported.
 
 <p align="center"><img src="docs/device-screen.png" width="70%" alt="The dashboard running on the device"></p>
 <p align="center"><em>The live dashboard, captured straight from the device.</em></p>
+
+### Highlights
+
+- 🔋 **Live dashboard** — SOC ring, power/current with charge·discharge direction, per-cell bars, real BMS status
+- 🎛️ **Full control** — toggle charge/discharge MOSFETs & balancer, edit every protection setting (written back & verified)
+- 📈 **7-day history** — persisted SOC & power graphs that survive reboots, plus 24 h / 6 h energy used
+- 🌍 **12 languages** — EN · FR · DE · NL · PL · PT · ES · VI · RU · ZH · AR (RTL) · HI, on the device *and* the web app
+- 🌤️ **Weather & clock** — today + 3-day forecast (geo-located by IP) and an NTP-synced clock in the top bar
+- 🏠 **Home Assistant** — MQTT auto-discovery, no YAML
+- 🌐 **Built-in web app** — responsive, multilingual, with a live screenshot of the LCD
+- 🔒 **PIN lock & screensaver** — optional auto-lock with a 6-digit unlock pad, selectable idle screensavers
+- 🔄 **Wireless OTA** — update from the browser or PlatformIO after the first USB flash
 
 ---
 
@@ -24,13 +36,21 @@ Every value is entered on an on-screen keypad and read back from the BMS to conf
 
 **A built-in web app** lives at `http://<device-ip>/`. It mirrors the screen in your browser
 with the same controls and settings, shows a live snapshot of the LCD, and lets you flash new
-firmware — all behind a password. After the first USB flash, every update is wireless (from the
-browser or PlatformIO).
+firmware — all behind a password, in a clean responsive UI with its own 12-language selector.
+After the first USB flash, every update is wireless (from the browser or PlatformIO).
 
 **Home Assistant** is one checkbox away. Turn on MQTT in the web app and each pack appears
 automatically (auto-discovery) as a device with sensors for SOC, voltage, current, power,
 temperatures, health, cycles and status, plus switches for the charge/discharge MOSFETs and the
 balancer. No YAML to write.
+
+**Make it yours.** Pick from **12 interface languages** (English, French, German, Dutch, Polish,
+Portuguese, Spanish, Vietnamese, Russian, Chinese, Arabic — right-to-left — and Hindi) in
+**Settings → System → Language**; the web app has its own language selector too. The top bar shows
+the time (NTP-synced) and **today's weather with a 3-day forecast**, located automatically by IP.
+You can set an optional **PIN lock** (auto-lock after a chosen idle time, unlocked with a 6-digit
+pad) and a **screensaver** (several animated idle screens, with their own timeout). Plus power-save
+auto-dim / auto-sleep / eco modes. All fonts are open-source (Montserrat + Noto).
 
 > For the full technical write-up — rendering pipeline, JK protocol map, web portal and OTA —
 > see **[esp32-bms-lvgl/README.md](esp32-bms-lvgl/README.md)**.
