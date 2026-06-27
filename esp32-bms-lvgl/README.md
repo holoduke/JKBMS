@@ -38,8 +38,9 @@ readout with charge/discharge arrow, status pill (Charging/Discharging/Full/
 Idle/Balancing/FET off/Offline), voltage/stats/temps cards, per-cell bars,
 **power-draw graph** (10-min window) and **capacity panel** (total Wh + energy
 used last 24h/6h) beside a 7-day SOC graph (SOC **and** power persisted to NVS).
-Top bar: WiFi icon, **NTP clock**, and **today's weather + 3-day forecast**
-(geo-located by IP via Open-Meteo, drawn with custom glyphs).
+Top bar: WiFi icon, **NTP clock**, and **today's weather** (geo-located by IP via
+Open-Meteo, drawn with custom glyphs) — tap the weather glyph for a **5-day forecast
+popup** (big icon, high/low temps, condition and rain chance per day).
 
 **12 languages:** EN · FR · DE · NL · PL · PT · ES · VI · RU · ZH · AR (RTL,
 LVGL bidi + Arabic shaping) · HI — picked in Settings → System → Language,

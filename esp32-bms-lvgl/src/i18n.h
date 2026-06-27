@@ -76,6 +76,8 @@ enum {
     K_AUTO_LOCK, K_LOCK_PIN, K_ENTER_PIN, K_SET_PIN, K_WRONG_PIN, K_PIN_SET, K_PIN_NONE,
     // ---- MOSFET status (voltage tile) — kept short to fit the narrow tile ----
     K_M_CHG, K_M_DIS, K_M_BAL,
+    // ---- weather forecast popup (day header + condition descriptions) ----
+    K_TODAY, K_WX_CLEAR, K_WX_PARTLY, K_WX_CLOUDY, K_WX_RAIN, K_WX_SNOW, K_WX_STORM,
     K_COUNT
 };
 
@@ -274,6 +276,13 @@ static const char *const STR[K_COUNT][LANG_LATIN8] = {
     /*K_M_CHG*/          {"Charge",         "Charge",          "Laden",         "Laden",        "Ład.",          "Carga",         "Carga",           "Sạc"},
     /*K_M_DIS*/          {"Discharge",      "Décharge",        "Entladen",      "Ontladen",     "Rozład.",       "Descarga",      "Descarga",        "Xả"},
     /*K_M_BAL*/          {"Balance",        "Équil.",          "Balance",       "Balans",       "Balans",        "Equilíb.",      "Balance",         "Cân bằng"},
+    /*K_TODAY*/          {"Today",          "Aujourd'hui",     "Heute",         "Vandaag",      "Dziś",          "Hoje",          "Hoy",             "Hôm nay"},
+    /*K_WX_CLEAR*/       {"Clear",          "Clair",           "Klar",          "Helder",       "Bezchm.",       "Limpo",         "Despejado",       "Quang"},
+    /*K_WX_PARTLY*/      {"Partly",         "Éclaircies",      "Heiter",        "Half bewolkt", "Częśc.",        "Parcial",       "Parcial",         "Ít mây"},
+    /*K_WX_CLOUDY*/      {"Cloudy",         "Nuageux",         "Bewölkt",       "Bewolkt",      "Pochm.",        "Nublado",       "Nublado",         "Nhiều mây"},
+    /*K_WX_RAIN*/        {"Rain",           "Pluie",           "Regen",         "Regen",        "Deszcz",        "Chuva",         "Lluvia",          "Mưa"},
+    /*K_WX_SNOW*/        {"Snow",           "Neige",           "Schnee",        "Sneeuw",       "Śnieg",         "Neve",          "Nieve",           "Tuyết"},
+    /*K_WX_STORM*/       {"Storm",          "Orage",           "Sturm",         "Storm",        "Burza",         "Tempest.",      "Tormenta",        "Bão"},
 };
 
 // Russian (Cyrillic) — flat array in StrKey order; uses the same font (Cyrillic added to mont1).
@@ -314,6 +323,8 @@ static const char *const STR_RU[K_COUNT] = {
     /*K_SET_PIN*/ "Задайте PIN из 6 цифр", /*K_WRONG_PIN*/ "Неверный PIN",
     /*K_PIN_SET*/ "задан", /*K_PIN_NONE*/ "нет",
     /*K_M_CHG*/ "Заряд", /*K_M_DIS*/ "Разряд", /*K_M_BAL*/ "Баланс",
+    /*K_TODAY*/ "Сегодня", /*K_WX_CLEAR*/ "Ясно", /*K_WX_PARTLY*/ "Перем.", /*K_WX_CLOUDY*/ "Облачно",
+    /*K_WX_RAIN*/ "Дождь", /*K_WX_SNOW*/ "Снег", /*K_WX_STORM*/ "Гроза",
 };
 
 // Chinese (Simplified) — flat array in StrKey order; rendered via the CJK font (see curFont).
@@ -354,6 +365,8 @@ static const char *const STR_ZH[K_COUNT] = {
     /*K_SET_PIN*/ "设置6位密码", /*K_WRONG_PIN*/ "密码错误",
     /*K_PIN_SET*/ "已设置", /*K_PIN_NONE*/ "无",
     /*K_M_CHG*/ "充电", /*K_M_DIS*/ "放电", /*K_M_BAL*/ "均衡",
+    /*K_TODAY*/ "今天", /*K_WX_CLEAR*/ "晴", /*K_WX_PARTLY*/ "多云间晴", /*K_WX_CLOUDY*/ "多云",
+    /*K_WX_RAIN*/ "雨", /*K_WX_SNOW*/ "雪", /*K_WX_STORM*/ "雷暴",
 };
 
 // Arabic (RTL; LVGL bidi + Arabic shaping). Designated initializers — any key left out
@@ -378,6 +391,7 @@ static const KV AR_KV[] = {
     {K_BAT,"بطارية"},
     {K_AUTO_LOCK,"قفل تلقائي"},{K_LOCK_PIN,"رمز القفل"},{K_ENTER_PIN,"أدخل الرمز"},{K_SET_PIN,"حدد رمزاً من 6 أرقام"},{K_WRONG_PIN,"رمز خاطئ"},{K_PIN_SET,"محدد"},{K_PIN_NONE,"لا يوجد"},
     {K_M_CHG,"شحن"},{K_M_DIS,"تفريغ"},{K_M_BAL,"موازنة"},
+    {K_TODAY,"اليوم"},{K_WX_CLEAR,"صافٍ"},{K_WX_PARTLY,"غائم جزئي"},{K_WX_CLOUDY,"غائم"},{K_WX_RAIN,"مطر"},{K_WX_SNOW,"ثلج"},{K_WX_STORM,"عاصفة"},
 };
 
 // Hindi (Devanagari). NOTE: LVGL can't shape Devanagari → glyphs render unjoined (best-effort, as agreed).
@@ -400,6 +414,7 @@ static const KV HI_KV[] = {
     {K_BAT,"बैटरी"},
     {K_AUTO_LOCK,"ऑटो-लॉक"},{K_LOCK_PIN,"लॉक पिन"},{K_ENTER_PIN,"पिन दर्ज करें"},{K_SET_PIN,"6 अंकों का पिन सेट करें"},{K_WRONG_PIN,"गलत पिन"},{K_PIN_SET,"सेट"},{K_PIN_NONE,"कोई नहीं"},
     {K_M_CHG,"चार्ज"},{K_M_DIS,"डिस्चार्ज"},{K_M_BAL,"बैलेंस"},
+    {K_TODAY,"आज"},{K_WX_CLEAR,"साफ़"},{K_WX_PARTLY,"आंशिक बादल"},{K_WX_CLOUDY,"बादल"},{K_WX_RAIN,"बारिश"},{K_WX_SNOW,"बर्फ़"},{K_WX_STORM,"तूफ़ान"},
 };
 
 static inline const char *kvFind(const KV *a, int n, int k) { for (int i = 0; i < n; i++) if (a[i].k == k) return a[i].s; return 0; }

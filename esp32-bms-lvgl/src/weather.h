@@ -51,8 +51,8 @@ static bool wxFetch() {
     char url[280];
     snprintf(url, sizeof(url),
         "https://api.open-meteo.com/v1/forecast?latitude=%.3f&longitude=%.3f"
-        "&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min"
-        "&forecast_days=4&timezone=auto", wxLat, wxLon);
+        "&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"
+        "&forecast_days=5&timezone=auto", wxLat, wxLon);
     if (!http.begin(net, url)) { wxHttp = -1000; return false; }
     bool ok = false;
     int code = http.GET();
@@ -66,11 +66,13 @@ static bool wxFetch() {
             wxCurTemp = (int)lroundf((float)(d["current"]["temperature_2m"] | 0.0));
             wxCurCode = d["current"]["weather_code"] | -1;
             JsonArray code = d["daily"]["weather_code"], mx = d["daily"]["temperature_2m_max"], mn = d["daily"]["temperature_2m_min"];
+            JsonArray pp = d["daily"]["precipitation_probability_max"];
             int n = 0;
-            for (int i = 0; i < 4 && i < (int)code.size(); i++) {
+            for (int i = 0; i < 5 && i < (int)code.size(); i++) {
                 wxDay[i].code = code[i] | 0;
                 wxDay[i].tmax = (int)lroundf((float)(mx[i] | 0.0));
                 wxDay[i].tmin = (int)lroundf((float)(mn[i] | 0.0));
+                wxDay[i].pop = pp[i] | 0;
                 n++;
             }
             wxDays = n; wxOk = n > 0; ok = wxOk;

@@ -194,8 +194,8 @@ static uint8_t alState[2] = {0, 0};          // per-pack bitmask of currently-ac
 static void alertLoop();                     // defined in alerts.h
 static bool alertSend(const char *msg);      // defined in alerts.h (also used by the web Test button)
 // Weather (geo-IP + Open-Meteo); fetched in weather.h, drawn in the top bar
-struct WxDay { int code; int tmax, tmin; };
-static bool wxOk = false; static int wxCurTemp = 0, wxCurCode = -1; static WxDay wxDay[4]; static int wxDays = 0;
+struct WxDay { int code; int tmax, tmin; int pop; };   // pop = max precipitation probability %
+static bool wxOk = false; static int wxCurTemp = 0, wxCurCode = -1; static WxDay wxDay[5]; static int wxDays = 0;
 static char wxCity[28] = "";
 static int wxHttp = 0;              // diagnostic: last Open-Meteo HTTP code (negative = HTTPClient error)
 static void weatherLoop();          // defined in weather.h
@@ -203,6 +203,8 @@ static bool timeSynced = false;     // NTP has produced a valid wall-clock
 static int sysScroll = 0;           // System-tab scroll offset (px)
 static int bmsScroll = 0;           // BMS-tab scroll offset (px)
 static bool infoPopup = false;
+static bool wxPopup = false;            // weather forecast modal (tap the top-bar weather glyph)
+static int wxBoxL = 0, wxBoxR = 0;      // hit region of the top-bar weather glyph+temp (set in drawTabs)
 // raw settings block (Modbus reg 0x1000) per BMS — byte k == web frame offset k+6.
 // Filled by two reads: 0x1000 (bytes 0..249) + a tail read for the bitmask region.
 static uint8_t setRaw[2][300];
@@ -690,9 +692,9 @@ static void wxCloudAt(uint32_t col) {   // web cloud: 3 bumps (small-left, big-m
     fCircle(wpx(18), wpy(14), wpr(3.6f), col);
     fRect(wpx(8), wpy(13), wpr(11), wpr(5.2f), wpr(2.6f), col);
 }
-static void drawWxIcon(int cx, int cy, int code) {   // centred at (cx,cy)
+static void drawWxIcon(int cx, int cy, int code, float k = 1.15f) {   // centred at (cx,cy); k scales the 24-unit glyph
     const uint32_t SUN = 0xffd43b, CLD = 0xc9d1d9, RN = 0x4aa3ff, SNW = 0xcfe6ff, BOLT = 0xffd43b;
-    gCx = cx; gCy = cy; gK = 1.15f;   // ~28px glyph from the 24-unit web space
+    gCx = cx; gCy = cy; gK = k;   // 1.15 → ~28px top-bar glyph; larger k for the forecast popup
     int cat = wxCat(code);
     if (cat == 0) { wxSunAt(12, 11, 4.6f, SUN); return; }                   // clear
     if (cat == 1) { wxSunAt(8, 8, 3.0f, SUN); wxCloudAt(CLD); return; }     // partly (sun peeks, cloud over)
@@ -765,7 +767,8 @@ static void drawTabs(bool autoActive, float prog) {
         int tw = textW(wt, F16), tx = wx + 18;
         cText(wt, tx + tw / 2, midY, F16, C_TEXT);                  // centred on midY, same as the clock
         fCircle(tx + tw + 3, midY - 5, 1, C_TEXT);                  // degree mark, upper-right of the digits
-    }
+        wxBoxL = wx - 16; wxBoxR = tx + tw + 8;                     // tap zone → opens the forecast popup
+    } else { wxBoxL = wxBoxR = 0; }
     struct tm ti;
     setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1); tzset();   // TZ env is per-task in newlib; the render task needs its own tzset
     if (getLocalTime(&ti, 0)) {
@@ -1085,6 +1088,7 @@ static void blitCanvas(lv_obj_t *cv, int x, int y, int w, int h) {
 }
 static void switchView(int v) { if (v == V_BMS2 && numBms < 2) v = V_BMS1; view = v; renderGraphs(); }   // gauges read from the continuously-polled cache → instant
 
+static void renderWeatherPopup();   // defined below (with the other modals)
 static void renderBms() {
     const Bms &b = bms[view];
     uint32_t now = millis();
@@ -1145,6 +1149,7 @@ static void renderBms() {
     // bottom row, columns aligned with the row above: energy summary (left) + capacity graph (right)
     drawEnergyTile(rx, 216, cellsW, CAP_H, packTotalWh(view), whSpent(view, 288), whSpent(view, 72), stale);
     blitCanvas(capCv, rx + cellsW + 8, 216, CAP_W, CAP_H);
+    if (wxPopup) renderWeatherPopup();   // forecast modal overlays the dashboard
 }
 
 // ============================================================================
@@ -1554,6 +1559,57 @@ static void renderInfoPopup() {
     lText(T(K_BMS_SOON), lx, ly + 3, F12, C_MUTED);
     lText(T(K_TAP_CLOSE), x + w - 92, y + h - 18, F12, C_MUTED);
 }
+static int wxCondKey(int code) {            // weather code → localized condition label
+    switch (wxCat(code)) {
+        case 0:  return K_WX_CLEAR;
+        case 1:  return K_WX_PARTLY;
+        case 2:  return K_WX_CLOUDY;
+        case 3:  return K_WX_RAIN;
+        case 4:  return K_WX_SNOW;
+        default: return K_WX_STORM;
+    }
+}
+static void drawDrop(int cx, int cy, uint32_t col) {   // tiny raindrop glyph
+    fCircle(cx, cy + 1, 3, col);
+    tri(cx - 3, cy + 1, cx + 3, cy + 1, cx, cy - 4, col);
+}
+// 5-day forecast modal — opened by tapping the top-bar weather glyph. Each day is a
+// column: header (Today / D-M), a big icon, max/min temp, condition text and rain chance.
+static void renderWeatherPopup() {
+    const uint32_t RN = 0x4aa3ff;
+    int w = Wd - 16, h = Ht - 44, x = 8, y = (Ht - h) / 2;
+    fRect(x, y, w, h, 12, C_CARD); dRect(x, y, w, h, 12, C_ACCENT);
+    lText(wxCity[0] ? wxCity : "Weather", x + 16, y + 10, F16, C_TEXT);
+    lText(T(K_TAP_CLOSE), x + w - 92, y + h - 18, F12, C_MUTED);
+    int n = wxDays < 1 ? 1 : wxDays;
+    int colW = (w - 16) / n;
+    // base date for the per-day header (Today + D/M for the rest)
+    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1); tzset();
+    struct tm ti; time_t base = 0; bool haveDate = false;
+    if (getLocalTime(&ti, 0)) { base = mktime(&ti); haveDate = base > 0; }
+    const int hdrY = y + 40, icoY = y + 92, mxY = y + 132, mnY = y + 154, condY = y + 180, popY = y + 206;
+    for (int i = 0; i < wxDays; i++) {
+        int cxo = x + 8 + i * colW, cx = cxo + colW / 2;
+        if (i) dRect(cxo, y + 36, 1, h - 56, 0, C_BORDER);            // column separator
+        if (i == 0) dRect(cxo + 2, y + 34, colW - 3, h - 52, 8, C_ACCENT);   // highlight today
+        char dh[14];
+        if (i == 0) snprintf(dh, sizeof(dh), "%s", T(K_TODAY));
+        else if (haveDate) { time_t e = base + (time_t)i * 86400; struct tm dt; localtime_r(&e, &dt); snprintf(dh, sizeof(dh), "%d/%d", dt.tm_mday, dt.tm_mon + 1); }
+        else snprintf(dh, sizeof(dh), "+%dd", i);
+        cText(dh, cx, hdrY, F12, i == 0 ? C_ACCENT : C_MUTED);
+        drawWxIcon(cx, icoY, wxDay[i].code, 2.5f);
+        char tb[10];
+        snprintf(tb, sizeof(tb), "%d°", wxDay[i].tmax); cText(tb, cx, mxY, F16, C_TEXT);
+        snprintf(tb, sizeof(tb), "%d°", wxDay[i].tmin); cText(tb, cx, mnY, F12, C_MUTED);
+        cText(T(wxCondKey(wxDay[i].code)), cx, condY, F10, C_MUTED);
+        if (wxDay[i].pop > 0) {
+            char pp[6]; snprintf(pp, sizeof(pp), "%d%%", wxDay[i].pop);
+            int pw = textW(pp, F10), tot = 9 + pw, sx = cx - tot / 2;
+            drawDrop(sx + 3, popY + 4, RN);
+            lText(pp, sx + 11, popY, F10, RN);
+        }
+    }
+}
 static void renderLockPad(bool setMode);   // defined below (near the lock screen)
 static void renderSettings() {
     if (lockSetMode) { renderLockPad(true); return; }   // setting a new PIN (modal numpad)
@@ -1856,13 +1912,16 @@ static void handleTap(int x, int y) {
         }
         return;
     }
-    // dashboard top bar — generous hit zones (corners are hard to hit precisely)
+    // dashboard
+    if (wxPopup) { wxPopup = false; return; }   // any tap dismisses the forecast popup
+    // top bar — generous hit zones (corners are hard to hit precisely)
     manualUntil = millis() + PAUSE_MS;
     if (y <= 44) {
         if (x >= TAB1_X && x < TAB1_X + TAB_W) { switchView(V_BMS1); lastSwitch = millis(); }
         else if (numBms >= 2 && x >= TAB2_X && x < TAB2_X + TAB_W) { switchView(V_BMS2); lastSwitch = millis(); }
         else if (x >= GEAR_X - 10) { cfgBms = (view == V_BMS2 && numBms >= 2) ? 1 : 0; view = V_SETTINGS; kbActive = false; infoPopup = false; }  // keep last sub-tab
         else if (x >= BED_X - 8) pendingSleep = true;                                                              // sleep, left of the gear
+        else if (wxOk && wxBoxR > wxBoxL && x >= wxBoxL && x <= wxBoxR) wxPopup = true;                            // weather glyph → forecast popup
     }
 }
 
