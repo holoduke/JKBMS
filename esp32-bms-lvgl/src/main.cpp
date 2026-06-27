@@ -109,6 +109,14 @@ static const char *ERR_NAMES[29] = {
     "Discharge MOSFET fault", "GPS disconnected", "Change password", "Discharge-on failed",
     "Battery over-temp", "Temp sensor anomaly", "PL module anomaly", "SCP release failed",
     "Discharge OCP2", "Discharge OCP3", "Discharge under-temp", "GPS remote lock"};
+// i18n keys parallel to ERR_NAMES (English kept for MQTT/web). 0xFF = no name (skip).
+static const uint8_t ERR_KEY[29] = {
+    K_E_WIRE_RES, K_E_MOS_OT, K_E_CELL_MISMATCH, 0xFF, K_E_FULLY_CHARGED, K_E_PACK_OV, K_E_CHG_OC,
+    K_E_CHG_SC, K_E_CHG_OT, K_E_CHG_UT, K_E_COPROC, K_E_CELL_UV, K_E_PACK_UV, K_E_DIS_OC,
+    K_E_DIS_SC, K_E_DIS_OT, K_E_CHG_MOS_FAULT, K_E_DIS_MOS_FAULT, K_E_GPS_DISC, K_E_CHG_PWD,
+    K_E_DIS_ON_FAIL, K_E_BAT_OT, K_E_TEMP_ANOM, K_E_PL_ANOM, K_E_SCP_REL_FAIL, K_E_DIS_OCP2,
+    K_E_DIS_OCP3, K_E_DIS_UT, K_E_GPS_LOCK};
+static const char *errNameL(int bit) { return (bit < 29 && ERR_KEY[bit] != 0xFF) ? T(ERR_KEY[bit]) : ""; }
 // Real graph history: one sample / 5 min per BMS, ring-buffered to HIST_N (=2016 = 7 days),
 // persisted to NVS so the trends survive a reboot. Demo mode uses genCap() instead.
 // Compact storage: SOC fits a byte, pack power an int16 (W) → ~6 KB/BMS in NVS.
@@ -210,7 +218,7 @@ static bool kbActive = false, wifiScanning = false, ntpStarted = false, wifiSave
 enum KbTarget { KBT_WIFI = 0, KBT_WUSER, KBT_WPASS };   // what the text keyboard is editing
 static int kbTarget = KBT_WIFI;
 static char wifiPass[33] = ""; static int wifiPassLen = 0;   // also reused as the scratch buffer for web user/pass entry
-static char wifiMsg[56] = "tap Scan to find networks";
+static char wifiMsg[56] = "";   // empty → renderWifiTab shows the localized "tap Scan" hint
 static char connSsid[33] = "", connPass[33] = "";
 static Preferences prefs;
 static void setBrightness(int pct) { ledcWrite(TFT_BL, map(constrain(pct, 5, 100), 0, 100, 0, 255)); }
@@ -999,9 +1007,9 @@ static void renderBms() {
     if (b.errFlags && (demoMode || bmsLive[view])) {   // name the active protection(s) under the pill
         char al[44] = ""; int shown = 0;
         for (int bit = 0; bit < 29 && shown < 2; bit++)
-            if (((b.errFlags >> bit) & 1) && ERR_NAMES[bit][0]) {
+            if (((b.errFlags >> bit) & 1) && errNameL(bit)[0]) {
                 if (shown) strncat(al, " · ", sizeof(al) - strlen(al) - 1);
-                strncat(al, ERR_NAMES[bit], sizeof(al) - strlen(al) - 1); shown++;
+                strncat(al, errNameL(bit), sizeof(al) - strlen(al) - 1); shown++;
             }
         if (shown) cText(al, cx, py2 + 24, F10, C_BAD);
     }
@@ -1224,6 +1232,19 @@ static const BitDef BITDEFS[] = {
     {"Dry-contact intmt",  0x0800}, {"Discharge OCP2",    0x1000},
 };
 #define NBIT ((int)(sizeof(BITDEFS) / sizeof(BITDEFS[0])))
+// i18n keys parallel to the data tables above (English label kept for MQTT/web).
+static const uint8_t SET_KEY[NSET] = {
+    K_S_NOMINAL_CAP, K_S_CELL_COUNT, K_S_MAX_CHG_A, K_S_MAX_DIS_A, K_S_CELL_OVP, K_S_CELL_OVP_REC,
+    K_S_CELL_UVP, K_S_CELL_UVP_REC, K_S_SOC100_V, K_S_SOC0_V, K_S_BAL_START_V, K_S_BAL_TRIG_DV,
+    K_S_MAX_BAL_A, K_S_REQ_CHG_V, K_S_REQ_FLOAT_V, K_S_POWER_OFF_V, K_S_CHG_OCP_DELAY,
+    K_S_CHG_OCP_REC, K_S_DIS_OCP_DELAY, K_S_DIS_OCP_REC, K_S_SCP_DELAY, K_S_SCP_REC,
+    K_S_CHG_OTP, K_S_CHG_OTP_REC, K_S_DIS_OTP, K_S_DIS_OTP_REC, K_S_CHG_UTP, K_S_CHG_UTP_REC,
+    K_S_MOS_OTP, K_S_MOS_OTP_REC, K_S_SMART_SLEEP_V};
+static const uint8_t TAIL_KEY[NTAIL] = {K_S_HEAT_START_T, K_S_SMART_SLEEP_H};
+static const uint8_t BIT_KEY[NBIT] = {
+    K_B_HEATING, K_B_DIS_TEMP_SENS, K_B_DISP_ALWAYS, K_B_SMART_SLEEP, K_B_DISABLE_PCL,
+    K_B_TIMED_DATA, K_B_CHG_FLOAT, K_B_EMERGENCY, K_B_DRY_CONTACT, K_B_DIS_OCP2};
+static int numKey(int i) { return i < NSET ? SET_KEY[i] : TAIL_KEY[i - NSET]; }     // localized param label
 static int setWidth(uint8_t t) { return (t == FT_U8 || t == FT_I8) ? 1 : (t == FT_U16 || t == FT_I16) ? 2 : 4; }
 static float setGet(int b, const SetDef &d) {
     const uint8_t *p = setRaw[b]; int o = d.off - 6; uint32_t raw = 0;
@@ -1267,7 +1288,7 @@ static void keyRect(int k, int *kx, int *ky, int *kw, int *kh) {
 static void renderEditor() {
     const SetDef &d = numDef(editIdx);
     fRect(0, 0, Wd, Ht, 0, C_BG);
-    lText(d.label, 14, 10, F16, C_TEXT);
+    lText(T(numKey(editIdx)), 14, 10, F16, C_TEXT);
     int dec = setDec(d);
     char rng[44]; snprintf(rng, sizeof(rng), "range %.*f to %.*f %s", dec, d.vmin, dec, d.vmax, d.unit);
     lText(rng, 14, 70, F12, C_MUTED);
@@ -1279,7 +1300,8 @@ static void renderEditor() {
         bool save = (k == 15), cancel = (k == 14);
         fRect(kx, ky, kw, kh, 8, save ? C_ACCENT : C_CARD);
         if (!save) dRect(kx, ky, kw, kh, 8, cancel ? C_BAD : C_BORDER);
-        cText(KEYLBL[k], kx + kw / 2, ky + kh / 2 - 9, F20, save ? C_BG : (cancel ? C_BAD : C_TEXT));
+        const char *klbl = save ? T(K_SAVE) : cancel ? T(K_CANCEL) : KEYLBL[k];
+        cText(klbl, kx + kw / 2, ky + kh / 2 - 9, F20, save ? C_BG : (cancel ? C_BAD : C_TEXT));
     }
 }
 // always-shown rows: 0 battery, 1 TX pin, 2 RX pin. Then (when live) 3 switches,
@@ -1305,21 +1327,21 @@ static void renderBmsTab() {
     for (int i = 0; i < rows; i++) {
         int y = LIST_TOP + i * SROW_STEP - bmsScroll;
         if (y + SROW_H < LIST_TOP || y > Ht) continue;
-        if (i == 0) srowAt(y, "Batteries", numBms == 2 ? "2  >" : "1  >", C_CYAN);
-        else if (i == 1) srowAt(y, "Configure", cfgBms ? "BAT 2  >" : "BAT 1  >", numBms == 2 ? C_CYAN : C_MUTED);
-        else if (i == 2) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2]);     srowAt(y, "UART TX pin", v, C_CYAN); }
-        else if (i == 3) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2 + 1]); srowAt(y, "UART RX pin", v, C_CYAN); }
-        else if (!live) srowAt(y, "Parameters", demoMode ? "demo mode" : "offline", C_MUTED);
+        if (i == 0) srowAt(y, T(K_BATTERIES), numBms == 2 ? "2  >" : "1  >", C_CYAN);
+        else if (i == 1) srowAt(y, T(K_CONFIGURE), cfgBms ? "BAT 2  >" : "BAT 1  >", numBms == 2 ? C_CYAN : C_MUTED);
+        else if (i == 2) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2]);     srowAt(y, T(K_UART_TX), v, C_CYAN); }
+        else if (i == 3) { char v[8]; snprintf(v, sizeof(v), "IO%d", bmsPin[b * 2 + 1]); srowAt(y, T(K_UART_RX), v, C_CYAN); }
+        else if (!live) srowAt(y, T(K_PARAMETERS), demoMode ? T(K_DEMO_LC) : T(K_OFFLINE_LC), C_MUTED);
         else {
             int si = i - BMS_FIXED;                          // live section
-            if (si == 0) srowToggle(y, "Charge MOSFET", bmsCharge[b]);
-            else if (si == 1) srowToggle(y, "Discharge MOSFET", bmsDischarge[b]);
-            else if (si == 2) srowToggle(y, "Balancer", bmsBalancer[b]);
-            else if (!avail) srowAt(y, "Parameters", "reading...", C_MUTED);
+            if (si == 0) srowToggle(y, T(K_CHARGE_MOSFET), bmsCharge[b]);
+            else if (si == 1) srowToggle(y, T(K_DISCHARGE_MOSFET), bmsDischarge[b]);
+            else if (si == 2) srowToggle(y, T(K_BALANCER), bmsBalancer[b]);
+            else if (!avail) srowAt(y, T(K_PARAMETERS), T(K_READING), C_MUTED);
             else {
                 int pi = si - 3;
-                if (pi < numCount(b)) { const SetDef &d = numDef(pi); char v[16]; fmtSetting(v, sizeof(v), d, setGet(b, d)); srowAt(y, d.label, v, C_TEXT); }
-                else { const BitDef &f = BITDEFS[pi - numCount(b)]; srowToggle(y, f.label, bitWord(b) & f.mask); }
+                if (pi < numCount(b)) { const SetDef &d = numDef(pi); char v[16]; fmtSetting(v, sizeof(v), d, setGet(b, d)); srowAt(y, T(numKey(pi)), v, C_TEXT); }
+                else { int bi = pi - numCount(b); srowToggle(y, T(BIT_KEY[bi]), bitWord(b) & BITDEFS[bi].mask); }
             }
         }
     }
@@ -1362,12 +1384,12 @@ static void renderWifiTab() {
     }
     // mask the strip above the list + draw the status message on top
     fRect(0, 78, Wd, top - 78, 0, C_BG);
-    lText(wifiMsg, 12, 82, F12, conn ? C_ACCENT : C_MUTED);
+    lText(wifiMsg[0] ? wifiMsg : T(K_WIFI_TAP_SCAN), 12, 82, F12, conn ? C_ACCENT : C_MUTED);
     // mask the strip below the list + draw the Rescan button on top
     int ry = wRescanY();
     fRect(0, ry - 2, Wd, Ht - (ry - 2), 0, C_BG);
     fRect(8, ry, Wd - 16, 28, 6, C_CARD); dRect(8, ry, Wd - 16, 28, 6, C_BORDER);
-    cText(netCount ? "Rescan" : "Scan", Wd / 2, ry + 14, F16, C_CYAN);
+    cText(netCount ? T(K_RESCAN) : T(K_SCAN), Wd / 2, ry + 14, F16, C_CYAN);
 }
 // keyboard: draw (draw=true) or hit-test (draw=false -> returns key code)
 static int kbProcess(bool draw, int tx, int ty) {
@@ -1387,7 +1409,7 @@ static int kbProcess(bool draw, int tx, int ty) {
     int y = KB_TOP + 4 * (KH + GAP);
     struct { int x, w; const char *lb; int code; } ctl[4] = {
         {8, 62, kbMode == 0 ? "ABC" : kbMode == 1 ? "#+=" : "abc", -2},
-        {74, 176, "space", 32}, {254, 92, "del", -1}, {350, 122, "OK", -4}};
+        {74, 176, T(K_KB_SPACE), 32}, {254, 92, "del", -1}, {350, 122, "OK", -4}};
     for (int k = 0; k < 4; k++) {
         if (draw) {
             uint32_t bg = ctl[k].code == -4 ? C_ACCENT : C_CARD;
@@ -1400,9 +1422,9 @@ static int kbProcess(bool draw, int tx, int ty) {
 static void renderKeyboard() {
     char hdr[48];
     const char *hint;
-    if (kbTarget == KBT_WUSER) { snprintf(hdr, sizeof(hdr), "Web interface username"); hint = "enter username"; }
-    else if (kbTarget == KBT_WPASS) { snprintf(hdr, sizeof(hdr), "Web interface password"); hint = "enter new password"; }
-    else { snprintf(hdr, sizeof(hdr), "Wi-Fi: %s", wifiSel >= 0 ? netSsid[wifiSel] : ""); hint = "enter password"; }
+    if (kbTarget == KBT_WUSER) { snprintf(hdr, sizeof(hdr), "%s", T(K_HDR_WEB_USER)); hint = T(K_ENTER_USERNAME); }
+    else if (kbTarget == KBT_WPASS) { snprintf(hdr, sizeof(hdr), "%s", T(K_HDR_WEB_PASS)); hint = T(K_ENTER_NEW_PASSWORD); }
+    else { snprintf(hdr, sizeof(hdr), "Wi-Fi: %s", wifiSel >= 0 ? netSsid[wifiSel] : ""); hint = T(K_ENTER_PASSWORD); }
     lText(hdr, 12, 8, F12, C_MUTED);
     drawCloseBtn();
     fRect(12, 30, Wd - 24, 30, 6, C_CARD); dRect(12, 30, Wd - 24, 30, 6, C_BORDER);
@@ -1415,22 +1437,22 @@ static void kvLine(int x, int *y, const char *k, const char *v) {
 static void renderInfoPopup() {
     int w = Wd - 56, h = Ht - 44, x = (Wd - w) / 2, y = (Ht - h) / 2;
     fRect(x, y, w, h, 10, C_CARD); dRect(x, y, w, h, 10, C_ACCENT);
-    lText("SYSTEM INFO", x + 16, y + 12, F16, C_TEXT);
+    lText(T(K_HDR_SYSINFO), x + 16, y + 12, F16, C_TEXT);
     lText("v" FW_VERSION, x + w - 62, y + 14, F12, C_ACCENT);
     int lx = x + 16, ly = y + 44; char b[40];
-    kvLine(lx, &ly, "Board", "JC3248W535");
+    kvLine(lx, &ly, T(K_BOARD), "JC3248W535");
     snprintf(b, sizeof(b), "ESP32-S3 2-core %uMHz", (unsigned)getCpuFrequencyMhz()); kvLine(lx, &ly, "MCU", b);
-    snprintf(b, sizeof(b), "%lu MB", (unsigned long)(ESP.getFlashChipSize() / 1048576UL)); kvLine(lx, &ly, "Flash", b);
-    snprintf(b, sizeof(b), "%lu / %lu KB", (unsigned long)(ESP.getFreePsram() / 1024), (unsigned long)(ESP.getPsramSize() / 1024)); kvLine(lx, &ly, "PSRAM free", b);
-    snprintf(b, sizeof(b), "%lu KB", (unsigned long)(ESP.getFreeHeap() / 1024)); kvLine(lx, &ly, "Heap free", b);
+    snprintf(b, sizeof(b), "%lu MB", (unsigned long)(ESP.getFlashChipSize() / 1048576UL)); kvLine(lx, &ly, T(K_FLASH), b);
+    snprintf(b, sizeof(b), "%lu / %lu KB", (unsigned long)(ESP.getFreePsram() / 1024), (unsigned long)(ESP.getPsramSize() / 1024)); kvLine(lx, &ly, T(K_PSRAM_FREE), b);
+    snprintf(b, sizeof(b), "%lu KB", (unsigned long)(ESP.getFreeHeap() / 1024)); kvLine(lx, &ly, T(K_HEAP_FREE), b);
     kvLine(lx, &ly, "MAC", WiFi.macAddress().c_str());
     if (WiFi.status() == WL_CONNECTED) {
         kvLine(lx, &ly, "IP", WiFi.localIP().toString().c_str());
-        snprintf(b, sizeof(b), "%s / %s", webUser, webPass); kvLine(lx, &ly, "Web login", b);   // portal + OTA credentials
-    } else kvLine(lx, &ly, "WiFi", "not connected");
-    snprintf(b, sizeof(b), "%lu s", (unsigned long)(millis() / 1000)); kvLine(lx, &ly, "Uptime", b);
-    lText("BMS info: coming soon", lx, ly + 3, F12, C_MUTED);
-    lText("tap to close", x + w - 92, y + h - 18, F12, C_MUTED);
+        snprintf(b, sizeof(b), "%s / %s", webUser, webPass); kvLine(lx, &ly, T(K_WEB_LOGIN), b);   // portal + OTA credentials
+    } else kvLine(lx, &ly, T(K_TAB_WIFI), T(K_NOT_CONNECTED));
+    snprintf(b, sizeof(b), "%lu s", (unsigned long)(millis() / 1000)); kvLine(lx, &ly, T(K_UPTIME_INFO), b);
+    lText(T(K_BMS_SOON), lx, ly + 3, F12, C_MUTED);
+    lText(T(K_TAP_CLOSE), x + w - 92, y + h - 18, F12, C_MUTED);
 }
 static void renderSettings() {
     if (kbActive) { renderKeyboard(); return; }
@@ -1451,7 +1473,7 @@ static void renderSettings() {
 static void wifiStartScan() {
     if (wifiScanning) return;
     wifiScanning = true; wifiSel = -1; wifiScroll = 0;
-    snprintf(wifiMsg, sizeof(wifiMsg), "scanning...");
+    snprintf(wifiMsg, sizeof(wifiMsg), "%s", T(K_WIFI_SCANNING));
     WiFi.mode(WIFI_STA); WiFi.scanNetworks(true);
 }
 static void wifiTryConnect() {
@@ -1459,7 +1481,7 @@ static void wifiTryConnect() {
     strncpy(connSsid, netSsid[wifiSel], 32); connSsid[32] = 0;
     strncpy(connPass, wifiPass, 32); connPass[32] = 0;
     wifiSaved = false; WiFi.begin(connSsid, connPass);
-    snprintf(wifiMsg, sizeof(wifiMsg), "connecting to %s...", connSsid);
+    snprintf(wifiMsg, sizeof(wifiMsg), "%s %s...", T(K_WIFI_CONNECTING), connSsid);
 }
 static bool wifiPoll() {
     bool changed = false;
@@ -1472,8 +1494,8 @@ static bool wifiPoll() {
                 netRssi[i] = WiFi.RSSI(i); netEnc[i] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
             }
             WiFi.scanDelete(); wifiScanning = false; changed = true;
-            snprintf(wifiMsg, sizeof(wifiMsg), n ? "%d networks found" : "no networks found", n);
-        } else if (r == WIFI_SCAN_FAILED) { wifiScanning = false; changed = true; snprintf(wifiMsg, sizeof(wifiMsg), "scan failed"); }
+            if (n) snprintf(wifiMsg, sizeof(wifiMsg), "%d %s", n, T(K_WIFI_NETS)); else snprintf(wifiMsg, sizeof(wifiMsg), "%s", T(K_WIFI_NO_NETS));
+        } else if (r == WIFI_SCAN_FAILED) { wifiScanning = false; changed = true; snprintf(wifiMsg, sizeof(wifiMsg), "%s", T(K_WIFI_SCAN_FAIL)); }
         return changed;
     }
     static uint32_t lastRetry = 0;
@@ -1483,14 +1505,14 @@ static bool wifiPoll() {
     if (st != last) {
         last = st; changed = true;
         if (st == WL_CONNECTED) {
-            snprintf(wifiMsg, sizeof(wifiMsg), "Connected: %s", WiFi.SSID().c_str());
+            snprintf(wifiMsg, sizeof(wifiMsg), "%s %s", T(K_WIFI_CONNECTED), WiFi.SSID().c_str());
             webBegin();   // start the web portal + OTA once we have an IP
             configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.nist.gov", "time.google.com");   // (re)start NTP on every (re)connect
             ntpStarted = true;
             if (!wifiSaved && connSsid[0]) { prefs.begin("wifi", false); prefs.putString("ssid", connSsid); prefs.putString("pass", connPass); prefs.end(); wifiSaved = true; }
-        } else if (st == WL_CONNECT_FAILED) snprintf(wifiMsg, sizeof(wifiMsg), "connect failed (password?)");
-        else if (st == WL_NO_SSID_AVAIL) snprintf(wifiMsg, sizeof(wifiMsg), "network not found");
-        else if (st == WL_CONNECTION_LOST) snprintf(wifiMsg, sizeof(wifiMsg), "connection lost");
+        } else if (st == WL_CONNECT_FAILED) snprintf(wifiMsg, sizeof(wifiMsg), "%s", T(K_WIFI_CONN_FAIL));
+        else if (st == WL_NO_SSID_AVAIL) snprintf(wifiMsg, sizeof(wifiMsg), "%s", T(K_WIFI_NOT_FOUND));
+        else if (st == WL_CONNECTION_LOST) snprintf(wifiMsg, sizeof(wifiMsg), "%s", T(K_WIFI_CONN_LOST));
     }
     if (!timeSynced && WiFi.status() == WL_CONNECTED) {   // keep retrying NTP until the clock is real
         struct tm ti;
@@ -2521,7 +2543,7 @@ void setup() {
         strncpy(connSsid, ss.c_str(), 32); connSsid[32] = 0;
         strncpy(connPass, pw.c_str(), 32); connPass[32] = 0;
         wifiSaved = true; WiFi.begin(connSsid, connPass);
-        snprintf(wifiMsg, sizeof(wifiMsg), "connecting to %s...", connSsid);
+        snprintf(wifiMsg, sizeof(wifiMsg), "%s %s...", T(K_WIFI_CONNECTING), connSsid);
     }
 
     simInit();
