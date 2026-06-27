@@ -16,7 +16,7 @@
 #include "AXS15231B_touch.h"
 #include "i18n.h"          // language tables + T(key); g_lang persisted in NVS
 
-#define FW_VERSION "0.4.0"
+#define FW_VERSION "1.0"
 #define BL_CH_FREQ 5000
 #define BL_CH_RES 8
 #define BMS_TX_PIN 17               // BMS1: ESP TX -> BMS RX
