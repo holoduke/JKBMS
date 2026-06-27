@@ -2566,6 +2566,11 @@ static float gVel = 0;              // finger velocity px/ms during a drag
 // kinetic (momentum) scroll
 static float flingVel = 0;          // scroll velocity px/ms
 static int *flingVar = nullptr, flingMax = 0, flingTop = 0, flingBot = 0;
+static uint32_t flingLast = 0;      // last fling step time (for frame-rate-independent momentum)
+static volatile bool gTouchDown = false;   // finger currently down (set in press/release)
+// While the user is actively scrolling/flinging, skip the blocking background work
+// (Modbus poll, NVS writes, network loops) so touch sampling + rendering stay smooth.
+static inline bool uiBusy() { return gTouchDown || flingVel != 0; }
 // scroll context for the current tab (nullptr = nothing scrolls here)
 static int *scrollCtx(int *maxS, int *top, int *bot) {
     if (view == V_SETTINGS && subTab == ST_SYSTEM) { *maxS = sysMaxScroll(); *top = LIST_TOP; *bot = Ht; return &sysScroll; }
@@ -2582,6 +2587,7 @@ static void unsave() {   // instantly undo dim / eco on interaction
 }
 static void press_cb(lv_event_t *e) {
     lastActivity = millis();
+    gTouchDown = true;
     if (saverShowing) swallowTap = true;   // this touch only wakes the screensaver; don't act on the UI underneath
     if (standby) return;
     unsave();
@@ -2624,15 +2630,16 @@ static void pressing_cb(lv_event_t *e) {
 }
 static void release_cb(lv_event_t *e) {
     lastActivity = millis();
+    gTouchDown = false;
     if (standby) { standby = false; appliedB = brightness; setBrightness(brightness); unsave(); lv_obj_invalidate(scr); return; }  // wake
     if (swallowTap) { swallowTap = false; gMoved = false; return; }   // first tap only dismissed the screensaver
     if (pressHandled) { pressHandled = false; return; }   // keyboard handled on press
     if (gMoved) {                                         // was a scroll → fling, don't toggle
         gMoved = false;
         int maxS = 0, top = 0, bot = 0; int *sv = scrollCtx(&maxS, &top, &bot);
-        if (sv && millis() - gLastT < 80 && fabsf(gVel) > 0.05f) {   // released while moving → momentum
+        if (sv && millis() - gLastT < 140 && fabsf(gVel) > 0.04f) {   // released while moving → momentum
             flingVel = -gVel; if (flingVel > 2.5f) flingVel = 2.5f; if (flingVel < -2.5f) flingVel = -2.5f;
-            flingVar = sv; flingMax = maxS; flingTop = top; flingBot = bot;
+            flingVar = sv; flingMax = maxS; flingTop = top; flingBot = bot; flingLast = 0;
         }
         return;
     }
@@ -2644,12 +2651,15 @@ static void release_cb(lv_event_t *e) {
 }
 // momentum scroll: decays the released velocity until it stops or hits an edge
 static void fling_cb(lv_timer_t *t) {
-    if (!flingVar || fabsf(flingVel) < 0.04f) { flingVel = 0; return; }
-    int ns = *flingVar + (int)(flingVel * 30.0f);        // 30ms step
+    if (!flingVar || fabsf(flingVel) < 0.03f) { flingVel = 0; flingLast = 0; return; }
+    uint32_t now = millis();
+    uint32_t dt = flingLast ? (now - flingLast) : 30; if (dt > 100) dt = 100;   // frame-rate-independent (panel flush time varies)
+    flingLast = now;
+    int ns = *flingVar + (int)(flingVel * dt);           // velocity is px/ms → × elapsed ms
     if (ns < 0) { ns = 0; flingVel = 0; }
     if (ns > flingMax) { ns = flingMax; flingVel = 0; }
     if (ns != *flingVar) { *flingVar = ns; invArea(0, flingTop, Wd - 1, flingBot); }
-    flingVel *= 0.86f;                                    // friction
+    flingVel *= powf(0.90f, dt / 30.0f);                 // friction, normalised to a 30ms step
 }
 // The Arduino_Canvas is a persistent full framebuffer: regions we don't
 // invalidate keep their previous pixels. So we redraw selectively —
@@ -2663,6 +2673,7 @@ static void invArea(int x1, int y1, int x2, int y2) {
 // Poll the live BMSes; when a pack's online/offline state flips, repaint the tab
 // row (red ↔ accent) and the body (stale ↔ live) so the UI tracks reconnects.
 static void bmsPoll_cb(lv_timer_t *t) {
+    if (uiBusy()) return;                      // don't block touch/scroll with a Modbus read mid-gesture
     bool was0 = bmsLive[0], was1 = numBms >= 2 ? bmsLive[1] : false;
     int hc = histCount[view];
     bmsRead();
@@ -2689,8 +2700,10 @@ static void dataTick_cb(lv_timer_t *t) {
     if (pwrSample() && !standby && view != V_SETTINGS && !idleActiveNow()) {   // new power point → refresh graphs
         renderGraphs(); invArea(196, 118, Wd - 1, 313);
     }
-    if (cfgDirty && now - cfgDirtyAt > 1500) { cfgDirty = false; saveSettings(); }   // persist settings
-    if (histDirty && now - histDirtyAt > 2000) { histDirty = false; saveHistory(); } // persist graph history
+    if (!uiBusy()) {   // NVS writes block for tens of ms — never mid-scroll/fling
+        if (cfgDirty && now - cfgDirtyAt > 1500) { cfgDirty = false; saveSettings(); }   // persist settings
+        if (histDirty && now - histDirtyAt > 2000) { histDirty = false; saveHistory(); } // persist graph history
+    }
     // ---- power saving (escalates with idle time; any touch resets it) ----
     uint32_t idle = now - lastActivity;
     // auto-lock: arm after the inactivity timeout (needs a PIN set). The pad appears
@@ -2842,9 +2855,11 @@ void loop() {
     if (otaActive) { ArduinoOTA.handle(); return; }   // OTA in progress → give it the whole CPU
     lv_task_handler();
     webLoop();   // serve the web portal + handle OTA (no-op until WiFi connects)
-    mqttLoop();  // Home Assistant / MQTT (no-op unless enabled + connected)
-    weatherLoop();  // geo-IP + forecast refresh (every ~30 min once online)
-    alertLoop();    // threshold push alerts (no-op unless enabled)
+    if (!uiBusy()) {   // defer network work while scrolling/flinging — socket ops can block and cause jank
+        mqttLoop();  // Home Assistant / MQTT (no-op unless enabled + connected)
+        weatherLoop();  // geo-IP + forecast refresh (every ~30 min once online)
+        alertLoop();    // threshold push alerts (no-op unless enabled)
+    }
     if (pendingSleep) {
         pendingSleep = false;
         playSleepAnimation();   // blocking, draws + flushes itself; sets standby
