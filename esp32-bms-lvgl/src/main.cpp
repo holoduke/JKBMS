@@ -11,6 +11,8 @@
 #include <Preferences.h>
 #include <time.h>
 #include <math.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include "pincfg.h"
 #include "dispcfg.h"
 #include "AXS15231B_touch.h"
@@ -181,8 +183,8 @@ static void webLoop();
 // MQTT / Home Assistant config (set from the web portal, persisted in NVS)
 static bool mqttEnabled = false; static int mqttPort = 1883;
 static char mqttHost[64] = "", mqttUser[40] = "", mqttPass[40] = "";
-static bool mqttReconnect = false;  // web sets this when config changes → mqttLoop re-applies
-static bool mqttUp = false;         // current broker connection state (for the web portal)
+static volatile bool mqttReconnect = false;  // web (UI core) sets this on config change → mqttLoop (net core) re-applies
+static volatile bool mqttUp = false;         // broker connection state; written by the net task, read by web/UI
 static void mqttLoop();             // defined in mqtt.h
 // Threshold push alerts — POST the message body to a webhook (ntfy.sh topic URL, or any
 // endpoint that accepts a text body). Edge-triggered with a re-arm cooldown (no spam).
@@ -232,7 +234,7 @@ static bool lockSetMode = false;     // settings is capturing a NEW PIN (modal n
 static char lockEntry[8] = ""; static int lockEntryLen = 0;
 static uint32_t lockWrongUntil = 0;  // brief "wrong PIN" feedback window
 static lv_timer_t *barTimer = nullptr, *dataTimer = nullptr;
-static bool cfgDirty = false; static uint32_t cfgDirtyAt = 0;   // debounced settings save
+static volatile bool cfgDirty = false; static volatile uint32_t cfgDirtyAt = 0;   // debounced settings save (set from UI + net cores)
 // wifi
 #define MAXNET 10
 static char netSsid[MAXNET][33];
@@ -246,6 +248,10 @@ static char wifiPass[33] = ""; static int wifiPassLen = 0;   // also reused as t
 static char wifiMsg[56] = "";   // empty → renderWifiTab shows the localized "tap Scan" hint
 static char connSsid[33] = "", connPass[33] = "";
 static Preferences prefs;
+// Guards all Modbus bus access (bmsRead on the UI core vs. bmsSet from the core-0 net
+// task's MQTT command handler). The poll try-takes (skips if a write is mid-flight);
+// writes wait. Created in setup() before the net task starts.
+static SemaphoreHandle_t busMux = nullptr;
 static void setBrightness(int pct) { ledcWrite(TFT_BL, map(constrain(pct, 5, 100), 0, 100, 0, 255)); }
 
 static void genCap(Bms &b, float span, int count) {
@@ -428,6 +434,7 @@ static void bmsReadSettings(uint8_t addr, int idx) {
 #define BMS_RETRY 4
 static void bmsRead() {
     if (demoMode) { bmsLive[0] = bmsLive[1] = false; return; }
+    if (busMux && xSemaphoreTake(busMux, 0) != pdTRUE) return;   // a write is mid-flight on the other core → skip this poll
     static uint8_t skip[2] = {0, 0};
     static bool wasLive[2] = {false, false};
     static uint8_t setTick = 0; setTick++;
@@ -445,6 +452,7 @@ static void bmsRead() {
         wasLive[t] = bmsLive[t];
         if (!bmsLive[t]) { setOk[t] = false; setOk2[t] = false; }
     }
+    if (busMux) xSemaphoreGive(busMux);
 }
 // Write a UINT32 control register (function 0x10, 2 registers) to BMS idx (addr 1, own bus).
 static void bmsWrite(int idx, uint16_t reg, uint32_t val) {
@@ -475,14 +483,16 @@ static bool bmsReadReg(int idx, uint16_t reg, uint32_t *out) {
 // so retry a few times before declaring failure — otherwise a good write reports
 // as "didn't change" and the UI keeps the old value.
 static bool bmsSet(int idx, uint16_t reg, uint32_t val) {
+    if (busMux) xSemaphoreTake(busMux, portMAX_DELAY);   // exclusive bus access (poll runs on the other core)
     bmsWrite(idx, reg, val);
-    uint32_t rb = 0;
+    uint32_t rb = 0; bool ok = false;
     for (int t = 0; t < 4; t++) {
-        if (bmsReadReg(idx, reg, &rb) && rb == val) return true;
+        if (bmsReadReg(idx, reg, &rb) && rb == val) { ok = true; break; }
         delay(25);
     }
-    Serial.printf("[bms] verify failed: reg %04X wrote %lu, read %lu\n", reg, (unsigned long)val, (unsigned long)rb);
-    return false;
+    if (busMux) xSemaphoreGive(busMux);
+    if (!ok) Serial.printf("[bms] verify failed: reg %04X wrote %lu, read %lu\n", reg, (unsigned long)val, (unsigned long)rb);
+    return ok;
 }
 static uint32_t socColor(float soc) { return soc >= 60 ? C_ACCENT : soc >= 30 ? C_WARN : C_BAD; }
 // Single source of truth for the status pill — uses REAL BMS state (fault bitmask,
@@ -2759,6 +2769,21 @@ static void wifiTick_cb(lv_timer_t *t) {
 #include "weather.h"      // geo-IP location + Open-Meteo forecast
 #include "alerts.h"       // threshold push alerts (ntfy/webhook)
 
+// Background I/O worker, pinned to core 0 (the UI/render + LVGL run on core 1). All the
+// blocking network work lives here so a slow/unreachable endpoint can never freeze the
+// display or touch: MQTT (connect can block ~seconds), the weather/geo HTTPS fetches,
+// and the alert webhook POSTs. The MQTT command path (mqCallback → bmsSet) is the only
+// one that touches the Modbus bus, and that's serialised against the core-1 poll by busMux.
+// Good home for any future blocking/background job (extra sensors, cloud sync, etc.).
+static void netTask(void *) {
+    for (;;) {
+        mqttLoop();     // HA / MQTT — connect, keepalive, publish, handle commands
+        weatherLoop();  // geo-IP + Open-Meteo forecast (self-throttled)
+        alertLoop();    // threshold push alerts (self-throttled)
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);   // never block the loop when no USB host is reading
@@ -2833,6 +2858,7 @@ void setup() {
     //   BMS1 = UART1 (RX=IO18, TX=IO17), BMS2 = UART2 (RX=IO15, TX=IO16).
     // bmsRead() flips bmsLive[] per a valid reply; a silent pack shows a red tab +
     // "Offline". Skipped entirely in demo mode.
+    busMux = xSemaphoreCreateMutex();   // serialise Modbus access (UI-core poll vs. net-core MQTT writes)
     bmsBegin();                 // open both BMS UARTs with the saved pin assignment
     bmsRead();
     histSample();               // continue the persisted history with a fresh point
@@ -2848,6 +2874,9 @@ void setup() {
     lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
     lv_timer_create(wifiTick_cb, 500, NULL);
     lv_timer_create(bmsPoll_cb, 1000, NULL);              // poll live BMSes (+ repaint on reconnect)
+    // Blocking network I/O on core 0, away from the render/touch core (1). 10 KB stack
+    // covers the mbedTLS handshake; low priority so it never preempts the UI.
+    xTaskCreatePinnedToCore(netTask, "net", 10240, NULL, 1, NULL, 0);
     Serial.println("[lvgl] dashboard ready");
 }
 
@@ -2855,11 +2884,8 @@ void loop() {
     if (otaActive) { ArduinoOTA.handle(); return; }   // OTA in progress → give it the whole CPU
     lv_task_handler();
     webLoop();   // serve the web portal + handle OTA (no-op until WiFi connects)
-    if (!uiBusy()) {   // defer network work while scrolling/flinging — socket ops can block and cause jank
-        mqttLoop();  // Home Assistant / MQTT (no-op unless enabled + connected)
-        weatherLoop();  // geo-IP + forecast refresh (every ~30 min once online)
-        alertLoop();    // threshold push alerts (no-op unless enabled)
-    }
+    // MQTT / weather / alerts now run on the core-0 netTask so their blocking socket
+    // I/O can't stall rendering or touch — see netTask().
     if (pendingSleep) {
         pendingSleep = false;
         playSleepAnimation();   // blocking, draws + flushes itself; sets standby
