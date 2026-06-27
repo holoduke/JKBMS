@@ -194,8 +194,9 @@ static int appliedB = 90;           // currently applied backlight %
 static bool ecoActive = false;      // eco (low-fps) state active
 #define DIM_LEVEL 12                 // backlight % when dimmed
 #define ECO_IDLE_MS 20000UL          // idle before low-fps kicks in
-static int idleScreen = 0;           // no-data screen: 0=Dashboard 1=HUD 2=Init 3=Radar
-#define IDLE_DELAY 8000UL            // offline + no touch this long → show the idle screen
+static int idleScreen = 0;           // screensaver: 0=Off 1=HUD 2=Init 3=Radar 4=Arcade 5=Security
+static int saverAfterSec = 0;        // inactivity before the screensaver kicks in (0 = off; only the no-data fallback applies)
+#define IDLE_DELAY 8000UL            // offline + no touch this long → show the screensaver (no-data fallback)
 static lv_timer_t *barTimer = nullptr, *dataTimer = nullptr;
 static bool cfgDirty = false; static uint32_t cfgDirtyAt = 0;   // debounced settings save
 // wifi
@@ -1069,13 +1070,20 @@ static void srowToggle(int y, const char *label, bool on) {
 // ---- scrollable System list ----
 static const char *SYS_LABEL[] = {
     "Auto-switch", "Switch interval", "Brightness   - / +", "Auto-sleep", "Eco mode", "Dim after",
-    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode", "No-data screen",
+    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode",
+    "Screensaver", "Screensaver after",
     "Web address", "Web username", "Web password"};
 #define SYS_ROWS ((int)(sizeof(SYS_LABEL) / sizeof(SYS_LABEL[0])))
 static void dimStr(char *o, size_t n) {
     if (dimAfterSec == 0) snprintf(o, n, "Off");
     else if (dimAfterSec < 60) snprintf(o, n, "%ds", dimAfterSec);
     else snprintf(o, n, "%d min", dimAfterSec / 60);
+}
+static void saverStr(char *o, size_t n) {
+    if (saverAfterSec == 0) snprintf(o, n, "Off");
+    else if (saverAfterSec < 60) snprintf(o, n, "%ds", saverAfterSec);
+    else if (saverAfterSec < 3600) snprintf(o, n, "%d min", saverAfterSec / 60);
+    else snprintf(o, n, "%d hr", saverAfterSec / 3600);
 }
 static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
     switch (i) {
@@ -1090,10 +1098,11 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 8: snprintf(o, n, "%s", wifiAuto ? "ON" : "OFF"); *vc = wifiAuto ? C_ACCENT : C_MUTED; break;
         case 9: snprintf(o, n, "%dx", simSpeed); *vc = C_CYAN; break;
         case 10: snprintf(o, n, "view"); *vc = C_CYAN; break;
-        case 13: { static const char *IN[6] = {"Dashboard", "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = C_CYAN; break; }
-        case 14: if (WiFi.status() == WL_CONNECTED) { snprintf(o, n, "%s", WiFi.localIP().toString().c_str()); *vc = C_ACCENT; } else { snprintf(o, n, "no WiFi"); *vc = C_MUTED; } break;
-        case 15: snprintf(o, n, "%s", webUser); *vc = C_CYAN; break;
-        case 16: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
+        case 13: { static const char *IN[6] = {"Off", "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = idleScreen ? C_CYAN : C_MUTED; break; }
+        case 14: saverStr(o, n); *vc = saverAfterSec ? C_CYAN : C_MUTED; break;
+        case 15: if (WiFi.status() == WL_CONNECTED) { snprintf(o, n, "%s", WiFi.localIP().toString().c_str()); *vc = C_ACCENT; } else { snprintf(o, n, "no WiFi"); *vc = C_MUTED; } break;
+        case 16: snprintf(o, n, "%s", webUser); *vc = C_CYAN; break;
+        case 17: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
@@ -1501,6 +1510,7 @@ static void saveSettings() {
     prefs.putBool("bb0", bmsBalancer[0]); prefs.putBool("bb1", bmsBalancer[1]);
     prefs.putBool("demo", demoMode);
     prefs.putInt("idle", idleScreen);
+    prefs.putInt("saver", saverAfterSec);
     prefs.putInt("nbms", numBms);
     prefs.putBytes("pins", bmsPin, sizeof(bmsPin));
     prefs.putString("wuser", webUser);
@@ -1521,6 +1531,7 @@ static void loadSettings() {
     bmsBalancer[0] = prefs.getBool("bb0", false); bmsBalancer[1] = prefs.getBool("bb1", false);
     demoMode = prefs.getBool("demo", demoMode);
     idleScreen = prefs.getInt("idle", idleScreen);
+    saverAfterSec = prefs.getInt("saver", saverAfterSec);
     if (prefs.isKey("nbms")) numBms = prefs.getInt("nbms", 2);
     else numBms = prefs.isKey("autosw") ? 2 : 1;   // existing install (ran the old hardcoded-dual build) → keep 2; fresh flash → default 1
     if (numBms < 1) numBms = 1; if (numBms > 2) numBms = 2;
@@ -1632,10 +1643,11 @@ static void handleTap(int x, int y) {
                 case 9: simSpeed = simSpeed == 1 ? 2 : simSpeed == 2 ? 5 : 1; break;
                 case 10: infoPopup = true; return;   // full redraw for the popup
                 case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
-                case 13: idleScreen = (idleScreen + 1) % 6; break;   // cycle no-data screen
-                case 14: infoPopup = true; return;                   // Web address → full system-info popup (shows IP + login)
-                case 15: strncpy(wifiPass, webUser, sizeof(wifiPass) - 1); wifiPass[sizeof(wifiPass) - 1] = 0; wifiPassLen = strlen(wifiPass); kbMode = 0; kbTarget = KBT_WUSER; kbActive = true; return;   // edit web username
-                case 16: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
+                case 13: idleScreen = (idleScreen + 1) % 6; break;   // cycle screensaver (Off / HUD / Init / Radar / Arcade / Security)
+                case 14: saverAfterSec = saverAfterSec == 0 ? 30 : saverAfterSec == 30 ? 60 : saverAfterSec == 60 ? 300 : saverAfterSec == 300 ? 1800 : saverAfterSec == 1800 ? 3600 : 0; break;   // 30s/1m/5m/30m/1h
+                case 15: infoPopup = true; return;                   // Web address → full system-info popup (shows IP + login)
+                case 16: strncpy(wifiPass, webUser, sizeof(wifiPass) - 1); wifiPass[sizeof(wifiPass) - 1] = 0; wifiPassLen = strlen(wifiPass); kbMode = 0; kbTarget = KBT_WUSER; kbActive = true; return;   // edit web username
+                case 17: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
@@ -2013,10 +2025,13 @@ static void playHudBoot() {
 //  Idle / "no battery detected" screens (gfx-direct, animated; chosen in Settings)
 // ============================================================================
 static bool idleActiveNow() {
-    if (idleScreen == 0 || standby || demoMode || kbActive) return false;
+    if (idleScreen == 0 || standby || kbActive) return false;    // no screensaver selected / asleep / typing
     if (view != V_BMS1 && view != V_BMS2) return false;          // only over a dashboard view
-    for (int t = 0; t < numBms; t++) if (bmsLive[t]) return false;   // any active pack answering → keep the real UI
-    return (millis() - lastActivity) > IDLE_DELAY;               // settle after the last touch
+    uint32_t idleFor = millis() - lastActivity;
+    if (saverAfterSec > 0 && idleFor > (uint32_t)saverAfterSec * 1000UL) return true;   // timed screensaver (regardless of data)
+    if (demoMode) return false;                                  // demo always has data → only the timed saver applies
+    for (int t = 0; t < numBms; t++) if (bmsLive[t]) return false;   // a pack is answering → keep the real UI
+    return idleFor > IDLE_DELAY;                                 // no data + settle after the last touch
 }
 static void idleText(int x, int y, const char *s, uint8_t sz, uint16_t c) {
     gfx->setTextSize(sz); gfx->setTextColor(c); gfx->setCursor(x, y); gfx->print(s);
@@ -2257,6 +2272,7 @@ static void draw_cb(lv_event_t *e) {
     else renderBms();
 }
 static bool pressHandled = false, gMoved = false, gAnchored = false;
+static bool saverShowing = false, swallowTap = false;   // screensaver active / wake-tap should not also act on the UI
 static int gStartY = 0, gBaseScroll = 0, gLastY = 0;
 static uint32_t gLastT = 0;
 static float gVel = 0;              // finger velocity px/ms during a drag
@@ -2279,6 +2295,7 @@ static void unsave() {   // instantly undo dim / eco on interaction
 }
 static void press_cb(lv_event_t *e) {
     lastActivity = millis();
+    if (saverShowing) swallowTap = true;   // this touch only wakes the screensaver; don't act on the UI underneath
     if (standby) return;
     unsave();
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
@@ -2311,6 +2328,7 @@ static void pressing_cb(lv_event_t *e) {
 static void release_cb(lv_event_t *e) {
     lastActivity = millis();
     if (standby) { standby = false; appliedB = brightness; setBrightness(brightness); unsave(); lv_obj_invalidate(scr); return; }  // wake
+    if (swallowTap) { swallowTap = false; gMoved = false; return; }   // first tap only dismissed the screensaver
     if (pressHandled) { pressHandled = false; return; }   // keyboard handled on press
     if (gMoved) {                                         // was a scroll → fling, don't toggle
         gMoved = false;
@@ -2529,6 +2547,7 @@ void loop() {
     // animated "no battery" idle screen (chosen in Settings) — owns the canvas directly
     static bool wasIdle = false;
     bool idle = idleActiveNow();
+    saverShowing = idle;                             // so a wake-tap can be swallowed (see press/release_cb)
     if (!idle && wasIdle) lv_obj_invalidate(scr);   // leaving idle → repaint the real UI
     wasIdle = idle;
     if (idle) {

@@ -43,7 +43,8 @@ used last 24h/6h) beside a 7-day SOC graph. WiFi status icon + clock.
 full-screen numeric keypad editor (handled on press, jitter-proof); WiFi
 scan/connect with on-screen keyboard + NVS persist/auto-reconnect; System Info
 popup (shows the web-portal login); brightness PWM, power-save (eco/auto-dim/
-auto-sleep), selectable no-data idle screens; 3D sleep animation.
+auto-sleep), a selectable **screensaver** with an inactivity timeout
+(30 s / 1 / 5 / 30 min / 1 h); 3D sleep animation.
 
 ## Web portal & OTA (over WiFi)
 
