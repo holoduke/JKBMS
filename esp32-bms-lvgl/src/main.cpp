@@ -2326,7 +2326,7 @@ static void draw_cb(lv_event_t *e) {
     if (view == V_SETTINGS) renderSettings();
     else renderBms();
 }
-static bool pressHandled = false, gMoved = false, gAnchored = false;
+static bool pressHandled = false, gMoved = false, gAnchored = false, gSettle = false;
 static bool saverShowing = false, swallowTap = false;   // screensaver active / wake-tap should not also act on the UI
 static int gStartY = 0, gBaseScroll = 0, gLastY = 0;
 static uint32_t gLastT = 0;
@@ -2355,7 +2355,7 @@ static void press_cb(lv_event_t *e) {
     unsave();
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
-    gMoved = false; gAnchored = false; gVel = 0; flingVel = 0;   // grab cancels any momentum
+    gMoved = false; gAnchored = false; gSettle = false; gVel = 0; flingVel = 0;   // grab cancels any momentum
     // keyboards handle on press (not release): a tap with touch jitter would set
     // gMoved and get dropped as a "scroll" — but a keypad has nothing to scroll.
     if (view == V_SETTINGS && (kbActive || editIdx >= 0)) { handleTap(p.x, p.y); pressHandled = true; lv_obj_invalidate(scr); }
@@ -2365,10 +2365,16 @@ static void pressing_cb(lv_event_t *e) {
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
     int maxS = 0, top = 0, bot = 0; int *scrollVar = scrollCtx(&maxS, &top, &bot);
-    if (!gAnchored) {                    // first stable sample → anchor (PRESSED coord can be stale)
-        gStartY = p.y; gBaseScroll = scrollVar ? *scrollVar : 0; gAnchored = true;
+    if (!gAnchored) {                    // first sample — but the touch IC often returns a STALE point
+        gStartY = p.y; gBaseScroll = scrollVar ? *scrollVar : 0; gAnchored = true;   // (left from the previous lift)
+        gLastY = p.y; gLastT = millis(); gVel = 0; gSettle = true; return;            // so re-anchor on the next one
+    }
+    if (gSettle) {                       // 2nd sample: discard the possibly-stale first → anchor here for real
+        gSettle = false;
+        gStartY = p.y; gBaseScroll = scrollVar ? *scrollVar : 0;
         gLastY = p.y; gLastT = millis(); gVel = 0; return;
     }
+    if (abs(p.y - gLastY) > 120) return; // single-sample teleport = touch glitch → ignore, don't scroll
     int dy = p.y - gStartY;
     if (abs(dy) > 6) gMoved = true;      // ANY drag suppresses the tap on release (also on non-scrolling tabs)
     uint32_t tn = millis();              // track finger velocity for momentum
