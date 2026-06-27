@@ -12,10 +12,11 @@ all running locally, with nothing leaving your network. One or two battery packs
 
 - 🔋 **Live dashboard** — SOC ring, power/current with charge·discharge direction, per-cell bars, real BMS status
 - 🎛️ **Full control** — toggle charge/discharge MOSFETs & balancer, edit every protection setting (written back & verified)
-- 📈 **7-day history** — persisted SOC & power graphs that survive reboots, plus 24 h / 6 h energy used
+- 📈 **7-day history** — persisted SOC & power graphs that survive reboots, plus 24 h / 6 h energy and **lifetime kWh** counters; export it all as CSV
+- 🔔 **Push alerts** — notify an ntfy.sh topic or any webhook on faults, low SOC, high temp or cell imbalance
 - 🌍 **12 languages** — EN · FR · DE · NL · PL · PT · ES · VI · RU · ZH · AR (RTL) · HI, on the device *and* the web app
 - 🌤️ **Weather & clock** — today + 3-day forecast (geo-located by IP) and an NTP-synced clock in the top bar
-- 🏠 **Home Assistant** — MQTT auto-discovery, no YAML
+- 🏠 **Home Assistant** — MQTT auto-discovery (incl. lifetime energy for the Energy dashboard), no YAML
 - 🌐 **Built-in web app** — responsive, multilingual, with a live screenshot of the LCD
 - 🔒 **PIN lock & screensaver** — optional auto-lock with a 6-digit unlock pad, selectable idle screensavers
 - 🔄 **Wireless OTA** — update from the browser or PlatformIO after the first USB flash

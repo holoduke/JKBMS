@@ -92,6 +92,8 @@ img{width:100%;max-width:480px;border:1px solid var(--bd);border-radius:10px;ima
   <div class=card><div class=ct><span data-i18n=cells>Cells</span> <span id=cd class=mut></span></div><div class=cells id=cells></div></div>
   <div class=card><div class=ct data-i18n=temps>Temperatures</div><div id=temps></div></div>
   <div class=card><div class=ct data-i18n=session>Session</div><div id=sess></div></div>
+  <div class=card><div class=ct data-i18n=history>History</div>
+   <a class="btn sm" href=/history.csv download style="display:inline-block;text-decoration:none" data-i18n=csvexport>Download CSV</a></div>
   <div class=card><div class=ct data-i18n=controls>Controls</div><div id=ctl></div></div>
  </div>
  <div class=col>
@@ -110,10 +112,20 @@ img{width:100%;max-width:480px;border:1px solid var(--bd);border-radius:10px;ima
    <div class=row><span data-i18n=user>Username</span><input id=mqu data-ph=optional></div>
    <div class=row><span data-i18n=pass>Password</span><input id=mqpw type=password data-ph=unchanged></div>
    <div class=row><span><label class=stack><input type=checkbox id=mqe> <span data-i18n=enabled>Enabled</span></label></span><button class=sm onclick=savemq() data-i18n=save>Save</button></div></div>
+  <div class=card><div class=ct data-i18n=alerts>Alerts</div>
+   <p class=mut style=margin:0 0 8px data-i18n=alertshint>Push to an ntfy.sh topic or any webhook when a problem appears</p>
+   <div class=row><span data-i18n=webhook>Webhook URL</span><input id=alu placeholder=https://ntfy.sh/...></div>
+   <div class=row><span data-i18n=soclow>Low SOC %</span><input id=als type=number></div>
+   <div class=row><span data-i18n=temphi>High temp °C</span><input id=alt type=number></div>
+   <div class=row><span data-i18n=deltahi>Cell delta mV</span><input id=ald type=number></div>
+   <div class=row><span><label class=stack><input type=checkbox id=alf> <span data-i18n=onfault>Alert on faults</span></label></span></div>
+   <div class=row><span><label class=stack><input type=checkbox id=ale> <span data-i18n=enabled>Enabled</span></label></span>
+    <span class=stack><button class="sm off" onclick=testal() data-i18n=test>Test</button><button class=sm onclick=saveal() data-i18n=save>Save</button></span></div>
+   <p id=alst class=mut></p></div>
  </div>
 </div></div><script>
 const I18N={
-en:{bat:"Battery",bat1:"Battery 1",status:"Status",live:"Live",weather:"Weather",cells:"Cells",temps:"Temperatures",session:"Session",controls:"Controls",devscreen:"Device screen",settings:"Settings",fwupdate:"Firmware update",security:"Security",tapedit:"(tap value to edit)",refresh:"Refresh",flash:"Upload & flash",save:"Save",chgpw:"Change password",newpw:"new password",broker:"Broker host",port:"Port",user:"Username",pass:"Password",enabled:"Enabled",optional:"optional",unchanged:"(unchanged)",loading:"loading…",retrying:"retrying…",loadfail:"load failed — tap Refresh",current:"current",pickbin:"pick a .bin first",rebooting:"OK — device rebooting…",failed:"failed",pwmin:"password min 4 chars",pwok:"password changed — re-login next action",pwfail:"change failed",mqsaved:"saved — connecting…",mqfail:"save failed",connected:"connected",notconn:"enabled, not connected",disabled:"disabled",up:"up",disconnected:"disconnected — retrying…",alarm:"Alarm",operational:"Operational",state:"State",link:"Link",livev:"live",offline:"offline",soc:"SOC",charging:"charging",discharging:"discharging",idle:"idle",voltage:"voltage",curr:"current",mosfet:"MOSFET",sensor:"Sensor",capacity:"Capacity",totalenergy:"Total energy",cycles:"Cycles",health:"Health",uptime:"Uptime",balcur:"Balance current",peakchg:"Peak charge",peakdis:"Peak discharge",chg24:"Charged 24h",used24:"Used 24h",chg6:"Charged 6h",used6:"Used 6h",chgmos:"Charge MOSFET",dismos:"Discharge MOSFET",balancer:"Balancer",on:"ON",off:"OFF",noset:"settings not loaded (BMS offline?)",today:"Today",tomorrow:"Tomorrow",indays:"In {n} days",wxnone:"no data — needs internet",newval:"New value for",writefail:"write failed"},
+en:{bat:"Battery",bat1:"Battery 1",status:"Status",live:"Live",weather:"Weather",cells:"Cells",temps:"Temperatures",session:"Session",controls:"Controls",devscreen:"Device screen",settings:"Settings",fwupdate:"Firmware update",security:"Security",tapedit:"(tap value to edit)",refresh:"Refresh",flash:"Upload & flash",save:"Save",chgpw:"Change password",newpw:"new password",broker:"Broker host",port:"Port",user:"Username",pass:"Password",enabled:"Enabled",optional:"optional",unchanged:"(unchanged)",loading:"loading…",retrying:"retrying…",loadfail:"load failed — tap Refresh",current:"current",pickbin:"pick a .bin first",rebooting:"OK — device rebooting…",failed:"failed",pwmin:"password min 4 chars",pwok:"password changed — re-login next action",pwfail:"change failed",mqsaved:"saved — connecting…",mqfail:"save failed",connected:"connected",notconn:"enabled, not connected",disabled:"disabled",up:"up",disconnected:"disconnected — retrying…",alarm:"Alarm",operational:"Operational",state:"State",link:"Link",livev:"live",offline:"offline",soc:"SOC",charging:"charging",discharging:"discharging",idle:"idle",voltage:"voltage",curr:"current",mosfet:"MOSFET",sensor:"Sensor",capacity:"Capacity",totalenergy:"Total energy",cycles:"Cycles",health:"Health",uptime:"Uptime",balcur:"Balance current",peakchg:"Peak charge",peakdis:"Peak discharge",chg24:"Charged 24h",used24:"Used 24h",chg6:"Charged 6h",used6:"Used 6h",chgmos:"Charge MOSFET",dismos:"Discharge MOSFET",balancer:"Balancer",on:"ON",off:"OFF",noset:"settings not loaded (BMS offline?)",today:"Today",tomorrow:"Tomorrow",indays:"In {n} days",wxnone:"no data — needs internet",newval:"New value for",writefail:"write failed",echg:"Charged total",edis:"Discharged total",history:"History",csvexport:"Download CSV",alerts:"Alerts",alertshint:"Push to an ntfy.sh topic or any webhook when a problem appears",webhook:"Webhook URL",soclow:"Low SOC %",temphi:"High temp °C",deltahi:"Cell delta mV",onfault:"Alert on faults",test:"Test",balancing:"balancing",alsaved:"saved",altestok:"test sent ✓",altestfail:"send failed"},
 fr:{bat:"Batterie",bat1:"Batterie 1",status:"État",live:"En direct",weather:"Météo",cells:"Cellules",temps:"Températures",session:"Session",controls:"Commandes",devscreen:"Écran appareil",settings:"Réglages",fwupdate:"Mise à jour",security:"Sécurité",tapedit:"(touchez pour éditer)",refresh:"Rafraîchir",flash:"Téléverser & flasher",save:"Enreg.",chgpw:"Changer le mot de passe",newpw:"nouveau mot de passe",broker:"Hôte broker",port:"Port",user:"Utilisateur",pass:"Mot de passe",enabled:"Activé",optional:"optionnel",unchanged:"(inchangé)",loading:"chargement…",retrying:"nouvel essai…",loadfail:"échec — touchez Rafraîchir",current:"actuel",pickbin:"choisir un .bin",rebooting:"OK — redémarrage…",failed:"échec",pwmin:"mot de passe min 4 car.",pwok:"changé — reconnectez-vous",pwfail:"échec",mqsaved:"enregistré — connexion…",mqfail:"échec",connected:"connecté",notconn:"activé, non connecté",disabled:"désactivé",up:"actif",disconnected:"déconnecté — nouvel essai…",alarm:"Alarme",operational:"Opérationnel",state:"État",link:"Lien",livev:"en ligne",offline:"hors ligne",soc:"SOC",charging:"en charge",discharging:"décharge",idle:"inactif",voltage:"tension",curr:"courant",mosfet:"MOSFET",sensor:"Capteur",capacity:"Capacité",totalenergy:"Énergie totale",cycles:"Cycles",health:"Santé",uptime:"Durée",balcur:"Courant d'équil.",peakchg:"Pic charge",peakdis:"Pic décharge",chg24:"Chargé 24h",used24:"Utilisé 24h",chg6:"Chargé 6h",used6:"Utilisé 6h",chgmos:"MOSFET charge",dismos:"MOSFET décharge",balancer:"Équilibreur",on:"ON",off:"OFF",noset:"réglages non chargés (BMS hors ligne ?)",today:"Aujourd'hui",tomorrow:"Demain",indays:"Dans {n} jours",wxnone:"pas de données — internet requis",newval:"Nouvelle valeur pour",writefail:"échec d'écriture"},
 de:{bat:"Akku",bat1:"Akku 1",status:"Status",live:"Live",weather:"Wetter",cells:"Zellen",temps:"Temperaturen",session:"Sitzung",controls:"Steuerung",devscreen:"Gerätebildschirm",settings:"Einstellungen",fwupdate:"Firmware-Update",security:"Sicherheit",tapedit:"(zum Bearbeiten tippen)",refresh:"Aktualisieren",flash:"Hochladen & flashen",save:"Speichern",chgpw:"Passwort ändern",newpw:"neues Passwort",broker:"Broker-Host",port:"Port",user:"Benutzer",pass:"Passwort",enabled:"Aktiviert",optional:"optional",unchanged:"(unverändert)",loading:"lädt…",retrying:"erneut…",loadfail:"Fehler — Aktualisieren tippen",current:"aktuell",pickbin:".bin wählen",rebooting:"OK — Neustart…",failed:"Fehler",pwmin:"Passwort min. 4 Zeichen",pwok:"geändert — neu anmelden",pwfail:"Fehler",mqsaved:"gespeichert — verbinde…",mqfail:"Fehler",connected:"verbunden",notconn:"aktiv, nicht verbunden",disabled:"deaktiviert",up:"aktiv",disconnected:"getrennt — erneut…",alarm:"Alarm",operational:"Betriebsbereit",state:"Zustand",link:"Verbindung",livev:"live",offline:"offline",soc:"SOC",charging:"lädt",discharging:"entlädt",idle:"Leerlauf",voltage:"Spannung",curr:"Strom",mosfet:"MOSFET",sensor:"Sensor",capacity:"Kapazität",totalenergy:"Gesamtenergie",cycles:"Zyklen",health:"Zustand",uptime:"Laufzeit",balcur:"Balance-Strom",peakchg:"Spitze Laden",peakdis:"Spitze Entladen",chg24:"Geladen 24h",used24:"Verbraucht 24h",chg6:"Geladen 6h",used6:"Verbraucht 6h",chgmos:"Lade-MOSFET",dismos:"Entlade-MOSFET",balancer:"Balancer",on:"AN",off:"AUS",noset:"Einstellungen nicht geladen (BMS offline?)",today:"Heute",tomorrow:"Morgen",indays:"In {n} Tagen",wxnone:"keine Daten — Internet nötig",newval:"Neuer Wert für",writefail:"Schreibfehler"},
 nl:{bat:"Accu",bat1:"Accu 1",status:"Status",live:"Live",weather:"Weer",cells:"Cellen",temps:"Temperaturen",session:"Sessie",controls:"Bediening",devscreen:"Apparaatscherm",settings:"Instellingen",fwupdate:"Firmware-update",security:"Beveiliging",tapedit:"(tik om te bewerken)",refresh:"Vernieuwen",flash:"Uploaden & flashen",save:"Opslaan",chgpw:"Wachtwoord wijzigen",newpw:"nieuw wachtwoord",broker:"Broker-host",port:"Poort",user:"Gebruiker",pass:"Wachtwoord",enabled:"Ingeschakeld",optional:"optioneel",unchanged:"(ongewijzigd)",loading:"laden…",retrying:"opnieuw…",loadfail:"mislukt — tik Vernieuwen",current:"huidig",pickbin:"kies een .bin",rebooting:"OK — herstart…",failed:"mislukt",pwmin:"wachtwoord min 4 tekens",pwok:"gewijzigd — opnieuw inloggen",pwfail:"mislukt",mqsaved:"opgeslagen — verbinden…",mqfail:"mislukt",connected:"verbonden",notconn:"aan, niet verbonden",disabled:"uit",up:"actief",disconnected:"verbroken — opnieuw…",alarm:"Alarm",operational:"Operationeel",state:"Toestand",link:"Verbinding",livev:"live",offline:"offline",soc:"SOC",charging:"opladen",discharging:"ontladen",idle:"inactief",voltage:"spanning",curr:"stroom",mosfet:"MOSFET",sensor:"Sensor",capacity:"Capaciteit",totalenergy:"Totale energie",cycles:"Cycli",health:"Conditie",uptime:"Looptijd",balcur:"Balanceerstroom",peakchg:"Piek laden",peakdis:"Piek ontladen",chg24:"Geladen 24h",used24:"Gebruikt 24h",chg6:"Geladen 6h",used6:"Gebruikt 6h",chgmos:"Laad-MOSFET",dismos:"Ontlaad-MOSFET",balancer:"Balancer",on:"AAN",off:"UIT",noset:"instellingen niet geladen (BMS offline?)",today:"Vandaag",tomorrow:"Morgen",indays:"Over {n} dagen",wxnone:"geen data — internet nodig",newval:"Nieuwe waarde voor",writefail:"schrijven mislukt"},
@@ -129,7 +141,7 @@ function t(k){return (I18N[L]&&I18N[L][k])||I18N.en[k]||k}
 function applyI18n(){document.documentElement.lang=L;
  document.querySelectorAll('[data-i18n]').forEach(e=>e.textContent=t(e.dataset.i18n));
  document.querySelectorAll('[data-ph]').forEach(e=>e.placeholder=t(e.dataset.ph));}
-let cur=0,D={},shotBusy=false,mqInit=false,scrInit=false;
+let cur=0,D={},shotBusy=false,mqInit=false,scrInit=false,alInit=false;
 function esc(s){return String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}
 function sel(b){cur=b;t0.className='tab'+(b==0?' on':'');t1.className='tab'+(b==1?' on':'');render()}
 function tc(t){return(t<-50||t>120)?'--':t.toFixed(0)+'°C'}
@@ -144,6 +156,8 @@ async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json()
  let multi=D.n>1;seg.style.display=multi?'':'none';single.style.display=multi?'none':'';if(!multi)cur=0;if(cur>=D.n)sel(0);
  mqe.checked=!!D.mqEn;mqst.textContent=D.mqEn?(D.mqUp?t('connected')+' ✓':t('notconn')):t('disabled');mqst.className=D.mqUp?'grn':D.mqEn?'amb':'mut';
  if(!mqInit){mqh.value=D.mqHost||'';mqp.value=D.mqPort||1883;mqu.value=D.mqUser||'';mqInit=true}
+ if(!alInit){alu.value=D.alUrl||'';als.value=D.alSoc;alt.value=D.alTmp;ald.value=D.alDlt;alInit=true}
+ ale.checked=!!D.alEn;alf.checked=!!D.alFlt;
  render();if(!scrInit){scrInit=true;shot()}}catch(e){net.style.color='var(--bad)';net.textContent=t('disconnected')}}
 function wxcat(c){if(c<=0)return 0;if(c<=2)return 1;if(c==3||c==45||c==48)return 2;if((c>=71&&c<=77)||c==85||c==86)return 4;if(c>=95)return 5;return 3}
 function wxsvg(c,s){var cat=wxcat(c);
@@ -172,12 +186,14 @@ function render(){renderWx();if(!D.packs)return;let p=D.packs[cur];
   <div><div class="v ${cc}">${p.w.toFixed(0)} W</div><div class=mut>${p.i>0.5?t('charging'):p.i<-0.5?t('discharging'):t('idle')}</div></div>
   <div><div class=v>${p.v.toFixed(2)} V</div><div class=mut>${t('voltage')}</div></div>
   <div><div class="v ${cc}">${Math.abs(p.i).toFixed(1)} A</div><div class=mut>${t('curr')}</div></div>`;
- let mn=Math.min(...p.cells),mx=Math.max(...p.cells);
- cd.textContent='Δ '+((mx-mn)*1000).toFixed(0)+' mV';
+ let mn=Math.min(...p.cells),mx=Math.max(...p.cells),mnI=p.cells.indexOf(mn)+1,mxI=p.cells.indexOf(mx)+1;
+ cd.innerHTML='Δ '+((mx-mn)*1000).toFixed(0)+' mV · <span class=cy>↓C'+mnI+'</span> <span class=amb>↑C'+mxI+'</span>'+(p.balw?' · <span class=cy>⚖ '+t('balancing')+'</span>':'');
  cells.innerHTML=p.cells.map((c,i)=>`<div class="cell${c==mx?' hi':c==mn?' lo':''}">C${i+1}<br><b>${c.toFixed(3)}</b>${(p.res&&p.res[i]!=null)?`<br><span class=mut>${p.res[i].toFixed(2)} mΩ</span>`:''}</div>`).join('');
  temps.innerHTML=[[t('mosfet'),p.tmos],[t('sensor')+' 1',p.t1],[t('sensor')+' 2',p.t2]]
   .map(([n,v])=>`<div class=row><span class=mut>${n}</span><b>${tc(v)}</b></div>`).join('');
- sess.innerHTML=[[t('capacity'),p.cap.toFixed(0)+' Ah'],[t('totalenergy'),wh(p.twh)],[t('cycles'),p.cyc],[t('health'),p.soh+'%'],
+ sess.innerHTML=[[t('capacity'),p.cap.toFixed(0)+' Ah'],[t('totalenergy'),wh(p.twh)],
+  [t('echg'),(p.ein||0).toFixed(1)+' kWh'],[t('edis'),(p.eout||0).toFixed(1)+' kWh'],
+  [t('cycles'),p.cyc],[t('health'),p.soh+'%'],
   [t('uptime'),(p.up_s/3600).toFixed(0)+' h'],[t('balcur'),(p.bcur||0).toFixed(2)+' A'],
   [t('peakchg'),p.pkc.toFixed(0)+' W'],[t('peakdis'),p.pkd.toFixed(0)+' W'],
   [t('chg24'),wh(p.c24||0)],[t('used24'),wh(p.u24)+pc(p.u24,p.twh)],
@@ -198,6 +214,9 @@ async function chpw(){if(np.value.length<4){ust.textContent=t('pwmin');return}
  np.value='';ust.textContent=r.ok?t('pwok'):t('pwfail')}
 async function savemq(){let b='en='+(mqe.checked?1:0)+'&host='+encodeURIComponent(mqh.value)+'&port='+(mqp.value||1883)+'&user='+encodeURIComponent(mqu.value)+'&pass='+encodeURIComponent(mqpw.value);
  let r=await fetch('/setmqtt',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b});mqpw.value='';mqst.textContent=r.ok?t('mqsaved'):t('mqfail')}
+async function saveal(){let b='en='+(ale.checked?1:0)+'&flt='+(alf.checked?1:0)+'&url='+encodeURIComponent(alu.value)+'&soc='+(als.value||15)+'&tmp='+(alt.value||55)+'&dlt='+(ald.value||300);
+ let r=await fetch('/setalert',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b});alst.textContent=r.ok?t('alsaved'):t('mqfail');return r.ok}
+async function testal(){if(!await saveal())return;let r=await fetch('/testalert',{method:'POST'});alst.textContent=r.ok?t('altestok'):t('altestfail')}
 function shot(retry){if(shotBusy&&!retry)return;shotBusy=true;scrld.style.display='block';scrh.style.display='none';
  scr.onload=()=>{shotBusy=false;scrld.style.display='none';scr.style.display='block'};
  scr.onerror=()=>{shotBusy=false;
@@ -221,6 +240,8 @@ static String webJson() {
         ",\"heap\":" + String((unsigned long)ESP.getFreeHeap()) + ",\"heapBig\":" + String((unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)) + ",\"n\":" + String(numBms) +
         ",\"mqEn\":" + String(mqttEnabled ? 1 : 0) + ",\"mqUp\":" + String(mqttUp ? 1 : 0) +
         ",\"mqHost\":\"" + mqttHost + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + mqttUser + "\"" +
+        ",\"alEn\":" + String(alertEnabled ? 1 : 0) + ",\"alUrl\":\"" + alertUrl + "\"" +
+        ",\"alSoc\":" + String(alSocLo) + ",\"alTmp\":" + String(alTempHi) + ",\"alDlt\":" + String(alDeltaHi) + ",\"alFlt\":" + String(alOnFault ? 1 : 0) +
         ",\"wxOk\":" + String(wxOk ? 1 : 0) + ",\"wxHttp\":" + String(wxHttp) + ",\"wxCity\":\"" + wxCity + "\",\"wxT\":" + String(wxCurTemp) + ",\"wxC\":" + String(wxCurCode) + ",\"wxD\":[";
     for (int i = 0; i < wxDays; i++) { if (i) j += ","; j += "{\"c\":" + String(wxDay[i].code) + ",\"mx\":" + String(wxDay[i].tmax) + ",\"mn\":" + String(wxDay[i].tmin) + "}"; }
     j += "],\"packs\":[";
@@ -241,6 +262,8 @@ static String webJson() {
              ",\"up_s\":" + String(b.uptimeOk ? b.uptime : 0) + ",\"err\":" + String(b.errFlags) +
              ",\"pkc\":" + String(b.peakChg, 0) + ",\"pkd\":" + String(b.peakDis, 0) +
              ",\"twh\":" + String(packTotalWh(t), 0) + ",\"bcur\":" + String(b.balCur, 2) +
+             ",\"balw\":" + String(b.balWork ? 1 : 0) +
+             ",\"ein\":" + String((double)(lifeWhIn[t] / 1000.0), 3) + ",\"eout\":" + String((double)(lifeWhOut[t] / 1000.0), 3) +
              ",\"u24\":" + String(whSpent(t, 288), 0) + ",\"u6\":" + String(whSpent(t, 72), 0) +
              ",\"c24\":" + String(whGained(t, 288), 0) + ",\"c6\":" + String(whGained(t, 72), 0) +
              ",\"cells\":[";
@@ -349,6 +372,49 @@ static void webBegin() {
         if (mqttPort < 1 || mqttPort > 65535) mqttPort = 1883;
         saveSettings(); mqttReconnect = true;
         webServer.send(200, "text/plain", "ok");
+    });
+    webServer.on("/setalert", HTTP_POST, []() {                              // configure threshold push alerts
+        if (!webAuth()) return;
+        alertEnabled = webServer.arg("en") == "1";
+        alOnFault = webServer.arg("flt") == "1";
+        strncpy(alertUrl, webServer.arg("url").c_str(), sizeof(alertUrl) - 1); alertUrl[sizeof(alertUrl) - 1] = 0;
+        if (webServer.hasArg("soc")) alSocLo = constrain(webServer.arg("soc").toInt(), 0, 100);
+        if (webServer.hasArg("tmp")) alTempHi = constrain(webServer.arg("tmp").toInt(), 0, 120);
+        if (webServer.hasArg("dlt")) alDeltaHi = constrain(webServer.arg("dlt").toInt(), 0, 5000);
+        memset(alState, 0, sizeof(alState));   // re-arm so changed thresholds can fire again
+        saveSettings();
+        webServer.send(200, "text/plain", "ok");
+    });
+    webServer.on("/testalert", HTTP_POST, []() {                             // fire a test notification to the webhook
+        if (!webAuth()) return;
+        bool ok = alertSend("JK BMS test alert \xE2\x9C\x93");
+        webServer.send(ok ? 200 : 500, "text/plain", ok ? "ok" : "send failed");
+    });
+    webServer.on("/history.csv", []() {                                      // download the 7-day SOC/power log
+        if (!webAuth()) return;
+        webServer.sendHeader("Content-Disposition", "attachment; filename=jkbms-history.csv");
+        webServer.setContentLength(CONTENT_LENGTH_UNKNOWN);
+        webServer.send(200, "text/csv", "");
+        int maxCount = 0; for (int t = 0; t < numBms; t++) if (histCount[t] > maxCount) maxCount = histCount[t];
+        time_t nowEp = timeSynced ? time(nullptr) : 0;
+        String hdr = "timestamp,minutes_ago";
+        for (int t = 0; t < numBms; t++) hdr += ",bat" + String(t + 1) + "_soc," + "bat" + String(t + 1) + "_w";
+        hdr += "\n"; webServer.sendContent(hdr);
+        String chunk; chunk.reserve(2048);
+        for (int j = maxCount - 1; j >= 0; j--) {                            // oldest → newest (5 min apart)
+            char ts[20] = "";
+            if (nowEp) { time_t e = nowEp - (time_t)j * 300; struct tm tv; localtime_r(&e, &tv); strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M", &tv); }
+            chunk += ts; chunk += ","; chunk += String(j * 5);
+            for (int t = 0; t < numBms; t++) {
+                int idx = (int)histCount[t] - 1 - j;
+                if (idx >= 0) { chunk += ","; chunk += String(histCap[t][idx]); chunk += ","; chunk += String(histPwr[t][idx]); }
+                else chunk += ",,";
+            }
+            chunk += "\n";
+            if (chunk.length() > 1600) { webServer.sendContent(chunk); chunk = ""; }
+        }
+        if (chunk.length()) webServer.sendContent(chunk);
+        webServer.sendContent("");                                          // end the chunked response
     });
     webServer.on("/setpass", HTTP_POST, []() {
         if (!webAuth()) return;

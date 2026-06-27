@@ -128,6 +128,10 @@ static int16_t  histPwr[2][HIST_N];  // pack power (W), oldest→newest
 static uint16_t histCount[2] = {0, 0};
 static uint32_t histLastMs[2] = {0, 0};
 static bool histDirty = false; static uint32_t histDirtyAt = 0;
+// Lifetime cumulative energy per pack (Wh), integrated from v*i every poll while live.
+// Persisted alongside the graph history (NVS "hist") on the same 5-min cadence.
+static double lifeWhIn[2] = {0, 0}, lifeWhOut[2] = {0, 0};
+static uint32_t lifeLastMs[2] = {0, 0};
 // Power graph: fast rolling 10-minute window, one sample per refresh (~1 s), per BMS.
 #define PWR_DT 1000UL                // sample interval (ms) ≈ one per data refresh
 #define PWR_WIN 600                  // 600 samples × 1 s = 10 minutes
@@ -178,6 +182,15 @@ static char mqttHost[64] = "", mqttUser[40] = "", mqttPass[40] = "";
 static bool mqttReconnect = false;  // web sets this when config changes → mqttLoop re-applies
 static bool mqttUp = false;         // current broker connection state (for the web portal)
 static void mqttLoop();             // defined in mqtt.h
+// Threshold push alerts — POST the message body to a webhook (ntfy.sh topic URL, or any
+// endpoint that accepts a text body). Edge-triggered with a re-arm cooldown (no spam).
+static bool alertEnabled = false;
+static char alertUrl[120] = "";              // e.g. https://ntfy.sh/my-jkbms-topic
+static int alSocLo = 15, alTempHi = 55, alDeltaHi = 300;   // SOC %, temp °C, cell delta mV thresholds
+static bool alOnFault = true;                // also alert on any BMS protection fault
+static uint8_t alState[2] = {0, 0};          // per-pack bitmask of currently-active conditions (edge detect)
+static void alertLoop();                     // defined in alerts.h
+static bool alertSend(const char *msg);      // defined in alerts.h (also used by the web Test button)
 // Weather (geo-IP + Open-Meteo); fetched in weather.h, drawn in the top bar
 struct WxDay { int code; int tmax, tmin; };
 static bool wxOk = false; static int wxCurTemp = 0, wxCurCode = -1; static WxDay wxDay[4]; static int wxDays = 0;
@@ -266,6 +279,19 @@ static void histSample() {
             histAppend(t, bms[t].soc, bms[t].v * bms[t].i);
             histLastMs[t] = now;
         }
+    }
+}
+// Integrate pack power into the lifetime Wh counters. Called every BMS poll (~1 s) for
+// live packs; the dt anchor resets when a pack goes offline so downtime never back-fills.
+static void energyIntegrate() {
+    uint32_t now = millis();
+    for (int t = 0; t < numBms; t++) {
+        if (!bmsLive[t]) { lifeLastMs[t] = 0; continue; }
+        if (lifeLastMs[t] == 0) { lifeLastMs[t] = now; continue; }   // first live sample seeds the anchor
+        uint32_t dt = now - lifeLastMs[t]; lifeLastMs[t] = now;
+        if (dt == 0 || dt > 15000) continue;                         // implausible gap (downtime / wrap) → skip
+        double wh = (double)(bms[t].v * bms[t].i) * dt / 3600000.0;  // charge-positive
+        if (wh > 0) lifeWhIn[t] += wh; else lifeWhOut[t] += -wh;     // saved on the existing 5-min history cadence
     }
 }
 // Append the current power to each pack's 10-min window (once per PWR_DT). Samples
@@ -818,6 +844,12 @@ static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = fal
     if (stale) snprintf(hdr, sizeof(hdr), "%s  --", T(K_CELLS));
     else snprintf(hdr, sizeof(hdr), "%s  %dmV", T(K_CELLS), (int)((hi - lo) * 1000));
     lText(hdr, x + 8, y + 6, F10, C_MUTED);   // title size matches CAPACITY (F10)
+    if (!stale && b.balWork) {                 // balancer active → show its current, right-aligned in the header
+        char bt[12]; snprintf(bt, sizeof(bt), "%.1fA", b.balCur);
+        int tw = textW(bt, F10);
+        fCircle(x + w - 14 - tw - 5, y + 10, 3, C_CYAN);
+        lText(bt, x + w - 8 - tw, y + 6, F10, C_CYAN);
+    }
     // adaptive grid: 1 column with bars for small packs, 2-3 columns for bigger ones
     int cols = n <= 6 ? 1 : n <= 16 ? 2 : 3;
     int rows = (n + cols - 1) / cols;
@@ -1606,6 +1638,9 @@ static void saveSettings() {
     prefs.putString("wpass", webPass);
     prefs.putBool("mqEn", mqttEnabled); prefs.putString("mqHost", mqttHost); prefs.putInt("mqPort", mqttPort);
     prefs.putString("mqUser", mqttUser); prefs.putString("mqPass", mqttPass);
+    prefs.putBool("alEn", alertEnabled); prefs.putString("alUrl", alertUrl);
+    prefs.putInt("alSoc", alSocLo); prefs.putInt("alTmp", alTempHi); prefs.putInt("alDlt", alDeltaHi);
+    prefs.putBool("alFlt", alOnFault);
     prefs.end();
 }
 static void loadSettings() {
@@ -1636,6 +1671,10 @@ static void loadSettings() {
     { String s = prefs.getString("mqHost", ""); strncpy(mqttHost, s.c_str(), sizeof(mqttHost) - 1); mqttHost[sizeof(mqttHost) - 1] = 0;
       s = prefs.getString("mqUser", ""); strncpy(mqttUser, s.c_str(), sizeof(mqttUser) - 1); mqttUser[sizeof(mqttUser) - 1] = 0;
       s = prefs.getString("mqPass", ""); strncpy(mqttPass, s.c_str(), sizeof(mqttPass) - 1); mqttPass[sizeof(mqttPass) - 1] = 0; }
+    alertEnabled = prefs.getBool("alEn", false);
+    { String s = prefs.getString("alUrl", ""); strncpy(alertUrl, s.c_str(), sizeof(alertUrl) - 1); alertUrl[sizeof(alertUrl) - 1] = 0; }
+    alSocLo = prefs.getInt("alSoc", 15); alTempHi = prefs.getInt("alTmp", 55); alDeltaHi = prefs.getInt("alDlt", 300);
+    alOnFault = prefs.getBool("alFlt", true);
     prefs.end();
     appliedB = brightness;
 }
@@ -1656,6 +1695,8 @@ static void saveHistory() {
         if (wc != capN || wp != pwrN) Serial.printf("[nvs] history save BMS%d short (cap %u/%u, pwr %u/%u) — NVS full?\n",
                                                      t + 1, (unsigned)wc, (unsigned)capN, (unsigned)wp, (unsigned)pwrN);
     }
+    prefs.putBytes("ein", lifeWhIn, sizeof(lifeWhIn));     // lifetime energy counters ride the same 5-min save
+    prefs.putBytes("eout", lifeWhOut, sizeof(lifeWhOut));
     prefs.end();
 }
 static void loadHistory() {
@@ -1673,6 +1714,8 @@ static void loadHistory() {
         while (c > 0 && histCap[t][c - 1] == 0) c--;    // SOC is never 0 → trailing zeros are corruption; drop them
         histCount[t] = c;
     }
+    if (prefs.isKey("ein")) prefs.getBytes("ein", lifeWhIn, sizeof(lifeWhIn));      // restore lifetime energy
+    if (prefs.isKey("eout")) prefs.getBytes("eout", lifeWhOut, sizeof(lifeWhOut));
     prefs.end();
 }
 
@@ -2547,6 +2590,7 @@ static void bmsPoll_cb(lv_timer_t *t) {
     int hc = histCount[view];
     bmsRead();
     histSample();                              // append a real point when one is due
+    energyIntegrate();                         // accumulate lifetime kWh in/out
     if (standby || view == V_SETTINGS) return;
     if (bmsLive[0] != was0 || (numBms >= 2 && bmsLive[1] != was1)) {
         invArea(6, 4, TAB2_X + TAB_W, 36);     // tab colours
@@ -2623,6 +2667,7 @@ static void wifiTick_cb(lv_timer_t *t) {
 #include "web_portal.h"   // monitor + controls + OTA (uses the globals/helpers above)
 #include "mqtt.h"         // MQTT + Home Assistant auto-discovery
 #include "weather.h"      // geo-IP location + Open-Meteo forecast
+#include "alerts.h"       // threshold push alerts (ntfy/webhook)
 
 void setup() {
     Serial.begin(115200);
@@ -2722,6 +2767,7 @@ void loop() {
     webLoop();   // serve the web portal + handle OTA (no-op until WiFi connects)
     mqttLoop();  // Home Assistant / MQTT (no-op unless enabled + connected)
     weatherLoop();  // geo-IP + forecast refresh (every ~30 min once online)
+    alertLoop();    // threshold push alerts (no-op unless enabled)
     if (pendingSleep) {
         pendingSleep = false;
         playSleepAnimation();   // blocking, draws + flushes itself; sets standby

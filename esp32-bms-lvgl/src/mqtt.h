@@ -31,6 +31,20 @@ static void mqPubSensor(int t, const char *key, const char *name, const char *un
     mqtt.publish(topic, pl, true);
 }
 
+// Cumulative energy sensor — device_class energy + state_class total_increasing so it
+// feeds the Home Assistant Energy dashboard (kWh). Separate from mqPubSensor (no state_class).
+static void mqPubEnergy(int t, const char *key, const char *name) {
+    char uid[48], topic[80], dev[120], pl[480];
+    snprintf(uid, sizeof(uid), "%s_p%d_%s", mqId.c_str(), t, key);
+    snprintf(topic, sizeof(topic), "homeassistant/sensor/%s/config", uid);
+    snprintf(dev, sizeof(dev), "{\"ids\":[\"jkbms_%s_p%d\"],\"name\":\"JK BMS %d\",\"mf\":\"holoduke\",\"mdl\":\"JKBMS-ESP32\"}", mqId.c_str(), t, t + 1);
+    snprintf(pl, sizeof(pl),
+        "{\"name\":\"%s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s/p%d/state\",\"val_tpl\":\"{{value_json.%s}}\",\"avty_t\":\"%s/status\","
+        "\"unit_of_meas\":\"kWh\",\"dev_cla\":\"energy\",\"stat_cla\":\"total_increasing\",\"dev\":%s}",
+        name, uid, mqBase.c_str(), t, key, mqBase.c_str(), dev);
+    mqtt.publish(topic, pl, true);
+}
+
 static void mqPubSwitch(int t, const char *key, const char *name) {
     char uid[48], topic[80], dev[120], pl[500];
     snprintf(uid, sizeof(uid), "%s_p%d_%s", mqId.c_str(), t, key);
@@ -54,6 +68,8 @@ static void mqDiscovery() {
         mqPubSensor(t, "cyc", "Cycles", "", "");
         mqPubSensor(t, "delta", "Cell delta", "mV", "voltage");
         mqPubSensor(t, "bcur", "Balance current", "A", "current");
+        mqPubEnergy(t, "ein", "Energy charged");
+        mqPubEnergy(t, "eout", "Energy discharged");
         mqPubSensor(t, "status", "Status", "", "");
         mqPubSensor(t, "alarms", "Alarms", "", "");
         mqPubSwitch(t, "chg", "Charge MOSFET");
@@ -76,8 +92,9 @@ static void mqPublishState() {
         if (!na) strcpy(al, "none");
         snprintf(buf, sizeof(buf),
             "{\"soc\":%.0f,\"v\":%.2f,\"i\":%.1f,\"w\":%.0f,\"tmos\":%.0f,\"soh\":%d,\"cyc\":%lu,\"delta\":%d,\"bcur\":%.2f,"
-            "\"status\":\"%s\",\"alarms\":\"%s\",\"chg\":\"%d\",\"dis\":\"%d\",\"bal\":\"%d\"}",
+            "\"ein\":%.3f,\"eout\":%.3f,\"status\":\"%s\",\"alarms\":\"%s\",\"chg\":\"%d\",\"dis\":\"%d\",\"bal\":\"%d\"}",
             b.soc, b.v, b.i, b.v * b.i, b.tMos, b.soh, (unsigned long)b.cycles, (int)((mx - mn) * 1000), b.balCur,
+            lifeWhIn[t] / 1000.0, lifeWhOut[t] / 1000.0,
             st, al, bmsCharge[t] ? 1 : 0, bmsDischarge[t] ? 1 : 0, bmsBalancer[t] ? 1 : 0);
         snprintf(topic, sizeof(topic), "%s/p%d/state", mqBase.c_str(), t);
         mqtt.publish(topic, buf);
