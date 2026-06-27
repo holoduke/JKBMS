@@ -2351,11 +2351,15 @@ static void invArea(int x1, int y1, int x2, int y2);
 //  screensaver is up it stays until a touch, then this appears (lockShowing()).
 // ============================================================================
 static bool lockShowing() { return locked && !idleActiveNow(); }   // armed + not behind the screensaver
-// Full-screen numpad: 3 cols x 4 rows of round keys. k 0-8 = "1".."9",
-// 9 = backspace (row4 col0), 10 = "0" (centre), 11 = cancel (set mode only).
-static void lockKeyCenter(int k, int *cx, int *cy, int *r) {
-    const int R = 31, dx = 112, dy = 58, y0 = 104;   // 4 rows fit: 104+3*58+31 = 309 < 320
-    *cx = Wd / 2 + (k % 3 - 1) * dx; *cy = y0 + (k / 3) * dy; *r = R;
+// Full-screen numpad: PIN dots on top, a 3x4 grid of square keys filling the width/height,
+// and a message strip at the bottom. k 0-8 = "1".."9", 9 = backspace, 10 = "0", 11 = cancel.
+#define LK_TOP 26            // dots strip on top
+#define LK_BOT 34            // reserved bottom message strip
+#define LK_M 4               // outer margin / gap between keys
+static void lockKeyRect(int k, int *x, int *y, int *w, int *h) {
+    int gw = Wd - 2 * LK_M, gh = Ht - LK_TOP - LK_BOT;
+    int cw = (gw - 2 * LK_M) / 3, ch = (gh - 3 * LK_M) / 4;
+    *x = LK_M + (k % 3) * (cw + LK_M); *y = LK_TOP + (k / 3) * (ch + LK_M); *w = cw; *h = ch;
 }
 static const char *lockKeyLabel(int k) {
     static const char *L9[9] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
@@ -2365,23 +2369,23 @@ static void renderLockPad(bool setMode) {
     fRect(0, 0, Wd, Ht, 0, C_BG);
     uint32_t now = millis();
     bool wrong = lockWrongUntil > now;
-    const char *title = wrong ? T(K_WRONG_PIN) : setMode ? T(K_SET_PIN) : T(K_ENTER_PIN);
-    cText(title, Wd / 2, 22, F20, wrong ? C_BAD : C_ACCENT);
-    for (int i = 0; i < 6; i++) {           // PIN progress dots
-        int px = Wd / 2 - 5 * 15 + i * 30, py = 58;
-        if (i < lockEntryLen) { fCircle(px, py, 7, wrong ? C_BAD : C_ACCENT); ring(px, py, 11, 10, 0, 360, C_BORDER); }
-        else ring(px, py, 7, 6, 0, 360, C_BORDER);
+    for (int i = 0; i < 6; i++) {           // PIN progress dots, top strip
+        int px = Wd / 2 - 5 * 14 + i * 28, py = 13;
+        if (i < lockEntryLen) fCircle(px, py, 6, wrong ? C_BAD : C_ACCENT);
+        else ring(px, py, 6, 5, 0, 360, C_BORDER);
     }
     int nKeys = setMode ? 12 : 11;          // cancel (k=11) only when setting a new PIN
     for (int k = 0; k < nKeys; k++) {
-        int cx, cy, R; lockKeyCenter(k, &cx, &cy, &R);
+        int x, y, w, h; lockKeyRect(k, &x, &y, &w, &h);
         bool back = (k == 9), cancel = (k == 11);
-        uint32_t ringCol = cancel ? C_BAD : C_ACCENT;
-        fCircle(cx, cy, R, C_CARD);                       // dark body
-        ring(cx, cy, R, R - 2, 0, 360, ringCol);          // crisp accent ring
-        ring(cx, cy, R + 4, R + 3, 0, 360, C_BORDER);     // faint outer halo → futuristic
-        cText(lockKeyLabel(k), cx, cy, F28, cancel ? C_BAD : (back ? C_MUTED : C_TEXT));
+        fRect(x, y, w, h, 8, C_CARD);                              // square (slightly rounded) key
+        dRect(x, y, w, h, 8, cancel ? C_BAD : C_BORDER);
+        fRect(x + 8, y + h - 4, w - 16, 2, 0, cancel ? C_BAD : C_ACCENT);   // accent underline → futuristic
+        cText(lockKeyLabel(k), x + w / 2, y + h / 2, F28, cancel ? C_BAD : (back ? C_MUTED : C_TEXT));
     }
+    // bottom message strip — defaults to "Enter PIN", turns red on a wrong attempt
+    const char *msg = wrong ? T(K_WRONG_PIN) : setMode ? T(K_SET_PIN) : T(K_ENTER_PIN);
+    cText(msg, Wd / 2, Ht - LK_BOT / 2, F16, wrong ? C_BAD : C_ACCENT);
 }
 static void lockCommit(bool setMode) {      // called when the 6th digit lands
     if (setMode) { strncpy(lockPin, lockEntry, sizeof(lockPin) - 1); lockPin[sizeof(lockPin) - 1] = 0;
@@ -2393,9 +2397,8 @@ static void handleLockKey(int x, int y, bool setMode) {
     lockWrongUntil = 0;
     int nKeys = setMode ? 12 : 11;
     for (int k = 0; k < nKeys; k++) {
-        int cx, cy, R; lockKeyCenter(k, &cx, &cy, &R);
-        int ddx = x - cx, ddy = y - cy; int hit = R + 8;     // generous round hit area
-        if (ddx * ddx + ddy * ddy > hit * hit) continue;
+        int kx, ky, kw, kh; lockKeyRect(k, &kx, &ky, &kw, &kh);
+        if (x < kx || x >= kx + kw || y < ky || y >= ky + kh) continue;
         if (k == 11) { lockSetMode = false; lockEntryLen = 0; lockEntry[0] = 0; return; }   // cancel (set mode)
         if (k == 9) { if (lockEntryLen > 0) lockEntry[--lockEntryLen] = 0; return; }         // backspace
         char d = (k == 10) ? '0' : (char)('1' + k);
