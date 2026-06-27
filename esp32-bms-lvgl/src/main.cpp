@@ -34,7 +34,7 @@
 #define C_CYAN 0x22d3ee
 #define C_WARN 0xfbbf24
 #define C_BAD 0xfb7185
-#define C_DISCHG 0x7c6cff            // discharging accent — deep purple/blue (green = charging)
+#define C_DISCHG 0x968aff            // discharging accent — purple/blue, slightly lightened (green = charging)
 
 #define NCELLS 4                    // demo/fallback cell count
 #define MAXCELLS 24                 // JK realtime frame carries up to 24 cells; actual count detected at runtime
