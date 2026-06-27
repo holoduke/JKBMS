@@ -818,7 +818,7 @@ static void drawVoltTile(int x, int y, int w, int h, const Bms &b, bool stale = 
         int ry = y + 29 + r * 13;
         lText(T(key[r]), x + 8, ry, F10, C_MUTED);
         uint32_t dc = stale ? C_MUTED : (on[r] ? C_ACCENT : offCol[r]);
-        fCircle(x + w - 10, ry + 4, 3, dc);
+        fCircle(x + w - 10, ry + 6, 3, dc);   // +6 sits on the F10 label's optical centre
     }
 }
 static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float t2, bool stale = false) {
