@@ -810,12 +810,12 @@ static void drawTile(int x, int y, int w, int h, const char *label, const char *
 static void drawVoltTile(int x, int y, int w, int h, const Bms &b, bool stale = false) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     char vbuf[10]; if (stale) snprintf(vbuf, sizeof(vbuf), "--"); else snprintf(vbuf, sizeof(vbuf), "%.2fV", b.v);
-    lText(vbuf, x + 8, y + 7, F20, stale ? C_MUTED : C_TEXT);
+    lText(vbuf, x + 8, y + 4, F20, stale ? C_MUTED : C_TEXT);
     const int key[3] = {K_M_CHG, K_M_DIS, K_M_BAL};
     const bool on[3] = {b.chgMos, b.disMos, b.balWork};
     const uint32_t offCol[3] = {C_BAD, C_BAD, C_MUTED};   // chg/dis off is notable (red); balancer off is normal (grey)
     for (int r = 0; r < 3; r++) {
-        int ry = y + 32 + r * 13;
+        int ry = y + 29 + r * 13;
         lText(T(key[r]), x + 8, ry, F10, C_MUTED);
         uint32_t dc = stale ? C_MUTED : (on[r] ? C_ACCENT : offCol[r]);
         fCircle(x + w - 10, ry + 4, 3, dc);
