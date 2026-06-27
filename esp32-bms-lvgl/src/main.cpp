@@ -1623,26 +1623,31 @@ static void saveHistory() {
     for (int t = 0; t < 2; t++) {
         char k[8];
         size_t capN = histCount[t] * sizeof(histCap[0][0]), pwrN = histCount[t] * sizeof(histPwr[0][0]);
-        snprintf(k, sizeof(k), "c%d", t); prefs.putUShort(k, histCount[t]);
         snprintf(k, sizeof(k), "cap%d", t); size_t wc = prefs.putBytes(k, histCap[t], capN);
         snprintf(k, sizeof(k), "pwr%d", t); size_t wp = prefs.putBytes(k, histPwr[t], pwrN);
-        if (wc != capN || wp != pwrN) Serial.printf("[nvs] history save BMS%d failed (cap %u/%u, pwr %u/%u) — NVS full?\n",
+        // write the count LAST and only as large as the cap blob that actually persisted, so a
+        // short/failed data write can never leave a count that out-runs the data (→ zero-tail graph).
+        uint16_t okCount = (wc < capN) ? (uint16_t)wc : histCount[t];
+        snprintf(k, sizeof(k), "c%d", t); prefs.putUShort(k, okCount);
+        if (wc != capN || wp != pwrN) Serial.printf("[nvs] history save BMS%d short (cap %u/%u, pwr %u/%u) — NVS full?\n",
                                                      t + 1, (unsigned)wc, (unsigned)capN, (unsigned)wp, (unsigned)pwrN);
     }
     prefs.end();
 }
 static void loadHistory() {
     prefs.begin("hist", false);
-    if (prefs.getUChar("ver", 0) != 1) {               // one-time wipe of pre-fix history (had bogus 0% points)
-        prefs.clear(); prefs.putUChar("ver", 1);
+    if (prefs.getUChar("ver", 0) != 2) {               // wipe pre-fix history (bogus 0% points / zero-tail corruption)
+        prefs.clear(); prefs.putUChar("ver", 2);
         histCount[0] = histCount[1] = 0;
         prefs.end(); return;
     }
     for (int t = 0; t < 2; t++) {
         char k[8];
         snprintf(k, sizeof(k), "c%d", t); int c = prefs.getUShort(k, 0); if (c > HIST_N) c = HIST_N;
-        snprintf(k, sizeof(k), "cap%d", t); prefs.getBytes(k, histCap[t], c * sizeof(histCap[0][0]));
+        snprintf(k, sizeof(k), "cap%d", t); size_t gotC = prefs.getBytes(k, histCap[t], c * sizeof(histCap[0][0]));
         snprintf(k, sizeof(k), "pwr%d", t); prefs.getBytes(k, histPwr[t], c * sizeof(histPwr[0][0]));
+        if (gotC < (size_t)c) c = gotC;                // blob shorter than the saved count (partial/failed save) → trust the bytes
+        while (c > 0 && histCap[t][c - 1] == 0) c--;    // SOC is never 0 → trailing zeros are corruption; drop them
         histCount[t] = c;
     }
     prefs.end();
@@ -1715,7 +1720,9 @@ static void handleTap(int x, int y) {
                 case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
                 case 13: idleScreen = (idleScreen + 1) % 6; break;   // cycle screensaver (Off / HUD / Init / Radar / Arcade / Security)
                 case 14: saverAfterSec = saverAfterSec == 0 ? 30 : saverAfterSec == 30 ? 60 : saverAfterSec == 60 ? 300 : saverAfterSec == 300 ? 1800 : saverAfterSec == 1800 ? 3600 : 0; break;   // 30s/1m/5m/30m/1h
-                case 15: lockAfterSec = lockAfterSec == 0 ? 30 : lockAfterSec == 30 ? 60 : lockAfterSec == 60 ? 300 : lockAfterSec == 300 ? 1800 : lockAfterSec == 1800 ? 3600 : 0; break;   // auto-lock: 30s/1m/5m/30m/1h
+                case 15: lockAfterSec = lockAfterSec == 0 ? 30 : lockAfterSec == 30 ? 60 : lockAfterSec == 60 ? 300 : lockAfterSec == 300 ? 1800 : lockAfterSec == 1800 ? 3600 : 0;
+                         if (lockAfterSec > 0 && !lockPin[0]) { lockSetMode = true; lockEntry[0] = 0; lockEntryLen = 0; lockWrongUntil = 0; markCfg(); return; }   // no PIN yet → set one now (else auto-lock can't engage)
+                         break;   // auto-lock: 30s/1m/5m/30m/1h
                 case 16: lockSetMode = true; lockEntry[0] = 0; lockEntryLen = 0; lockWrongUntil = 0; markCfg(); return;   // set a new PIN (modal numpad)
                 case 17: infoPopup = true; return;                   // Web address → full system-info popup (shows IP + login)
                 case 18: strncpy(wifiPass, webUser, sizeof(wifiPass) - 1); wifiPass[sizeof(wifiPass) - 1] = 0; wifiPassLen = strlen(wifiPass); kbMode = 0; kbTarget = KBT_WUSER; kbActive = true; return;   // edit web username
@@ -2344,12 +2351,13 @@ static void invArea(int x1, int y1, int x2, int y2);
 //  screensaver is up it stays until a touch, then this appears (lockShowing()).
 // ============================================================================
 static bool lockShowing() { return locked && !idleActiveNow(); }   // armed + not behind the screensaver
-static void lockKeyRect(int k, int *kx, int *ky, int *kw, int *kh) {
-    const int x0 = 138, y0 = 96, gap = 8, gw = Wd - 2 * x0, gh = Ht - y0 - 10;
-    int cw = (gw - 2 * gap) / 3, ch = (gh - 3 * gap) / 4;
-    *kx = x0 + (k % 3) * (cw + gap); *ky = y0 + (k / 3) * (ch + gap); *kw = cw; *kh = ch;
+// Full-screen numpad: 3 cols x 4 rows of round keys. k 0-8 = "1".."9",
+// 9 = backspace (row4 col0), 10 = "0" (centre), 11 = cancel (set mode only).
+static void lockKeyCenter(int k, int *cx, int *cy, int *r) {
+    const int R = 31, dx = 112, dy = 58, y0 = 104;   // 4 rows fit: 104+3*58+31 = 309 < 320
+    *cx = Wd / 2 + (k % 3 - 1) * dx; *cy = y0 + (k / 3) * dy; *r = R;
 }
-static const char *lockKeyLabel(int k) {   // 0-8 → "1".."9", 9 → del, 10 → "0", 11 → cancel
+static const char *lockKeyLabel(int k) {
     static const char *L9[9] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
     if (k < 9) return L9[k]; if (k == 10) return "0"; if (k == 9) return "<"; return "X";
 }
@@ -2358,18 +2366,21 @@ static void renderLockPad(bool setMode) {
     uint32_t now = millis();
     bool wrong = lockWrongUntil > now;
     const char *title = wrong ? T(K_WRONG_PIN) : setMode ? T(K_SET_PIN) : T(K_ENTER_PIN);
-    cText(title, Wd / 2, 30, F16, wrong ? C_BAD : C_TEXT);
-    for (int i = 0; i < 6; i++) {           // PIN dots
-        int dx = Wd / 2 - 5 * 14 + i * 28, dy = 62;
-        if (i < lockEntryLen) fCircle(dx, dy, 6, C_ACCENT);
-        else { dRect(dx - 6, dy - 6, 12, 12, 6, C_BORDER); }
+    cText(title, Wd / 2, 22, F20, wrong ? C_BAD : C_ACCENT);
+    for (int i = 0; i < 6; i++) {           // PIN progress dots
+        int px = Wd / 2 - 5 * 15 + i * 30, py = 58;
+        if (i < lockEntryLen) { fCircle(px, py, 7, wrong ? C_BAD : C_ACCENT); ring(px, py, 11, 10, 0, 360, C_BORDER); }
+        else ring(px, py, 7, 6, 0, 360, C_BORDER);
     }
     int nKeys = setMode ? 12 : 11;          // cancel (k=11) only when setting a new PIN
     for (int k = 0; k < nKeys; k++) {
-        int kx, ky, kw, kh; lockKeyRect(k, &kx, &ky, &kw, &kh);
-        bool special = (k == 9 || k == 11);
-        fRect(kx, ky, kw, kh, 8, C_CARD); dRect(kx, ky, kw, kh, 8, C_BORDER);
-        cText(lockKeyLabel(k), kx + kw / 2, ky + kh / 2 - 9, F20, special ? (k == 11 ? C_BAD : C_MUTED) : C_TEXT);
+        int cx, cy, R; lockKeyCenter(k, &cx, &cy, &R);
+        bool back = (k == 9), cancel = (k == 11);
+        uint32_t ringCol = cancel ? C_BAD : C_ACCENT;
+        fCircle(cx, cy, R, C_CARD);                       // dark body
+        ring(cx, cy, R, R - 2, 0, 360, ringCol);          // crisp accent ring
+        ring(cx, cy, R + 4, R + 3, 0, 360, C_BORDER);     // faint outer halo → futuristic
+        cText(lockKeyLabel(k), cx, cy, F28, cancel ? C_BAD : (back ? C_MUTED : C_TEXT));
     }
 }
 static void lockCommit(bool setMode) {      // called when the 6th digit lands
@@ -2382,8 +2393,9 @@ static void handleLockKey(int x, int y, bool setMode) {
     lockWrongUntil = 0;
     int nKeys = setMode ? 12 : 11;
     for (int k = 0; k < nKeys; k++) {
-        int kx, ky, kw, kh; lockKeyRect(k, &kx, &ky, &kw, &kh);
-        if (x < kx || x >= kx + kw || y < ky || y >= ky + kh) continue;
+        int cx, cy, R; lockKeyCenter(k, &cx, &cy, &R);
+        int ddx = x - cx, ddy = y - cy; int hit = R + 8;     // generous round hit area
+        if (ddx * ddx + ddy * ddy > hit * hit) continue;
         if (k == 11) { lockSetMode = false; lockEntryLen = 0; lockEntry[0] = 0; return; }   // cancel (set mode)
         if (k == 9) { if (lockEntryLen > 0) lockEntry[--lockEntryLen] = 0; return; }         // backspace
         char d = (k == 10) ? '0' : (char)('1' + k);
