@@ -70,6 +70,8 @@ enum {
     K_E_DIS_OCP3, K_E_DIS_UT, K_E_GPS_LOCK,
     // ---- battery tab label (formatted "BAT %d") ----
     K_BAT,
+    // ---- temperature tile labels (MOSFET temp + two probes) ----
+    K_MOS, K_T1, K_T2,
     K_COUNT
 };
 
@@ -255,6 +257,9 @@ static const char *const STR[K_COUNT][LANG_LATIN8] = {
     /*K_E_DIS_UT*/       {"Discharge under-temp","Sous-temp. décharge","Entl.-Untertemp.","Ontl-ondertemp","NiedoT rozł.","Subtemp desc.","Subtemp desc.","Thiếu nhiệt xả"},
     /*K_E_GPS_LOCK*/     {"GPS remote lock", "Verrou GPS dist.", "GPS-Fernsperre","GPS afst.-slot","Blok. GPS zdal.","Bloq. GPS rem.","Bloqueo GPS rem.","Khóa GPS từ xa"},
     /*K_BAT*/            {"BAT",            "BAT",             "AKKU",          "ACCU",         "AKU",           "BAT",           "BAT",             "PIN"},
+    /*K_MOS*/            {"MOS",            "MOS",             "MOS",           "MOS",          "MOS",           "MOS",           "MOS",             "MOS"},
+    /*K_T1*/             {"T1",             "T1",              "T1",            "T1",           "T1",            "T1",            "T1",              "T1"},
+    /*K_T2*/             {"T2",             "T2",              "T2",            "T2",           "T2",            "T2",            "T2",              "T2"},
 };
 
 // Russian (Cyrillic) — flat array in StrKey order; uses the same font (Cyrillic added to mont1).
@@ -290,7 +295,7 @@ static const char *const STR_RU[K_COUNT] = {
     "Сбой MOSFET зар.", "Сбой MOSFET раз.", "GPS отключён", "Смена пароля", "Сбой вкл. разряда",
     "Перегрев батареи", "Аномалия датч. T", "Аномалия мод. PL", "Сбой сброса SCP", "OCP2 разряда",
     "OCP3 разряда", "Недогрев разряда", "Удал. блок. GPS",
-    /*K_BAT*/ "БАТ",
+    /*K_BAT*/ "БАТ", /*K_MOS*/ "MOS", /*K_T1*/ "T1", /*K_T2*/ "T2",
 };
 
 // Chinese (Simplified) — flat array in StrKey order; rendered via the CJK font (see curFont).
@@ -326,7 +331,7 @@ static const char *const STR_ZH[K_COUNT] = {
     "充电MOSFET故障", "放电MOSFET故障", "GPS断开", "更改密码", "放电开启失败",
     "电池过温", "温度传感异常", "PL模块异常", "SCP释放失败", "放电OCP2",
     "放电OCP3", "放电低温", "GPS远程锁定",
-    /*K_BAT*/ "电池",
+    /*K_BAT*/ "电池", /*K_MOS*/ "管温", /*K_T1*/ "温1", /*K_T2*/ "温2",
 };
 
 static inline const char *T(int k) {

@@ -751,7 +751,7 @@ static void drawTile(int x, int y, int w, int h, const char *label, const char *
 }
 static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float t2, bool stale = false) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    const char *lbl[3] = {"MOS", "T1", "T2"}; float v[3] = {mos, t1, t2};
+    const char *lbl[3] = {T(K_MOS), T(K_T1), T(K_T2)}; float v[3] = {mos, t1, t2};
     for (int r = 0; r < 3; r++) {
         int ry = y + 12 + r * 19;
         lText(lbl[r], x + 8, ry + 2, F10, C_MUTED);
