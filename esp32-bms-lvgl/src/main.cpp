@@ -535,13 +535,28 @@ LV_FONT_DECLARE(mont1_48)
 // (10-20). The big sizes (28/48) only ever render digits, so they stay Montserrat.
 LV_FONT_DECLARE(cjk_10) LV_FONT_DECLARE(cjk_12) LV_FONT_DECLARE(cjk_14)
 LV_FONT_DECLARE(cjk_16) LV_FONT_DECLARE(cjk_20)
+// Arabic (LVGL bidi+shaping) and Hindi/Devanagari each bring their own subset font, label sizes only.
+// Those fonts have no Latin glyphs, so digits/units would render as boxes — give them a Montserrat
+// fallback at runtime (generated structs are const → copy into RAM and set .fallback in initScriptFonts).
+LV_FONT_DECLARE(ar_10) LV_FONT_DECLARE(ar_12) LV_FONT_DECLARE(ar_14) LV_FONT_DECLARE(ar_16) LV_FONT_DECLARE(ar_20)
+LV_FONT_DECLARE(hi_10) LV_FONT_DECLARE(hi_12) LV_FONT_DECLARE(hi_14) LV_FONT_DECLARE(hi_16) LV_FONT_DECLARE(hi_20)
+static lv_font_t arFont[5], hiFont[5];   // RAM copies of ar_*/hi_* with a Latin fallback
+static void initScriptFonts() {
+    const lv_font_t *ar[5] = {&ar_10, &ar_12, &ar_14, &ar_16, &ar_20};
+    const lv_font_t *hi[5] = {&hi_10, &hi_12, &hi_14, &hi_16, &hi_20};
+    const lv_font_t *mo[5] = {&mont1_10, &mont1_12, &mont1_14, &mont1_16, &mont1_20};
+    for (int i = 0; i < 5; i++) { arFont[i] = *ar[i]; arFont[i].fallback = mo[i]; hiFont[i] = *hi[i]; hiFont[i].fallback = mo[i]; }
+}
+static inline int fontIdx(int sz) { return sz <= 10 ? 0 : sz <= 12 ? 1 : sz <= 14 ? 2 : sz <= 16 ? 3 : 4; }
 // Pick the font for a size given the active language. F10..F48 resolve through this so every
-// existing call site automatically uses the CJK font in Chinese mode (no per-call changes).
+// existing call site automatically uses the right script font (no per-call changes).
 static inline const lv_font_t *curFont(int sz) {
     if (g_lang == LANG_ZH) switch (sz) {
         case 10: return &cjk_10; case 12: return &cjk_12; case 14: return &cjk_14;
         case 16: return &cjk_16; case 20: return &cjk_20;   // 28/48 fall through → Montserrat (digits only)
     }
+    if (g_lang == LANG_AR && sz <= 20) return &arFont[fontIdx(sz)];   // 28/48 → Montserrat (digits)
+    if (g_lang == LANG_HI && sz <= 20) return &hiFont[fontIdx(sz)];
     switch (sz) {
         case 10: return &mont1_10; case 12: return &mont1_12; case 14: return &mont1_14;
         case 16: return &mont1_16; case 20: return &mont1_20; case 28: return &mont1_28;
@@ -649,7 +664,7 @@ static void wxCloudAt(uint32_t col) {   // web cloud: 3 bumps (small-left, big-m
 }
 static void drawWxIcon(int cx, int cy, int code) {   // centred at (cx,cy)
     const uint32_t SUN = 0xffd43b, CLD = 0xc9d1d9, RN = 0x4aa3ff, SNW = 0xcfe6ff, BOLT = 0xffd43b;
-    gCx = cx; gCy = cy; gK = 0.82f;   // ~20px glyph from the 24-unit web space
+    gCx = cx; gCy = cy; gK = 0.95f;   // ~23px glyph from the 24-unit web space
     int cat = wxCat(code);
     if (cat == 0) { wxSunAt(12, 11, 4.6f, SUN); return; }                   // clear
     if (cat == 1) { wxSunAt(8, 8, 3.0f, SUN); wxCloudAt(CLD); return; }     // partly (sun peeks, cloud over)
@@ -684,10 +699,10 @@ static void drawWifi(int cx, int cy, uint32_t color) {
 // compact wifi glyph for the top bar; cy is the VISUAL centre (dot below, arcs fanning up),
 // so it lines up with the weather glyph / temperature / clock which all centre on the same y.
 static void drawWifiSmall(int cx, int cy, uint32_t color) {
-    int by = cy + 4;   // dot baseline: arcs reach ~9px up → +4 centres the glyph on cy
+    int by = cy + 5;   // dot baseline: arcs reach ~10px up → +5 centres the glyph on cy
     fCircle(cx, by, 1, color);
     const float a0 = 50.0f * (PI / 180.0f), a1 = 130.0f * (PI / 180.0f), yScale = 0.72f;
-    int radii[3] = {4, 8, 12};
+    int radii[3] = {5, 10, 15};   // slightly larger
     for (int k = 0; k < 3; k++) {
         int r = radii[k], px = -1, py = -1;
         for (int s = 0; s <= 8; s++) {
@@ -2615,7 +2630,7 @@ void setup() {
     delay(300);
     Serial.printf("\n[lvgl] boot — LVGL %d.%d.%d\n", lv_version_major(), lv_version_minor(), lv_version_patch());
     loadSettings();             // restore saved settings before they're used (brightness, wifi, …)
-    if (lockAfterSec > 0 && lockPin[0]) locked = true;   // require the PIN on power-up when auto-lock is configured
+    if (lockAfterSec > 0 && lockPin[0]) locked = true;
     loadHistory();              // restore the persisted graph history (survives reboot)
 
     // 40 MHz QSPI — 80 MHz caused pixel-offset artifacts on this AXS15231B panel.
@@ -2631,6 +2646,7 @@ void setup() {
     touch.setOffsets(Touch_X_min, Touch_X_max, TFT_res_W - 1, Touch_Y_min, Touch_Y_max, TFT_res_H - 1);
 
     lv_init();
+    initScriptFonts();   // build Arabic/Hindi fonts with a Montserrat fallback for Latin/digits
     lv_tick_set_cb(millis_cb);
     // Larger draw buffer => fewer render chunks => draw_cb runs far fewer times
     // per full repaint (was /10 = 10 chunks; /4 = ~4) => snappier taps/switches.

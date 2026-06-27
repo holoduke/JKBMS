@@ -15,14 +15,14 @@
 // STR[][LANG_LATIN8] table. Languages added after share that font too (Russian) or bring their
 // own (Chinese, via curFont) and live in flat STR_<lang>[] arrays — so adding a language doesn't
 // require editing all 161 rows of STR.
-enum { LANG_EN, LANG_FR, LANG_DE, LANG_NL, LANG_PL, LANG_PT, LANG_ES, LANG_VI, LANG_RU, LANG_ZH, LANG_COUNT };
+enum { LANG_EN, LANG_FR, LANG_DE, LANG_NL, LANG_PL, LANG_PT, LANG_ES, LANG_VI, LANG_RU, LANG_ZH, LANG_AR, LANG_HI, LANG_COUNT };
 #define LANG_LATIN8 (LANG_VI + 1)   // languages held in the STR[][] table
 static uint8_t g_lang = 0;   // index into the columns below; persisted in NVS ("lang")
 
 // Native names for the picker (never translated).
 static const char *const LANG_NAME[LANG_COUNT] = {
     "English", "Français", "Deutsch", "Nederlands", "Polski", "Português", "Español", "Tiếng Việt",
-    "Русский", "中文"};
+    "Русский", "中文", "العربية", "हिन्दी"};
 
 enum {
     // ---- status pill (bmsStatusStr) ----
@@ -349,8 +349,55 @@ static const char *const STR_ZH[K_COUNT] = {
     /*K_PIN_SET*/ "已设置", /*K_PIN_NONE*/ "无",
 };
 
+// Arabic (RTL; LVGL bidi + Arabic shaping). Designated initializers — any key left out
+// falls back to English. Latin tech abbreviations (OVP/UVP/OCP/OTP/UTP/SOC/MOS/SCP/FET) kept.
+struct KV { uint16_t k; const char *s; };
+static const KV AR_KV[] = {
+    {K_OFFLINE,"غير متصل"},{K_ALARM,"إنذار"},{K_FET_OFF,"FET مغلق"},{K_BALANCING,"موازنة"},{K_CHARGING,"شحن"},{K_DISCHARGING,"تفريغ"},{K_FULL,"ممتلئ"},{K_IDLE,"خامل"},
+    {K_VOLTAGE,"الجهد"},{K_PK_CHG,"ذروة شحن"},{K_PK_DIS,"ذروة تفريغ"},{K_UPTIME,"التشغيل"},{K_REMAIN,"المتبقي"},{K_CELLS,"الخلايا"},{K_POWER_DRAW,"الطاقة"},{K_CAPACITY,"السعة"},
+    {K_COLLECTING,"جمع البيانات..."},{K_DAYS,"أيام"},{K_HOURS,"ساعات"},
+    {K_SETTINGS,"الإعدادات"},{K_AUTO_SWITCH,"تبديل تلقائي"},{K_SWITCH_INTERVAL,"فترة التبديل"},{K_BRIGHTNESS,"السطوع"},{K_AUTO_SLEEP,"نوم تلقائي"},{K_ECO_MODE,"وضع اقتصادي"},
+    {K_DIM_AFTER,"تعتيم بعد"},{K_TEMP_UNIT,"وحدة الحرارة"},{K_TIME_FORMAT,"تنسيق الوقت"},{K_WIFI_AUTO,"WiFi تلقائي"},{K_DEMO_SPEED,"سرعة العرض"},{K_SYSTEM_INFO,"معلومات النظام"},
+    {K_FIRMWARE,"البرنامج الثابت"},{K_DEMO_MODE,"وضع العرض"},{K_SCREENSAVER,"شاشة التوقف"},{K_SCREENSAVER_AFTER,"التوقف بعد"},{K_WEB_ADDRESS,"عنوان الويب"},{K_WEB_USERNAME,"مستخدم الويب"},{K_WEB_PASSWORD,"كلمة مرور الويب"},{K_LANGUAGE,"اللغة"},
+    {K_ON,"تشغيل"},{K_OFF,"إيقاف"},{K_NEVER,"أبداً"},{K_CELSIUS,"مئوية"},{K_FAHRENHEIT,"فهرنهايت"},{K_12_HOUR,"12 ساعة"},{K_24_HOUR,"24 ساعة"},{K_VIEW,"عرض"},
+    {K_TAB_SYSTEM,"النظام"},
+    {K_BATTERIES,"البطاريات"},{K_CONFIGURE,"تهيئة"},{K_PARAMETERS,"المعاملات"},{K_OFFLINE_LC,"غير متصل"},{K_DEMO_LC,"وضع العرض"},{K_READING,"قراءة..."},{K_CHARGE_MOSFET,"MOSFET الشحن"},{K_DISCHARGE_MOSFET,"MOSFET التفريغ"},{K_BALANCER,"الموازن"},
+    {K_SCAN,"مسح"},{K_RESCAN,"إعادة المسح"},{K_WIFI_TAP_SCAN,"اضغط مسح للبحث"},{K_WIFI_SCANNING,"جارٍ المسح..."},{K_WIFI_NETS,"شبكات"},{K_WIFI_NO_NETS,"لا توجد شبكات"},{K_WIFI_SCAN_FAIL,"فشل المسح"},{K_WIFI_CONNECTING,"الاتصال بـ"},{K_WIFI_CONNECTED,"متصل:"},{K_WIFI_CONN_FAIL,"فشل (كلمة المرور؟)"},{K_WIFI_NOT_FOUND,"الشبكة غير موجودة"},{K_WIFI_CONN_LOST,"انقطع الاتصال"},{K_NOT_CONNECTED,"غير متصل"},
+    {K_ENTER_PASSWORD,"أدخل كلمة المرور"},{K_ENTER_USERNAME,"أدخل اسم المستخدم"},{K_ENTER_NEW_PASSWORD,"كلمة مرور جديدة"},{K_HDR_WEB_USER,"اسم مستخدم واجهة الويب"},{K_HDR_WEB_PASS,"كلمة مرور واجهة الويب"},{K_KB_SPACE,"مسافة"},{K_CANCEL,"إلغاء"},{K_SAVE,"حفظ"},
+    {K_HDR_SYSINFO,"معلومات النظام"},{K_BOARD,"اللوحة"},{K_PSRAM_FREE,"PSRAM متاح"},{K_HEAP_FREE,"Heap متاح"},{K_WEB_LOGIN,"دخول الويب"},{K_UPTIME_INFO,"مدة التشغيل"},{K_TAP_CLOSE,"اضغط للإغلاق"},{K_BMS_SOON,"BMS: قريباً"},
+    {K_S_NOMINAL_CAP,"السعة الاسمية"},{K_S_CELL_COUNT,"عدد الخلايا"},{K_S_MAX_CHG_A,"أقصى شحن A"},{K_S_MAX_DIS_A,"أقصى تفريغ A"},{K_S_CELL_OVP,"خلية OVP"},{K_S_CELL_OVP_REC,"OVP استرجاع"},{K_S_CELL_UVP,"خلية UVP"},{K_S_CELL_UVP_REC,"UVP استرجاع"},{K_S_SOC100_V,"SOC 100% فولت"},{K_S_SOC0_V,"SOC 0% فولت"},{K_S_BAL_START_V,"بدء الموازنة V"},{K_S_BAL_TRIG_DV,"عتبة موازنة dV"},{K_S_MAX_BAL_A,"أقصى موازنة A"},{K_S_REQ_CHG_V,"جهد الشحن"},{K_S_REQ_FLOAT_V,"جهد التعويم"},{K_S_POWER_OFF_V,"جهد الإيقاف"},
+    {K_B_HEATING,"التسخين"},{K_B_DIS_TEMP_SENS,"تعطيل مستشعر الحرارة"},{K_B_DISP_ALWAYS,"الشاشة دائماً"},{K_B_SMART_SLEEP,"نوم ذكي"},{K_B_DISABLE_PCL,"تعطيل PCL"},{K_B_TIMED_DATA,"بيانات مؤقتة"},{K_B_CHG_FLOAT,"شحن تعويمي"},{K_B_EMERGENCY,"زر الطوارئ"},{K_B_DRY_CONTACT,"تلامس جاف"},{K_B_DIS_OCP2,"OCP2 تفريغ"},
+    {K_E_WIRE_RES,"مقاومة السلك"},{K_E_MOS_OT,"MOSFET ساخن"},{K_E_CELL_MISMATCH,"عدد خلايا خاطئ"},{K_E_FULLY_CHARGED,"مشحون بالكامل"},{K_E_PACK_OV,"جهد زائد"},{K_E_CHG_OC,"تيار شحن زائد"},{K_E_CHG_SC,"قصر شحن"},{K_E_CHG_OT,"حرارة شحن زائدة"},{K_E_CHG_UT,"حرارة شحن منخفضة"},{K_E_COPROC,"خطأ المعالج المساعد"},{K_E_CELL_UV,"جهد خلية منخفض"},{K_E_PACK_UV,"جهد حزمة منخفض"},{K_E_DIS_OC,"تيار تفريغ زائد"},{K_E_DIS_SC,"قصر تفريغ"},{K_E_DIS_OT,"حرارة تفريغ زائدة"},{K_E_CHG_MOS_FAULT,"عطل MOSFET الشحن"},{K_E_DIS_MOS_FAULT,"عطل MOSFET التفريغ"},{K_E_GPS_DISC,"GPS مفصول"},{K_E_CHG_PWD,"تغيير كلمة المرور"},{K_E_DIS_ON_FAIL,"فشل تشغيل التفريغ"},{K_E_BAT_OT,"بطارية ساخنة"},{K_E_TEMP_ANOM,"خلل مستشعر الحرارة"},{K_E_PL_ANOM,"خلل وحدة PL"},{K_E_SCP_REL_FAIL,"فشل تحرير SCP"},{K_E_DIS_OCP2,"OCP2 تفريغ"},{K_E_DIS_OCP3,"OCP3 تفريغ"},{K_E_DIS_UT,"حرارة تفريغ منخفضة"},{K_E_GPS_LOCK,"قفل GPS عن بُعد"},
+    {K_BAT,"بطارية"},
+    {K_AUTO_LOCK,"قفل تلقائي"},{K_LOCK_PIN,"رمز القفل"},{K_ENTER_PIN,"أدخل الرمز"},{K_SET_PIN,"حدد رمزاً من 6 أرقام"},{K_WRONG_PIN,"رمز خاطئ"},{K_PIN_SET,"محدد"},{K_PIN_NONE,"لا يوجد"},
+};
+
+// Hindi (Devanagari). NOTE: LVGL can't shape Devanagari → glyphs render unjoined (best-effort, as agreed).
+static const KV HI_KV[] = {
+    {K_OFFLINE,"ऑफ़लाइन"},{K_ALARM,"अलार्म"},{K_FET_OFF,"FET बंद"},{K_BALANCING,"संतुलन"},{K_CHARGING,"चार्जिंग"},{K_DISCHARGING,"डिस्चार्ज"},{K_FULL,"पूर्ण"},{K_IDLE,"निष्क्रिय"},
+    {K_VOLTAGE,"वोल्टेज"},{K_PK_CHG,"शिखर चार्ज"},{K_PK_DIS,"शिखर डिस्च"},{K_UPTIME,"अपटाइम"},{K_REMAIN,"शेष"},{K_CELLS,"सेल"},{K_POWER_DRAW,"पावर"},{K_CAPACITY,"क्षमता"},
+    {K_COLLECTING,"डेटा एकत्र..."},{K_DAYS,"दिन"},{K_HOURS,"घंटे"},
+    {K_SETTINGS,"सेटिंग्स"},{K_AUTO_SWITCH,"ऑटो-स्विच"},{K_SWITCH_INTERVAL,"स्विच अंतराल"},{K_BRIGHTNESS,"चमक"},{K_AUTO_SLEEP,"ऑटो-स्लीप"},{K_ECO_MODE,"इको मोड"},
+    {K_DIM_AFTER,"मंद करें"},{K_TEMP_UNIT,"तापमान इकाई"},{K_TIME_FORMAT,"समय प्रारूप"},{K_WIFI_AUTO,"WiFi ऑटो"},{K_DEMO_SPEED,"डेमो गति"},{K_SYSTEM_INFO,"सिस्टम जानकारी"},
+    {K_FIRMWARE,"फर्मवेयर"},{K_DEMO_MODE,"डेमो मोड"},{K_SCREENSAVER,"स्क्रीनसेवर"},{K_SCREENSAVER_AFTER,"स्क्रीनसेवर बाद"},{K_WEB_ADDRESS,"वेब पता"},{K_WEB_USERNAME,"वेब उपयोगकर्ता"},{K_WEB_PASSWORD,"वेब पासवर्ड"},{K_LANGUAGE,"भाषा"},
+    {K_ON,"चालू"},{K_OFF,"बंद"},{K_NEVER,"कभी नहीं"},{K_CELSIUS,"सेल्सियस"},{K_FAHRENHEIT,"फ़ारेन."},{K_12_HOUR,"12-घंटा"},{K_24_HOUR,"24-घंटा"},{K_VIEW,"देखें"},
+    {K_TAB_SYSTEM,"सिस्टम"},
+    {K_BATTERIES,"बैटरियां"},{K_CONFIGURE,"कॉन्फ़िगर"},{K_PARAMETERS,"पैरामीटर"},{K_OFFLINE_LC,"ऑफ़लाइन"},{K_DEMO_LC,"डेमो मोड"},{K_READING,"पढ़ रहा..."},{K_CHARGE_MOSFET,"चार्ज MOSFET"},{K_DISCHARGE_MOSFET,"डिस्च MOSFET"},{K_BALANCER,"बैलेंसर"},
+    {K_SCAN,"स्कैन"},{K_RESCAN,"पुनः स्कैन"},{K_WIFI_TAP_SCAN,"नेटवर्क हेतु स्कैन"},{K_WIFI_SCANNING,"स्कैन हो रहा..."},{K_WIFI_NETS,"नेटवर्क मिले"},{K_WIFI_NO_NETS,"कोई नेटवर्क नहीं"},{K_WIFI_SCAN_FAIL,"स्कैन विफल"},{K_WIFI_CONNECTING,"कनेक्ट हो रहा"},{K_WIFI_CONNECTED,"कनेक्टेड:"},{K_WIFI_CONN_FAIL,"विफल (पासवर्ड?)"},{K_WIFI_NOT_FOUND,"नेटवर्क नहीं मिला"},{K_WIFI_CONN_LOST,"कनेक्शन टूटा"},{K_NOT_CONNECTED,"कनेक्ट नहीं"},
+    {K_ENTER_PASSWORD,"पासवर्ड दर्ज करें"},{K_ENTER_USERNAME,"उपयोगकर्ता दर्ज करें"},{K_ENTER_NEW_PASSWORD,"नया पासवर्ड"},{K_HDR_WEB_USER,"वेब उपयोगकर्ता नाम"},{K_HDR_WEB_PASS,"वेब पासवर्ड"},{K_KB_SPACE,"स्पेस"},{K_CANCEL,"रद्द"},{K_SAVE,"सहेजें"},
+    {K_HDR_SYSINFO,"सिस्टम जानकारी"},{K_BOARD,"बोर्ड"},{K_PSRAM_FREE,"PSRAM खाली"},{K_HEAP_FREE,"Heap खाली"},{K_WEB_LOGIN,"वेब लॉगिन"},{K_UPTIME_INFO,"अपटाइम"},{K_TAP_CLOSE,"बंद करने हेतु"},{K_BMS_SOON,"BMS: जल्द"},
+    {K_S_NOMINAL_CAP,"नाममात्र क्षमता"},{K_S_CELL_COUNT,"सेल संख्या"},{K_S_MAX_CHG_A,"अधि चार्ज A"},{K_S_MAX_DIS_A,"अधि डिस्च A"},{K_S_CELL_OVP,"सेल OVP"},{K_S_CELL_UVP,"सेल UVP"},{K_S_SOC100_V,"SOC 100% V"},{K_S_SOC0_V,"SOC 0% V"},{K_S_MAX_BAL_A,"अधि बैलेंस A"},{K_S_REQ_CHG_V,"चार्ज वोल्टेज"},{K_S_REQ_FLOAT_V,"फ्लोट वोल्टेज"},
+    {K_B_HEATING,"हीटिंग"},{K_B_SMART_SLEEP,"स्मार्ट स्लीप"},{K_B_DISABLE_PCL,"PCL बंद"},{K_B_CHG_FLOAT,"फ्लोट चार्ज"},{K_B_EMERGENCY,"आपातकालीन बटन"},
+    {K_E_FULLY_CHARGED,"पूर्ण चार्ज"},{K_E_PACK_OV,"अधिक वोल्टेज"},{K_E_CHG_OC,"चार्ज अधिक धारा"},{K_E_DIS_OC,"डिस्च अधिक धारा"},{K_E_CELL_UV,"सेल कम वोल्टेज"},{K_E_BAT_OT,"बैटरी अधिक ताप"},{K_E_CHG_MOS_FAULT,"चार्ज MOSFET दोष"},{K_E_DIS_MOS_FAULT,"डिस्च MOSFET दोष"},
+    {K_BAT,"बैटरी"},
+    {K_AUTO_LOCK,"ऑटो-लॉक"},{K_LOCK_PIN,"लॉक पिन"},{K_ENTER_PIN,"पिन दर्ज करें"},{K_SET_PIN,"6 अंकों का पिन सेट करें"},{K_WRONG_PIN,"गलत पिन"},{K_PIN_SET,"सेट"},{K_PIN_NONE,"कोई नहीं"},
+};
+
+static inline const char *kvFind(const KV *a, int n, int k) { for (int i = 0; i < n; i++) if (a[i].k == k) return a[i].s; return 0; }
 static inline const char *T(int k) {
     if (g_lang == LANG_RU) return STR_RU[k];
     if (g_lang == LANG_ZH) return STR_ZH[k];
+    if (g_lang == LANG_AR) { const char *s = kvFind(AR_KV, (int)(sizeof(AR_KV)/sizeof(AR_KV[0])), k); return s ? s : STR[k][LANG_EN]; }
+    if (g_lang == LANG_HI) { const char *s = kvFind(HI_KV, (int)(sizeof(HI_KV)/sizeof(HI_KV[0])), k); return s ? s : STR[k][LANG_EN]; }
     return STR[k][g_lang];   // LANG_EN..LANG_VI
 }
