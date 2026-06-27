@@ -1396,6 +1396,7 @@ static int setDec(const SetDef &d) { return d.vstep < 0.1f ? (d.vstep < 0.01f ? 
 static void fmtSetting(char *o, size_t n, const SetDef &d, float v) { snprintf(o, n, "%.*f%s", setDec(d), v, d.unit); }
 // Write a setting (register from the frame offset) and verify by read-back.
 static bool setPut(int b, const SetDef &d, float v) {
+    if (setWidth(d.type) != 4) return false;   // bmsWrite only writes a 4-byte register pair; a narrower field would clobber its neighbours
     if (v < d.vmin) v = d.vmin; if (v > d.vmax) v = d.vmax;
     long raw = lroundf(v / d.scale);
     uint16_t reg = 0x1000 + (d.off - 6);
@@ -2632,6 +2633,7 @@ static void press_cb(lv_event_t *e) {
     if (view == V_SETTINGS && (kbActive || editIdx >= 0)) { handleTap(p.x, p.y); pressHandled = true; lv_obj_invalidate(scr); }
 }
 static void pressing_cb(lv_event_t *e) {
+    lastActivity = millis();             // finger still down → keep activity fresh (also feeds the stuck-touch failsafe)
     if (standby || pressHandled || kbActive) return;
     lv_indev_t *indev = lv_indev_active(); if (!indev) return;
     lv_point_t p; lv_indev_get_point(indev, &p);
@@ -2741,6 +2743,7 @@ static void dataTick_cb(lv_timer_t *t) {
     }
     // ---- power saving (escalates with idle time; any touch resets it) ----
     uint32_t idle = now - lastActivity;
+    if (gTouchDown && idle > 8000) gTouchDown = false;   // failsafe: a missed release shouldn't wedge uiBusy() (would block NVS saves forever)
     // auto-lock: arm after the inactivity timeout (needs a PIN set). The pad appears
     // automatically, or after the screensaver is touched (see lockShowing/press_cb).
     if (lockAfterSec > 0 && lockPin[0] && !locked && !lockSetMode && idle > (uint32_t)lockAfterSec * 1000UL) {

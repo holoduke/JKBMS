@@ -125,7 +125,7 @@ static void mqttLoop() {
         if (mqLastTry && millis() - mqLastTry < 5000) return;
         mqLastTry = millis();
         mqInitIds();
-        if (!mqBufSet) { mqtt.setBufferSize(768); mqBufSet = true; }
+        if (!mqBufSet) { mqtt.setBufferSize(768); mqtt.setSocketTimeout(3); mqBufSet = true; }   // 3s (not the 15s default) so an unreachable broker can't hog the core-0 task (it also runs the BMS poll)
         mqtt.setServer(mqttHost, mqttPort); mqtt.setCallback(mqCallback);
         char willT[48]; snprintf(willT, sizeof(willT), "%s/status", mqBase.c_str());
         char cid[40]; snprintf(cid, sizeof(cid), "jkbms-%s", mqId.c_str());
