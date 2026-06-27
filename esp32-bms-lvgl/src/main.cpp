@@ -1639,12 +1639,10 @@ static void saveHistory() {
     prefs.end();
 }
 static void loadHistory() {
-    prefs.begin("hist", false);
-    if (prefs.getUChar("ver", 0) != 2) {               // wipe pre-fix history (bogus 0% points / zero-tail corruption)
-        prefs.clear(); prefs.putUChar("ver", 2);
-        histCount[0] = histCount[1] = 0;
-        prefs.end(); return;
-    }
+    // Never wipe — always load and sanitize. Corruption (zero-tail from a partial save) is
+    // healed by the clamp + trailing-zero trim below, so real history is preserved. (An earlier
+    // version-bump wipe here destroyed good multi-day data; that path is gone for good.)
+    prefs.begin("hist", true);
     for (int t = 0; t < 2; t++) {
         char k[8];
         snprintf(k, sizeof(k), "c%d", t); int c = prefs.getUShort(k, 0); if (c > HIST_N) c = HIST_N;
