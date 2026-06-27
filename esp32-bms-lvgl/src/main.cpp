@@ -14,6 +14,7 @@
 #include "pincfg.h"
 #include "dispcfg.h"
 #include "AXS15231B_touch.h"
+#include "i18n.h"          // language tables + T(key); g_lang persisted in NVS
 
 #define FW_VERSION "0.4.0"
 #define BL_CH_FREQ 5000
@@ -441,16 +442,21 @@ static uint32_t socColor(float soc) { return soc >= 60 ? C_ACCENT : soc >= 30 ? 
 // Single source of truth for the status pill — uses REAL BMS state (fault bitmask,
 // actual MOSFET + balancer flags) not just a current threshold. Shared by the
 // device dashboard and the web /api so they never diverge.
-static const char *bmsStatusStr(int t, bool live, uint32_t *col) {
+// Canonical English status (used by MQTT/HA + web portal — kept stable for automations).
+// keyOut (optional) returns the i18n StrKey so the device UI can show it localized.
+static const char *bmsStatusStr(int t, bool live, uint32_t *col, int *keyOut = nullptr) {
     const Bms &b = bms[t];
-    if (!live)             { *col = C_BAD;   return "Offline"; }
-    if (b.errFlags)        { *col = C_BAD;   return "Alarm"; }      // BMS reports a protection/warning
-    if (!b.disMos || !b.chgMos) { *col = C_WARN; return "FET off"; }
-    if (b.balWork)         { *col = C_CYAN;  return "Balancing"; }
-    if (b.i > 0.5f)        { *col = C_ACCENT; return "Charging"; }
-    if (b.i < -0.5f)       { *col = C_WARN;  return "Discharging"; }
-    if (b.soc >= 99)       { *col = C_ACCENT; return "Full"; }
-    return *col = C_MUTED, "Idle";
+    int k; const char *s;
+    if (!live)                  { *col = C_BAD;    k = K_OFFLINE;     s = "Offline"; }
+    else if (b.errFlags)        { *col = C_BAD;    k = K_ALARM;       s = "Alarm"; }   // BMS reports a protection/warning
+    else if (!b.disMos || !b.chgMos) { *col = C_WARN; k = K_FET_OFF;  s = "FET off"; }
+    else if (b.balWork)         { *col = C_CYAN;   k = K_BALANCING;   s = "Balancing"; }
+    else if (b.i > 0.5f)        { *col = C_ACCENT; k = K_CHARGING;    s = "Charging"; }
+    else if (b.i < -0.5f)       { *col = C_WARN;   k = K_DISCHARGING; s = "Discharging"; }
+    else if (b.soc >= 99)       { *col = C_ACCENT; k = K_FULL;        s = "Full"; }
+    else                        { *col = C_MUTED;  k = K_IDLE;        s = "Idle"; }
+    if (keyOut) *keyOut = k;
+    return s;
 }
 static uint32_t lerpColor(uint32_t a, uint32_t b, float t) {
     if (t < 0) t = 0; if (t > 1) t = 1;
@@ -733,7 +739,7 @@ static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float
 }
 static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, uint32_t upSec, const char *rt, uint32_t rtCol, bool stale = false) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    const char *lbl[4] = {"PK CHG", "PK DIS", "UPTIME", "REMAIN"};
+    const char *lbl[4] = {T(K_PK_CHG), T(K_PK_DIS), T(K_UPTIME), T(K_REMAIN)};
     char val[4][10];
     snprintf(val[0], sizeof(val[0]), "%.0fW", pkChg);
     snprintf(val[1], sizeof(val[1]), "%.0fW", pkDis);
@@ -754,9 +760,9 @@ static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = fal
     int n = b.nCells; if (n < 1) n = 1; if (n > MAXCELLS) n = MAXCELLS;
     float lo = 9, hi = 0; int loI = 0, hiI = 0;
     for (int i = 0; i < n; i++) { if (b.cell[i] < lo) { lo = b.cell[i]; loI = i; } if (b.cell[i] > hi) { hi = b.cell[i]; hiI = i; } }
-    char hdr[20];
-    if (stale) snprintf(hdr, sizeof(hdr), "CELLS  --");
-    else snprintf(hdr, sizeof(hdr), "CELLS  %dmV", (int)((hi - lo) * 1000));
+    char hdr[28];
+    if (stale) snprintf(hdr, sizeof(hdr), "%s  --", T(K_CELLS));
+    else snprintf(hdr, sizeof(hdr), "%s  %dmV", T(K_CELLS), (int)((hi - lo) * 1000));
     lText(hdr, x + 8, y + 7, F12, C_MUTED);
     // adaptive grid: 1 column with bars for small packs, 2-3 columns for bigger ones
     int cols = n <= 6 ? 1 : n <= 16 ? 2 : 3;
@@ -824,7 +830,7 @@ static float packTotalWh(int t) {
 }
 static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24, float wh6, bool stale) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    lText("CAPACITY", x + 8, y + 6, F10, C_MUTED);
+    lText(T(K_CAPACITY), x + 8, y + 6, F10, C_MUTED);
     char buf[12];
     if (stale) snprintf(buf, sizeof(buf), "--"); else fmtWh(buf, sizeof(buf), totalWh);
     lText(buf, x + 8, y + 22, F16, C_ACCENT);                  // headline: total pack capacity
@@ -843,8 +849,8 @@ static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24
 }
 static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    lText("POWER DRAW  W", x + 8, y + 6, F10, C_MUTED);
-    if (b.pwrCount < 2) { cText("collecting data", x + w / 2, y + h / 2, F12, C_MUTED); return; }
+    char ph[24]; snprintf(ph, sizeof(ph), "%s  W", T(K_POWER_DRAW)); lText(ph, x + 8, y + 6, F10, C_MUTED);
+    if (b.pwrCount < 2) { cText(T(K_COLLECTING), x + w / 2, y + h / 2, F12, C_MUTED); return; }
     const int lblW = 24, gx = x + 8 + lblW, gy = y + 22, gw = w - 14 - lblW, gh = h - 38, base = gy + gh;
     int cnt = b.pwrCount > NCAP ? NCAP : b.pwrCount;
     float lo = 1e9f, hi = -1e9f;
@@ -881,12 +887,12 @@ static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
 }
 static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    char hdr[28];
-    if (b.capSpanDays >= 2.0f) snprintf(hdr, sizeof(hdr), "CAPACITY   %.0f days", b.capSpanDays);
-    else if (b.capCount >= 2) snprintf(hdr, sizeof(hdr), "CAPACITY   %.0f hours", b.capSpanDays * 24.0f);
-    else snprintf(hdr, sizeof(hdr), "CAPACITY");
+    char hdr[40];
+    if (b.capSpanDays >= 2.0f) snprintf(hdr, sizeof(hdr), "%s   %.0f %s", T(K_CAPACITY), b.capSpanDays, T(K_DAYS));
+    else if (b.capCount >= 2) snprintf(hdr, sizeof(hdr), "%s   %.0f %s", T(K_CAPACITY), b.capSpanDays * 24.0f, T(K_HOURS));
+    else snprintf(hdr, sizeof(hdr), "%s", T(K_CAPACITY));
     lText(hdr, x + 8, y + 6, F10, C_MUTED);
-    if (b.capCount < 2) { cText("collecting data", x + w / 2, y + h / 2, F12, C_MUTED); return; }
+    if (b.capCount < 2) { cText(T(K_COLLECTING), x + w / 2, y + h / 2, F12, C_MUTED); return; }
     const int lblW = 22, gx = x + 10 + lblW, gy = y + 26, gw = w - 20 - lblW, gh = h - 44, base = gy + gh;
     for (int p = 0; p <= 100; p += 50) {
         int yy = base - (int)(p / 100.0f * gh);
@@ -984,7 +990,8 @@ static void renderBms() {
 
     const int cx = 100, cy = 178;
     // operational status — real BMS state (fault bitmask + actual MOSFET/balancer flags)
-    uint32_t sc; const char *st = bmsStatusStr(view, demoMode || bmsLive[view], &sc);
+    uint32_t sc; int stk; bmsStatusStr(view, demoMode || bmsLive[view], &sc, &stk);
+    const char *st = T(stk);
     int pw2 = textW(st, F12) + 28, px2 = cx - pw2 / 2, py2 = 52;
     fRect(px2, py2, pw2, 20, 10, C_CARD); dRect(px2, py2, pw2, 20, 10, C_BORDER);
     fCircle(px2 + 13, py2 + 10, 4, sc);
@@ -1020,7 +1027,7 @@ static void renderBms() {
     char vbuf[10]; if (stale) snprintf(vbuf, sizeof(vbuf), "--"); else snprintf(vbuf, sizeof(vbuf), "%.2fV", b.v);
     const int ty = 40, th = 70, gap = 8;
     const int vW = 78, sW = 102, tpW = rw - vW - sW - 2 * gap;  // stats wider, temps + voltage narrower
-    drawTile(rx, ty, vW, th, "VOLTAGE", vbuf, nullptr, stale ? C_MUTED : C_TEXT);
+    drawTile(rx, ty, vW, th, T(K_VOLTAGE), vbuf, nullptr, stale ? C_MUTED : C_TEXT);
     char rt[10]; uint32_t rtCol;
     float fullAh = (!demoMode && bmsLive[view]) ? packFullAh[view] : PACK_AH;
     runtimeStr(view, b.soc, b.i, fullAh, rt, sizeof(rt), &rtCol);
@@ -1068,41 +1075,46 @@ static void srowToggle(int y, const char *label, bool on) {
 }
 
 // ---- scrollable System list ----
-static const char *SYS_LABEL[] = {
-    "Auto-switch", "Switch interval", "Brightness   - / +", "Auto-sleep", "Eco mode", "Dim after",
-    "Temp unit", "Time format", "WiFi auto-connect", "Demo speed", "System info", "Firmware", "Demo mode",
-    "Screensaver", "Screensaver after",
-    "Web address", "Web username", "Web password"};
-#define SYS_ROWS ((int)(sizeof(SYS_LABEL) / sizeof(SYS_LABEL[0])))
+static const uint8_t SYS_KEY[] = {
+    K_AUTO_SWITCH, K_SWITCH_INTERVAL, K_BRIGHTNESS, K_AUTO_SLEEP, K_ECO_MODE, K_DIM_AFTER,
+    K_TEMP_UNIT, K_TIME_FORMAT, K_WIFI_AUTO, K_DEMO_SPEED, K_SYSTEM_INFO, K_FIRMWARE, K_DEMO_MODE,
+    K_SCREENSAVER, K_SCREENSAVER_AFTER, K_WEB_ADDRESS, K_WEB_USERNAME, K_WEB_PASSWORD, K_LANGUAGE};
+#define SYS_ROWS ((int)(sizeof(SYS_KEY) / sizeof(SYS_KEY[0])))
+static const char *sysLabel(int i) {            // localized row label; brightness keeps its "- / +" hint
+    if (i == 2) { static char b[28]; snprintf(b, sizeof(b), "%s   - / +", T(K_BRIGHTNESS)); return b; }
+    return T(SYS_KEY[i]);
+}
 static void dimStr(char *o, size_t n) {
-    if (dimAfterSec == 0) snprintf(o, n, "Off");
+    if (dimAfterSec == 0) snprintf(o, n, "%s", T(K_OFF));
     else if (dimAfterSec < 60) snprintf(o, n, "%ds", dimAfterSec);
     else snprintf(o, n, "%d min", dimAfterSec / 60);
 }
 static void saverStr(char *o, size_t n) {
-    if (saverAfterSec == 0) snprintf(o, n, "Off");
+    if (saverAfterSec == 0) snprintf(o, n, "%s", T(K_OFF));
     else if (saverAfterSec < 60) snprintf(o, n, "%ds", saverAfterSec);
     else if (saverAfterSec < 3600) snprintf(o, n, "%d min", saverAfterSec / 60);
     else snprintf(o, n, "%d hr", saverAfterSec / 3600);
 }
 static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
     switch (i) {
-        case 0: snprintf(o, n, "%s", autoSwitch ? "ON" : "OFF"); *vc = autoSwitch ? C_ACCENT : C_MUTED; break;
+        case 0: snprintf(o, n, "%s", autoSwitch ? T(K_ON) : T(K_OFF)); *vc = autoSwitch ? C_ACCENT : C_MUTED; break;
         case 1: snprintf(o, n, "%lus", (unsigned long)(intervalMs / 1000)); *vc = C_CYAN; break;
         case 2: snprintf(o, n, "%d%%", brightness); *vc = C_TEXT; break;
-        case 3: if (autoSleepMin == 0) snprintf(o, n, "Never"); else snprintf(o, n, "%d min", autoSleepMin); *vc = autoSleepMin ? C_CYAN : C_MUTED; break;
-        case 4: snprintf(o, n, "%s", ecoMode ? "ON" : "OFF"); *vc = ecoMode ? C_ACCENT : C_MUTED; break;
+        case 3: if (autoSleepMin == 0) snprintf(o, n, "%s", T(K_NEVER)); else snprintf(o, n, "%d min", autoSleepMin); *vc = autoSleepMin ? C_CYAN : C_MUTED; break;
+        case 4: snprintf(o, n, "%s", ecoMode ? T(K_ON) : T(K_OFF)); *vc = ecoMode ? C_ACCENT : C_MUTED; break;
         case 5: dimStr(o, n); *vc = dimAfterSec ? C_CYAN : C_MUTED; break;
-        case 6: snprintf(o, n, "%s", tempF ? "Fahr." : "Celsius"); *vc = C_CYAN; break;
-        case 7: snprintf(o, n, "%s", fmt12 ? "12-hour" : "24-hour"); *vc = C_CYAN; break;
-        case 8: snprintf(o, n, "%s", wifiAuto ? "ON" : "OFF"); *vc = wifiAuto ? C_ACCENT : C_MUTED; break;
+        case 6: snprintf(o, n, "%s", tempF ? T(K_FAHRENHEIT) : T(K_CELSIUS)); *vc = C_CYAN; break;
+        case 7: snprintf(o, n, "%s", fmt12 ? T(K_12_HOUR) : T(K_24_HOUR)); *vc = C_CYAN; break;
+        case 8: snprintf(o, n, "%s", wifiAuto ? T(K_ON) : T(K_OFF)); *vc = wifiAuto ? C_ACCENT : C_MUTED; break;
         case 9: snprintf(o, n, "%dx", simSpeed); *vc = C_CYAN; break;
-        case 10: snprintf(o, n, "view"); *vc = C_CYAN; break;
-        case 13: { static const char *IN[6] = {"Off", "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = idleScreen ? C_CYAN : C_MUTED; break; }
+        case 10: snprintf(o, n, "%s", T(K_VIEW)); *vc = C_CYAN; break;
+        case 12: snprintf(o, n, "%s", demoMode ? T(K_ON) : T(K_OFF)); *vc = demoMode ? C_ACCENT : C_MUTED; break;
+        case 13: { const char *IN[6] = {T(K_OFF), "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = idleScreen ? C_CYAN : C_MUTED; break; }
         case 14: saverStr(o, n); *vc = saverAfterSec ? C_CYAN : C_MUTED; break;
         case 15: if (WiFi.status() == WL_CONNECTED) { snprintf(o, n, "%s", WiFi.localIP().toString().c_str()); *vc = C_ACCENT; } else { snprintf(o, n, "no WiFi"); *vc = C_MUTED; } break;
         case 16: snprintf(o, n, "%s", webUser); *vc = C_CYAN; break;
         case 17: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
+        case 18: snprintf(o, n, "%s", LANG_NAME[g_lang]); *vc = C_CYAN; break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
@@ -1118,7 +1130,7 @@ static void drawCloseBtn() {
     for (int o = -1; o <= 1; o++) { line(cx - 6, cy - 6 + o, cx + 6, cy + 6 + o, C_BAD); line(cx - 6, cy + 6 + o, cx + 6, cy - 6 + o, C_BAD); }
 }
 static void drawSubTabs() {
-    const char *nm[3] = {cfgBms ? "BAT 2" : "BAT 1", "WiFi", "System"};
+    const char *nm[3] = {cfgBms ? "BAT 2" : "BAT 1", T(K_TAB_WIFI), T(K_TAB_SYSTEM)};
     for (int i = 0; i < 3; i++) {
         int x, w; subTabGeom(i, &x, &w); bool on = (subTab == i);
         fRect(x, 44, w, 30, 8, on ? C_ACCENT : C_CARD); if (!on) dRect(x, 44, w, 30, 8, C_BORDER);
@@ -1130,11 +1142,11 @@ static void renderSysTab() {
     for (int i = 0; i < SYS_ROWS; i++) {
         int y = LIST_TOP + i * SROW_STEP - sysScroll;
         if (y + SROW_H < LIST_TOP || y > Ht) continue;     // off-screen
-        if (i == 0) srowToggle(y, SYS_LABEL[i], autoSwitch);
-        else if (i == 4) srowToggle(y, SYS_LABEL[i], ecoMode);
-        else if (i == 8) srowToggle(y, SYS_LABEL[i], wifiAuto);
-        else if (i == 12) srowToggle(y, SYS_LABEL[i], demoMode);
-        else { char val[16]; uint32_t vc; sysVal(i, val, sizeof(val), &vc); srowAt(y, SYS_LABEL[i], val, vc); }
+        if (i == 0) srowToggle(y, sysLabel(i), autoSwitch);
+        else if (i == 4) srowToggle(y, sysLabel(i), ecoMode);
+        else if (i == 8) srowToggle(y, sysLabel(i), wifiAuto);
+        else if (i == 12) srowToggle(y, sysLabel(i), demoMode);
+        else { char val[28]; uint32_t vc; sysVal(i, val, sizeof(val), &vc); srowAt(y, sysLabel(i), val, vc); }
     }
     if (sysMaxScroll() > 0) {                               // scrollbar
         int tX = Wd - 6, tY = LIST_TOP, tH = sysViewH();
@@ -1429,7 +1441,7 @@ static void renderSettings() {
     else if (subTab == ST_WIFI) renderWifiTab();
     else renderSysTab();
     fRect(0, 0, Wd, LIST_TOP - 4, 0, C_BG);
-    lText("SETTINGS", 12, 12, F16, C_TEXT);
+    lText(T(K_SETTINGS), 12, 12, F16, C_TEXT);
     drawCloseBtn();
     drawSubTabs();
     if (infoPopup) renderInfoPopup();
@@ -1511,6 +1523,7 @@ static void saveSettings() {
     prefs.putBool("demo", demoMode);
     prefs.putInt("idle", idleScreen);
     prefs.putInt("saver", saverAfterSec);
+    prefs.putUChar("lang", g_lang);
     prefs.putInt("nbms", numBms);
     prefs.putBytes("pins", bmsPin, sizeof(bmsPin));
     prefs.putString("wuser", webUser);
@@ -1532,6 +1545,7 @@ static void loadSettings() {
     demoMode = prefs.getBool("demo", demoMode);
     idleScreen = prefs.getInt("idle", idleScreen);
     saverAfterSec = prefs.getInt("saver", saverAfterSec);
+    g_lang = prefs.getUChar("lang", g_lang); if (g_lang >= LANG_COUNT) g_lang = 0;
     if (prefs.isKey("nbms")) numBms = prefs.getInt("nbms", 2);
     else numBms = prefs.isKey("autosw") ? 2 : 1;   // existing install (ran the old hardcoded-dual build) → keep 2; fresh flash → default 1
     if (numBms < 1) numBms = 1; if (numBms > 2) numBms = 2;
@@ -1648,6 +1662,7 @@ static void handleTap(int x, int y) {
                 case 15: infoPopup = true; return;                   // Web address → full system-info popup (shows IP + login)
                 case 16: strncpy(wifiPass, webUser, sizeof(wifiPass) - 1); wifiPass[sizeof(wifiPass) - 1] = 0; wifiPassLen = strlen(wifiPass); kbMode = 0; kbTarget = KBT_WUSER; kbActive = true; return;   // edit web username
                 case 17: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
+                case 18: g_lang = (g_lang + 1) % LANG_COUNT; markCfg(); return;   // cycle UI language (dirtyFull already set → full repaint)
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
