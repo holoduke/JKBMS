@@ -34,6 +34,7 @@
 #define C_CYAN 0x22d3ee
 #define C_WARN 0xfbbf24
 #define C_BAD 0xfb7185
+#define C_DISCHG 0x7c6cff            // discharging accent — deep purple/blue (green = charging)
 
 #define NCELLS 4                    // demo/fallback cell count
 #define MAXCELLS 24                 // JK realtime frame carries up to 24 cells; actual count detected at runtime
@@ -467,7 +468,7 @@ static const char *bmsStatusStr(int t, bool live, uint32_t *col, int *keyOut = n
     else if (!b.disMos || !b.chgMos) { *col = C_WARN; k = K_FET_OFF;  s = "FET off"; }
     else if (b.balWork)         { *col = C_CYAN;   k = K_BALANCING;   s = "Balancing"; }
     else if (b.i > 0.5f)        { *col = C_ACCENT; k = K_CHARGING;    s = "Charging"; }
-    else if (b.i < -0.5f)       { *col = C_WARN;   k = K_DISCHARGING; s = "Discharging"; }
+    else if (b.i < -0.5f)       { *col = C_DISCHG; k = K_DISCHARGING; s = "Discharging"; }
     else if (b.soc >= 99)       { *col = C_ACCENT; k = K_FULL;        s = "Full"; }
     else                        { *col = C_MUTED;  k = K_IDLE;        s = "Idle"; }
     if (keyOut) *keyOut = k;
@@ -749,7 +750,7 @@ static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col, bo
 }
 static void drawTile(int x, int y, int w, int h, const char *label, const char *val, const char *unit, uint32_t valCol) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    lText(label, x + 8, y + 8, F12, C_MUTED);
+    lText(label, x + 8, y + 6, F10, C_MUTED);   // title size matches CAPACITY/POWER DRAW (F10)
     if (unit) {
         lText(val, x + 8, y + 24, F20, valCol);
         lText(unit, x + 8, y + h - 16, F12, C_MUTED);
@@ -799,7 +800,7 @@ static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = fal
     char hdr[28];
     if (stale) snprintf(hdr, sizeof(hdr), "%s  --", T(K_CELLS));
     else snprintf(hdr, sizeof(hdr), "%s  %dmV", T(K_CELLS), (int)((hi - lo) * 1000));
-    lText(hdr, x + 8, y + 7, F12, C_MUTED);
+    lText(hdr, x + 8, y + 6, F10, C_MUTED);   // title size matches CAPACITY (F10)
     // adaptive grid: 1 column with bars for small packs, 2-3 columns for bigger ones
     int cols = n <= 6 ? 1 : n <= 16 ? 2 : 3;
     int rows = (n + cols - 1) / cols;
@@ -1031,7 +1032,7 @@ static void renderBms() {
     int pw2 = textW(st, F12) + 28, px2 = cx - pw2 / 2, py2 = 52;
     fRect(px2, py2, pw2, 20, 10, C_CARD); dRect(px2, py2, pw2, 20, 10, C_BORDER);
     fCircle(px2 + 13, py2 + 10, 4, sc);
-    lText(st, px2 + 22, py2 + 5, F12, sc);
+    lText(st, px2 + 22, py2 + 3, F12, sc);   // vertically centred on the dot (py2+10)
     if (b.errFlags && (demoMode || bmsLive[view])) {   // name the active protection(s) under the pill
         char al[44] = ""; int shown = 0;
         for (int bit = 0; bit < 29 && shown < 2; bit++)
@@ -1047,14 +1048,14 @@ static void renderBms() {
     if (stale) {
         cText("--", cx, py + 2, F28, C_MUTED);
     } else {
-        bool chg = (b.i >= 0); uint32_t pcol = chg ? C_ACCENT : C_WARN;   // green = charging, amber = discharging
+        bool chg = (b.i >= 0); uint32_t pcol = chg ? C_ACCENT : C_DISCHG;   // green = charging, purple/blue = discharging
         char pw[10], cu[10];
         snprintf(pw, sizeof(pw), "%.0fW", fabsf(b.v * b.i));
         if (fabsf(b.i) < 100) snprintf(cu, sizeof(cu), "%.1fA", fabsf(b.i));
         else snprintf(cu, sizeof(cu), "%.0fA", fabsf(b.i));
         lText(pw, cx - 16 - textW(pw, F28), py, F28, pcol);   // power: right-aligned, left of centre
         lText(cu, cx + 16, py, F28, pcol);                     // current: left-aligned, right of centre
-        int aw = 7, ay = py + 3, ah = 15;                      // direction arrow, centred between them
+        int aw = 7, ay = py + 8, ah = 15;                      // direction arrow, vertically centred with the W/A numbers
         if (chg) tri(cx - aw, ay + ah, cx + aw, ay + ah, cx, ay, pcol);   // up = charging
         else     tri(cx - aw, ay, cx + aw, ay, cx, ay + ah, pcol);        // down = discharging
     }
