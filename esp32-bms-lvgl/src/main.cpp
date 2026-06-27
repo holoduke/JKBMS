@@ -1629,9 +1629,11 @@ static void saveHistory() {
         size_t capN = histCount[t] * sizeof(histCap[0][0]), pwrN = histCount[t] * sizeof(histPwr[0][0]);
         snprintf(k, sizeof(k), "cap%d", t); size_t wc = prefs.putBytes(k, histCap[t], capN);
         snprintf(k, sizeof(k), "pwr%d", t); size_t wp = prefs.putBytes(k, histPwr[t], pwrN);
-        // write the count LAST and only as large as the cap blob that actually persisted, so a
-        // short/failed data write can never leave a count that out-runs the data (→ zero-tail graph).
-        uint16_t okCount = (wc < capN) ? (uint16_t)wc : histCount[t];
+        // write the count LAST and only as large as BOTH blobs actually persisted, so a short/failed
+        // data write can never leave a count out-running the cap OR pwr data (→ zero-tail graph).
+        uint16_t capOk = (wc < capN) ? (uint16_t)wc : histCount[t];
+        uint16_t pwrOk = (wp < pwrN) ? (uint16_t)(wp / sizeof(histPwr[0][0])) : histCount[t];
+        uint16_t okCount = capOk < pwrOk ? capOk : pwrOk;
         snprintf(k, sizeof(k), "c%d", t); prefs.putUShort(k, okCount);
         if (wc != capN || wp != pwrN) Serial.printf("[nvs] history save BMS%d short (cap %u/%u, pwr %u/%u) — NVS full?\n",
                                                      t + 1, (unsigned)wc, (unsigned)capN, (unsigned)wp, (unsigned)pwrN);
@@ -1647,8 +1649,9 @@ static void loadHistory() {
         char k[8];
         snprintf(k, sizeof(k), "c%d", t); int c = prefs.getUShort(k, 0); if (c > HIST_N) c = HIST_N;
         snprintf(k, sizeof(k), "cap%d", t); size_t gotC = prefs.getBytes(k, histCap[t], c * sizeof(histCap[0][0]));
-        snprintf(k, sizeof(k), "pwr%d", t); prefs.getBytes(k, histPwr[t], c * sizeof(histPwr[0][0]));
-        if (gotC < (size_t)c) c = gotC;                // blob shorter than the saved count (partial/failed save) → trust the bytes
+        snprintf(k, sizeof(k), "pwr%d", t); size_t gotP = prefs.getBytes(k, histPwr[t], c * sizeof(histPwr[0][0]));
+        if (gotC < (size_t)c) c = gotC;                          // cap blob shorter than the saved count → trust the bytes
+        if (gotP / sizeof(histPwr[0][0]) < (size_t)c) c = gotP / sizeof(histPwr[0][0]);   // keep pwr aligned with cap
         while (c > 0 && histCap[t][c - 1] == 0) c--;    // SOC is never 0 → trailing zeros are corruption; drop them
         histCount[t] = c;
     }
