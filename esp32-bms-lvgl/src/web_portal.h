@@ -105,7 +105,9 @@ img{width:100%;max-width:480px;border:1px solid var(--bd);border-radius:10px;ima
    <div class=scrwrap><img id=scr style=display:none><div id=scrld class=spin style=display:none></div><span id=scrh class=mut data-i18n=loading>loading…</span></div></div>
   <div class=card><div class=ct><span data-i18n=settings>Settings</span> <span class=mut data-i18n=tapedit>(tap value to edit)</span></div><table id=params></table></div>
   <div class=card><div class=ct data-i18n=fwupdate>Firmware update</div><p class=mut id=fwv></p>
-   <div class=stack><input type=file id=fwf accept=.bin> <button onclick=upl() data-i18n=flash>Upload &amp; flash</button></div>
+   <div class=row id=updrow style=display:none><span id=updmsg class=grn></span><button class=sm onclick=doupd()>Update now</button></div>
+   <div class=row><span><label class=stack><input type=checkbox id=aupd> <span>Auto-update from GitHub releases</span></label></span></div>
+   <div class=stack style=margin-top:8px><input type=file id=fwf accept=.bin> <button onclick=upl() data-i18n=flash>Upload &amp; flash</button></div>
    <div id=prog><div id=pb></div></div><p id=ust></p></div>
   <div class=card><div class=ct data-i18n=security>Security</div><div class=row><span data-i18n=chgpw>Change password</span>
    <span class=stack><input type=password id=np data-ph=newpw><button class=sm onclick=chpw() data-i18n=save>Save</button></span></div></div>
@@ -145,7 +147,7 @@ function t(k){return (I18N[L]&&I18N[L][k])||I18N.en[k]||k}
 function applyI18n(){document.documentElement.lang=L;
  document.querySelectorAll('[data-i18n]').forEach(e=>e.textContent=t(e.dataset.i18n));
  document.querySelectorAll('[data-ph]').forEach(e=>e.placeholder=t(e.dataset.ph));}
-let cur=0,D={},shotBusy=false,mqInit=false,scrInit=false,alInit=false,HIST=null;
+let cur=0,D={},shotBusy=false,mqInit=false,scrInit=false,alInit=false,auInit=false,HIST=null;
 function esc(s){return String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}
 function sel(b){cur=b;t0.className='tab'+(b==0?' on':'');t1.className='tab'+(b==1?' on':'');render();drawHist()}
 function chart(cv,arr,o){let dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;
@@ -167,6 +169,8 @@ function drawHist(){if(!HIST||!HIST.packs)return;let p=HIST.packs[cur];if(!p)ret
  chart(hpw,p.w,{zero:1,color:'#22d3ee',fill:'rgba(34,211,238,.15)'});
  chart(htmp,p.tmp,{color:'#fbbf24',fill:'rgba(251,191,36,.15)'})}
 async function loadHist(){try{HIST=await(await fetch('/history.json')).json();drawHist()}catch(e){}}
+async function doupd(){if(!confirm('Download & flash '+(D.updTag||'the latest release')+'? The device will reboot.'))return;ust.textContent='downloading & flashing… device will reboot';await fetch('/selfupdate',{method:'POST'})}
+function setaupd(){fetch('/setupd',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'en='+(aupd.checked?1:0)})}
 function tc(t){return(t<-50||t>120)?'--':t.toFixed(0)+'°C'}
 function wh(w){return Math.abs(w)>=1000?(w/1000).toFixed(2)+'kWh':w.toFixed(0)+'Wh'}
 function pc(w,tt){return tt>1?' ('+Math.round(w/tt*100)+'%)':''}
@@ -181,6 +185,8 @@ async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json()
  if(!mqInit){mqh.value=D.mqHost||'';mqp.value=D.mqPort||1883;mqu.value=D.mqUser||'';mqInit=true}
  if(!alInit){alu.value=D.alUrl||'';als.value=D.alSoc;alt.value=D.alTmp;ald.value=D.alDlt;alInit=true}
  ale.checked=!!D.alEn;alf.checked=!!D.alFlt;
+ if(!auInit){aupd.checked=!!D.autoUpd;auInit=true}
+ if(D.upd){updrow.style.display='';updmsg.textContent='⬆ '+(D.updTag||'new')+' available'}else updrow.style.display='none';
  render();if(!scrInit){scrInit=true;shot()}}catch(e){net.style.color='var(--bad)';net.textContent=t('disconnected')}}
 function wxcat(c){if(c<=0)return 0;if(c<=2)return 1;if(c==3||c==45||c==48)return 2;if((c>=71&&c<=77)||c==85||c==86)return 4;if(c>=95)return 5;return 3}
 function wxsvg(c,s){var cat=wxcat(c);
@@ -253,6 +259,7 @@ function upl(){let f=fwf.files[0];if(!f){ust.textContent=t('pickbin');return}
  x.onload=()=>{ust.textContent=x.status==200?t('rebooting'):t('failed')+': '+x.responseText};
  let fd=new FormData();fd.append('f',f);x.send(fd)}
 load();setInterval(load,2000);   // /api every 2s; the JPEG snapshot auto-loads once then on Refresh
+aupd.onchange=setaupd;
 loadHist();setInterval(loadHist,60000);   // 7-day history charts (changes every 5min; refetch each minute)
 window.addEventListener('resize',drawHist);
 </script></body></html>)HTML";
@@ -275,7 +282,8 @@ static String webJson() {
     j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
         "\",\"up\":" + String(millis() / 1000) + ",\"clk\":\"" + clk + "\",\"tsync\":" + String(timeSynced ? 1 : 0) +
         ",\"heap\":" + String((unsigned long)ESP.getFreeHeap()) + ",\"heapBig\":" + String((unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)) + ",\"n\":" + String(numBms) +
-        ",\"flushUs\":" + String((unsigned long)g_flushUs) + ",\"fps\":" + String((unsigned long)g_fps) + ",\"upd\":" + String(updAvail ? 1 : 0) +
+        ",\"flushUs\":" + String((unsigned long)g_flushUs) + ",\"fps\":" + String((unsigned long)g_fps) +
+        ",\"upd\":" + String(updAvail ? 1 : 0) + ",\"updTag\":\"" + jesc(updTag) + "\",\"autoUpd\":" + String(autoUpdate ? 1 : 0) +
         ",\"mqEn\":" + String(mqttEnabled ? 1 : 0) + ",\"mqUp\":" + String(mqttUp ? 1 : 0) +
         ",\"mqHost\":\"" + jesc(mqttHost) + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + jesc(mqttUser) + "\"" +
         ",\"alEn\":" + String(alertEnabled ? 1 : 0) + ",\"alUrl\":\"" + jesc(alertUrl) + "\"" +
@@ -485,6 +493,17 @@ static void webBegin() {
         }
         j += "]}";
         webServer.send(200, "application/json", j);
+    });
+    webServer.on("/setupd", HTTP_POST, []() {                               // toggle auto-update from new GitHub releases
+        if (!webAuth()) return;
+        autoUpdate = webServer.arg("en") == "1"; saveSettings();
+        webServer.send(200, "text/plain", "ok");
+    });
+    webServer.on("/selfupdate", HTTP_POST, []() {                           // download + flash the latest release now
+        if (!webAuth()) return;
+        if (!updAvail || !updUrl[0]) { webServer.send(409, "text/plain", "no update"); return; }
+        updGo = true;                                                       // the core-0 net task performs the OTA
+        webServer.send(200, "text/plain", "updating");
     });
     webServer.on("/setpass", HTTP_POST, []() {
         if (!webAuth()) return;

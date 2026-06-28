@@ -1,0 +1,35 @@
+name: Release firmware
+
+# When a GitHub Release is published, build the LVGL firmware and attach firmware.bin
+# to that release. Devices with auto-update on (or the web "Update now" button) then
+# download and self-flash it. IMPORTANT: tag the release with the firmware version the
+# build produces (1.0.<commit-count>) so the device's tag != FW_VERSION check matches —
+# version.py derives that from the full git history (fetch-depth: 0 below).
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history → version.py commit-count is correct
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+      - name: Build firmware
+        run: pio run -d esp32-bms-lvgl -e jc3248w535
+      - name: Report built version
+        run: |
+          echo "Built FW_VERSION:"; grep -h FW_VERSION esp32-bms-lvgl/.pio/build/jc3248w535/*.txt 2>/dev/null || true
+      - name: Attach firmware.bin to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: esp32-bms-lvgl/.pio/build/jc3248w535/firmware.bin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -25,7 +25,12 @@
 #ifndef FW_GIT_SHA
 #define FW_GIT_SHA "0000000"   // short HEAD SHA (build-time); used for the update-available check
 #endif
-static volatile bool updAvail = false;   // a newer commit exists on origin/main than this build
+static volatile bool updAvail = false;   // a newer GitHub release than this build exists
+static bool autoUpdate = false;          // when set, self-OTA from a new release automatically
+static char updTag[24] = "";             // latest release tag on GitHub
+static char instTag[24] = "";            // tag we last installed (NVS); empty → compare to FW_VERSION
+static char updUrl[160] = "";            // firmware.bin download URL of the latest release
+static volatile bool updGo = false;      // request: download + flash the latest release now
 #define BL_CH_FREQ 5000
 #define BL_CH_RES 8
 #define BMS_TX_PIN 17               // BMS1: ESP TX -> BMS RX
@@ -1842,6 +1847,7 @@ static void saveSettings() {
     prefs.putBool("alEn", alertEnabled); prefs.putString("alUrl", alertUrl);
     prefs.putInt("alSoc", alSocLo); prefs.putInt("alTmp", alTempHi); prefs.putInt("alDlt", alDeltaHi);
     prefs.putBool("alFlt", alOnFault);
+    prefs.putBool("autoUpd", autoUpdate);
     prefs.end();
 }
 static void loadSettings() {
@@ -1881,6 +1887,8 @@ static void loadSettings() {
     { String s = prefs.getString("alUrl", ""); strncpy(alertUrl, s.c_str(), sizeof(alertUrl) - 1); alertUrl[sizeof(alertUrl) - 1] = 0; }
     alSocLo = prefs.getInt("alSoc", 15); alTempHi = prefs.getInt("alTmp", 55); alDeltaHi = prefs.getInt("alDlt", 300);
     alOnFault = prefs.getBool("alFlt", true);
+    autoUpdate = prefs.getBool("autoUpd", false);
+    { String s = prefs.getString("instTag", ""); strncpy(instTag, s.c_str(), sizeof(instTag) - 1); instTag[sizeof(instTag) - 1] = 0; }
     prefs.end();
     appliedB = brightness;
 }
@@ -2924,20 +2932,61 @@ static void wifiTick_cb(lv_timer_t *t) {
 // Good home for any future blocking/background job (extra sensors, cloud sync, etc.).
 // Panel push task (core 0): transmits the snapshot core 1 hands it. This is the ~40ms
 // blocking pixel-swizzle+DMA — doing it here keeps core 1 free for touch + next-frame render.
-// Check GitHub for a newer commit on main than this build. Uses the .sha media type so the
-// response is just the 40-char SHA (tiny). Sets updAvail; runs on the core-0 net task.
+// Ask GitHub for the latest RELEASE: its tag (= firmware version) and the firmware.bin
+// asset URL. updAvail = the released version differs from this build. Runs on core-0.
 static void updateCheck() {
     if (WiFi.status() != WL_CONNECTED || otaActive) return;
     WiFiClientSecure net; net.setInsecure();
-    HTTPClient http; http.setConnectTimeout(5000); http.setTimeout(5000);
-    if (!http.begin(net, "https://api.github.com/repos/holoduke/JKBMS/commits/main")) return;
-    http.addHeader("User-Agent", "jkbms-device");          // GitHub requires a UA
-    http.addHeader("Accept", "application/vnd.github.sha"); // → plain-text commit SHA
+    HTTPClient http; http.setConnectTimeout(5000); http.setTimeout(6000);
+    if (!http.begin(net, "https://api.github.com/repos/holoduke/JKBMS/releases/latest")) return;
+    http.addHeader("User-Agent", "jkbms-device");
     if (http.GET() == 200) {
-        String s = http.getString(); s.trim();
-        if (s.length() >= 7) updAvail = (s.substring(0, 7) != FW_GIT_SHA);
+        JsonDocument filter;                                  // keep only the fields we need (the release JSON is big)
+        filter["tag_name"] = true;
+        filter["assets"][0]["name"] = true;
+        filter["assets"][0]["browser_download_url"] = true;
+        JsonDocument d;
+        if (!deserializeJson(d, http.getStream(), DeserializationOption::Filter(filter))) {
+            const char *tag = d["tag_name"] | "";
+            const char *url = "";
+            for (JsonObject a : d["assets"].as<JsonArray>())
+                if (strcmp(a["name"] | "", "firmware.bin") == 0) { url = a["browser_download_url"] | ""; break; }
+            if (tag[0] && url[0]) {
+                strncpy(updTag, tag, sizeof(updTag) - 1); updTag[sizeof(updTag) - 1] = 0;
+                strncpy(updUrl, url, sizeof(updUrl) - 1); updUrl[sizeof(updUrl) - 1] = 0;
+                const char *cur = instTag[0] ? instTag : FW_VERSION;   // robust to arbitrary tag names
+                updAvail = (strcmp(updTag, cur) != 0);
+            }
+        }
     }
     http.end();
+}
+// Download the latest release's firmware.bin and flash it (self-OTA), then reboot. Streams
+// straight into the inactive OTA slot. Runs on the core-0 net task; suspends the UI via otaActive.
+static void selfUpdate() {
+    if (!updUrl[0] || WiFi.status() != WL_CONNECTED) return;
+    Serial.printf("[ota] self-update from %s\n", updUrl);
+    otaActive = true;                                         // loop() yields the CPU; rendering suspended
+    WiFiClientSecure net; net.setInsecure();
+    HTTPClient http; http.setConnectTimeout(8000); http.setTimeout(15000);
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // GitHub asset → signed CDN redirect
+    bool ok = false;
+    if (http.begin(net, updUrl)) {
+        http.addHeader("User-Agent", "jkbms-device");
+        if (http.GET() == 200) {
+            int len = http.getSize();
+            if (len > 0 && Update.begin(len)) {
+                size_t w = Update.writeStream(http.getStream());
+                ok = (w == (size_t)len) && Update.end(true);
+            }
+        }
+        http.end();
+    }
+    if (ok) {   // remember which tag we installed so we don't re-flash it in a loop
+        prefs.begin("set", false); prefs.putString("instTag", updTag); prefs.end();
+        Serial.println("[ota] ok — rebooting"); delay(400); ESP.restart();
+    }
+    else { Update.abort(); otaActive = false; Serial.println("[ota] self-update failed"); }
 }
 static void netTask(void *) {
     uint32_t lastPoll = 0, lastUpd = 0;
@@ -2953,7 +3002,11 @@ static void netTask(void *) {
             lastPoll = now;
             bmsRead();   // history sampling + energy integration run on core 1 (see bmsPoll_cb) to avoid a cross-core race on those buffers
         }
-        if ((!lastUpd && now > 30000) || (lastUpd && now - lastUpd > 21600000UL)) { lastUpd = now; updateCheck(); }   // GitHub update check ~30s after boot, then every 6h
+        if ((!lastUpd && now > 30000) || (lastUpd && now - lastUpd > 21600000UL)) {   // GitHub release check ~30s after boot, then every 6h
+            lastUpd = now; updateCheck();
+            if (updAvail && autoUpdate) updGo = true;          // auto-update enabled → flash it
+        }
+        if (updGo) { updGo = false; selfUpdate(); }            // manual "Update now" (web) or auto trigger
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
