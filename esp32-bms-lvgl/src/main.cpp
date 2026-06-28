@@ -2797,9 +2797,15 @@ static void press_cb(lv_event_t *e) {
     // this tap only wakes it — the lock pad appears on the next touch.
     if (locked && !saverShowing) { handleLockKey(p.x, p.y, false); pressHandled = true; lv_obj_invalidate(scr); return; }
     if (lockSetMode) { handleLockKey(p.x, p.y, true); pressHandled = true; lv_obj_invalidate(scr); return; }
-    // keyboards handle on press (not release): a tap with touch jitter would set
-    // gMoved and get dropped as a "scroll" — but a keypad has nothing to scroll.
-    if (view == V_SETTINGS && (kbActive || editIdx >= 0)) { handleTap(p.x, p.y); pressHandled = true; lv_obj_invalidate(scr); }
+    // Act on PRESS (not release) for discrete targets that have nothing to scroll, so they
+    // respond on first touch instead of needing a clean release (which a 40ms flush or a few
+    // px of finger jitter can otherwise eat): the settings keyboard/editor, and on the
+    // dashboard the top-bar buttons + any open modal.
+    if (view == V_SETTINGS) {
+        if (kbActive || editIdx >= 0) { handleTap(p.x, p.y); pressHandled = true; lv_obj_invalidate(scr); }
+    } else if (p.y <= 44 || wxPopup || updPopup || updProgress != -1) {
+        handleTap(p.x, p.y); pressHandled = true; lv_obj_invalidate(scr);
+    }
 }
 static void pressing_cb(lv_event_t *e) {
     lastActivity = millis();             // finger still down → keep activity fresh (also feeds the stuck-touch failsafe)
@@ -2818,7 +2824,7 @@ static void pressing_cb(lv_event_t *e) {
     }
     if (abs(p.y - gLastY) > 120) return; // single-sample teleport = touch glitch → ignore, don't scroll
     int dy = p.y - gStartY;
-    if (abs(dy) > 6) gMoved = true;      // ANY drag suppresses the tap on release (also on non-scrolling tabs)
+    if (abs(dy) > 10) gMoved = true;     // a real drag suppresses the release tap (10px tolerates tap jitter)
     uint32_t tn = millis();              // track finger velocity for momentum
     if (tn > gLastT) gVel = 0.6f * gVel + 0.4f * ((float)(p.y - gLastY) / (tn - gLastT));
     gLastY = p.y; gLastT = tn;
@@ -3165,7 +3171,7 @@ void setup() {
     barTimer = lv_timer_create(barTick_cb, 250, NULL);    // auto-switch progress bar (250ms is smooth enough at the 24fps ceiling)
     dataTimer = lv_timer_create(dataTick_cb, 220, NULL);  // live values (+ power-save supervisor)
     lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
-    lv_timer_create(spin_cb, 33, NULL);                   // liveness spinner (~30fps target, capped by flush)
+    lv_timer_create(spin_cb, 50, NULL);                   // charging spinner (~20fps — leaves more flush-free windows for touch polling)
     lv_timer_create(wifiTick_cb, 500, NULL);
     lv_timer_create(bmsPoll_cb, 500, NULL);               // react to core-0 poll results (reconnect repaint, graph refresh)
     // Blocking network I/O on core 0, away from the render/touch core (1). 10 KB stack
