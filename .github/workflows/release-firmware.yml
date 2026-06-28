@@ -10,6 +10,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write          # needed to upload the firmware.bin asset to the release
+
 jobs:
   build:
     runs-on: ubuntu-latest
