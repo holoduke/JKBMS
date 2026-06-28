@@ -31,6 +31,9 @@ static char updTag[24] = "";             // latest release tag on GitHub
 static char instTag[24] = "";            // tag we last installed (NVS); empty → compare to FW_VERSION
 static char updUrl[160] = "";            // firmware.bin download URL of the latest release
 static volatile bool updGo = false;      // request: download + flash the latest release now
+static volatile int updProgress = -1;    // -1 idle · 0..100 flashing % · -2 failed
+static bool updPopup = false;            // top-bar update icon tapped → details modal
+static int updBoxL = 0, updBoxR = 0;     // top-bar update-icon hit region
 #define BL_CH_FREQ 5000
 #define BL_CH_RES 8
 #define BMS_TX_PIN 17               // BMS1: ESP TX -> BMS RX
@@ -705,6 +708,11 @@ static void icoBolt(int x, int y, uint32_t col) {      // power = lightning bolt
     tri(x + 6, y, x + 1, y + 6, x + 5, y + 5, col);
     tri(x + 5, y + 4, x + 9, y + 4, x + 4, y + 10, col);
 }
+static void icoUpdate(int cx, int cy, uint32_t col) {  // download/update: down-arrow onto a tray
+    line(cx, cy - 6, cx, cy + 1, col, LV_OPA_COVER, 2);
+    tri(cx - 4, cy - 1, cx + 4, cy - 1, cx, cy + 4, col);
+    line(cx - 5, cy + 6, cx + 5, cy + 6, col, LV_OPA_COVER, 2);
+}
 // Card background with a subtle top sheen (depth) + border. Replaces the flat fRect+dRect.
 static void cardBg(int x, int y, int w, int h) {
     fRect(x, y, w, h, 8, C_CARD);
@@ -865,7 +873,12 @@ static void drawTabs(bool autoActive, float prog) {
     fRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_CARD);
     dRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_BORDER);
     drawGear(GEAR_X + GEAR_W / 2, GEAR_Y + h / 2, 7, C_MUTED, C_CARD);
-    if (updAvail) fCircle(GEAR_X + GEAR_W - 3, GEAR_Y + 3, 3, C_ACCENT);   // firmware update available
+    if (updAvail) {   // firmware update available → tappable icon left of the clock (next to weather)
+        int ux = BED_X - 64;
+        fRect(ux - 11, y + 2, 22, h - 4, 7, C_CARD); dRect(ux - 11, y + 2, 22, h - 4, 7, C_ACCENT);
+        icoUpdate(ux, midY, C_ACCENT);
+        updBoxL = ux - 13; updBoxR = ux + 13;
+    } else { updBoxL = updBoxR = 0; }
 }
 static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col, bool stale = false) {
     ring(cx, cy, ro, ri, 0, 360, C_BORDER);          // full track
@@ -1216,6 +1229,12 @@ static void blitCanvas(lv_obj_t *cv, int x, int y, int w, int h) {
 static void switchView(int v) { if (v == V_BMS2 && numBms < 2) v = V_BMS1; view = v; renderGraphs(); }   // gauges read from the continuously-polled cache → instant
 
 static void renderWeatherPopup();   // defined below (with the other modals)
+static void renderUpdatePopup();
+static void renderUpdating();
+static void updBtnRect(int *bx, int *by, int *bw, int *bh) {   // "Update now" button rect in the update modal
+    int mw = Wd - 80, mh = 150, my = (Ht - mh) / 2;
+    *bw = 150; *bh = 34; *bx = (Wd - *bw) / 2; *by = my + 96; (void)mw;
+}
 static void renderBms() {
     const Bms &b = bms[view];
     uint32_t now = millis();
@@ -1282,6 +1301,7 @@ static void renderBms() {
     drawEnergyTile(rx, 216, cellsW, CAP_H, packTotalWh(view), remAh, whSpent(view, 288), whSpent(view, 72), histCount[view], stale);
     blitCanvas(capCv, rx + cellsW + 8, 216, CAP_W, CAP_H);
     if (wxPopup) renderWeatherPopup();   // forecast modal overlays the dashboard
+    if (updPopup) renderUpdatePopup();   // firmware-update modal
 }
 
 // ============================================================================
@@ -1742,6 +1762,31 @@ static void renderWeatherPopup() {
         }
     }
 }
+// Firmware-update details modal (opened by the top-bar update icon).
+static void renderUpdatePopup() {
+    int w = Wd - 80, h = 150, x = (Wd - w) / 2, y = (Ht - h) / 2;
+    fRect(x, y, w, h, 12, C_CARD); dRect(x, y, w, h, 12, C_ACCENT);
+    cText("Firmware update", x + w / 2, y + 16, F16, C_TEXT);
+    char l1[40]; snprintf(l1, sizeof(l1), "New  %s", updTag); cText(l1, x + w / 2, y + 48, F16, C_ACCENT);
+    char l0[40]; snprintf(l0, sizeof(l0), "Installed  v%s", FW_VERSION); cText(l0, x + w / 2, y + 72, F12, C_MUTED);
+    int bx, by, bw, bh; updBtnRect(&bx, &by, &bw, &bh);
+    fRect(bx, by, bw, bh, 8, C_ACCENT); cText("Update now", bx + bw / 2, by + bh / 2 - 8, F16, C_BG);
+    cText(T(K_TAP_CLOSE), x + w / 2, y + h - 15, F10, C_MUTED);
+}
+// Full-screen progress while flashing (renderable because selfUpdate doesn't suspend core 1).
+static void renderUpdating() {
+    fRect(0, 0, Wd, Ht, 0, C_BG);
+    int cx = Wd / 2;
+    if (updProgress == -2) { cText("Update failed", cx, Ht / 2 - 18, F20, C_BAD); cText("tap to dismiss", cx, Ht / 2 + 16, F12, C_MUTED); return; }
+    cText("Updating firmware", cx, Ht / 2 - 48, F20, C_TEXT);
+    cText(updTag, cx, Ht / 2 - 22, F16, C_ACCENT);
+    int bw = Wd - 120, bx = (Wd - bw) / 2, by = Ht / 2 + 6, bh = 18;
+    fRect(bx, by, bw, bh, 9, C_CARD); dRect(bx, by, bw, bh, 9, C_BORDER);
+    int p = updProgress < 0 ? 0 : updProgress > 100 ? 100 : updProgress;
+    if (p > 0) fRect(bx + 2, by + 2, (bw - 4) * p / 100, bh - 4, 7, C_ACCENT);
+    char pc[8]; snprintf(pc, sizeof(pc), "%d%%", p); cText(pc, cx, by + bh + 16, F12, C_TEXT);
+    cText("do not power off", cx, Ht - 22, F10, C_MUTED);
+}
 static void renderLockPad(bool setMode);   // defined below (near the lock screen)
 static void renderSettings() {
     if (lockSetMode) { renderLockPad(true); return; }   // setting a new PIN (modal numpad)
@@ -1942,6 +1987,13 @@ static void loadHistory() {
 // ---- touch handling (logic) ----
 static void handleTap(int x, int y) {
     dirtyFull = true;   // most taps change the whole screen unless noted below
+    if (updProgress != -1) { if (updProgress == -2) updProgress = -1; return; }   // updating: ignore taps (tap dismisses a failure)
+    if (updPopup) {   // update modal: "Update now" button or tap-elsewhere to close
+        int bx, by, bw, bh; updBtnRect(&bx, &by, &bw, &bh);
+        if (x >= bx && x < bx + bw && y >= by && y < by + bh) { updPopup = false; updGo = true; }
+        else updPopup = false;
+        return;
+    }
     if (view == V_SETTINGS) {
         if (infoPopup) { infoPopup = false; return; }
         if (editIdx >= 0) {                                  // numeric keypad modal
@@ -2066,6 +2118,7 @@ static void handleTap(int x, int y) {
         if (x >= TAB1_X && x < TAB1_X + TAB_W) { switchView(V_BMS1); lastSwitch = millis(); }
         else if (numBms >= 2 && x >= TAB2_X && x < TAB2_X + TAB_W) { switchView(V_BMS2); lastSwitch = millis(); }
         else if (x >= GEAR_X - 10) { cfgBms = (view == V_BMS2 && numBms >= 2) ? 1 : 0; view = V_SETTINGS; kbActive = false; infoPopup = false; }  // keep last sub-tab
+        else if (updAvail && updBoxR > updBoxL && x >= updBoxL && x <= updBoxR) updPopup = true;                   // update icon → update modal
         else if (x >= BED_X - 8) pendingSleep = true;                                                              // sleep, left of the gear
         else if (wxOk && wxBoxR > wxBoxL && x >= wxBoxL && x <= wxBoxR) wxPopup = true;                            // weather glyph → forecast popup
     }
@@ -2700,6 +2753,7 @@ static void handleLockKey(int x, int y, bool setMode) {
 static void draw_cb(lv_event_t *e) {
     L = lv_event_get_layer(e);
     tpi = 0;
+    if (updProgress != -1) { renderUpdating(); return; }   // self-update in progress takes over the whole display
     if (lockShowing()) { renderLockPad(false); return; }   // unlock screen takes over the whole display
     if (view == V_SETTINGS) renderSettings();
     else renderBms();
@@ -2855,6 +2909,7 @@ static void spin_cb(lv_timer_t *t) {
 }
 static void dataTick_cb(lv_timer_t *t) {
     uint32_t now = millis();
+    if (updProgress != -1) { lv_obj_invalidate(scr); }   // self-update overlay → keep the progress bar fresh
     simStep(now);
     if (pwrSample() && !standby && view != V_SETTINGS && !idleActiveNow()) {   // new power point → refresh ONLY the power canvas (capacity changes every 5min, not every second)
         renderPwrCanvas(); invArea(196, 118, Wd - 1, 313);
@@ -2961,12 +3016,13 @@ static void updateCheck() {
     }
     http.end();
 }
-// Download the latest release's firmware.bin and flash it (self-OTA), then reboot. Streams
-// straight into the inactive OTA slot. Runs on the core-0 net task; suspends the UI via otaActive.
+// Download the latest release's firmware.bin and flash it, updating updProgress (0..100)
+// so the device + web can show a progress bar. Runs on the core-0 net task; the render core
+// stays live to draw the bar (it only stalls briefly during each flash write — safe).
 static void selfUpdate() {
     if (!updUrl[0] || WiFi.status() != WL_CONNECTED) return;
     Serial.printf("[ota] self-update from %s\n", updUrl);
-    otaActive = true;                                         // loop() yields the CPU; rendering suspended
+    updProgress = 0;
     WiFiClientSecure net; net.setInsecure();
     HTTPClient http; http.setConnectTimeout(8000); http.setTimeout(15000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // GitHub asset → signed CDN redirect
@@ -2975,18 +3031,27 @@ static void selfUpdate() {
         http.addHeader("User-Agent", "jkbms-device");
         if (http.GET() == 200) {
             int len = http.getSize();
-            if (len > 0 && Update.begin(len)) {
-                size_t w = Update.writeStream(http.getStream());
-                ok = (w == (size_t)len) && Update.end(true);
+            WiFiClient *st = http.getStreamPtr();
+            if (len > 0 && st && Update.begin(len)) {
+                uint8_t buf[1024]; int written = 0; uint32_t t0 = millis();
+                while (written < len && http.connected()) {
+                    size_t avail = st->available();
+                    if (avail) {
+                        int n = st->readBytes(buf, avail > sizeof(buf) ? sizeof(buf) : avail);
+                        if (n <= 0 || Update.write(buf, n) != (size_t)n) break;
+                        written += n; updProgress = (int)((int64_t)written * 100 / len); t0 = millis();
+                    } else { if (millis() - t0 > 10000) break; delay(2); }
+                }
+                ok = (written == len) && Update.end(true);
             }
         }
         http.end();
     }
     if (ok) {   // remember which tag we installed so we don't re-flash it in a loop
+        updProgress = 100;
         prefs.begin("set", false); prefs.putString("instTag", updTag); prefs.end();
-        Serial.println("[ota] ok — rebooting"); delay(400); ESP.restart();
-    }
-    else { Update.abort(); otaActive = false; Serial.println("[ota] self-update failed"); }
+        Serial.println("[ota] ok — rebooting"); delay(700); ESP.restart();
+    } else { Update.abort(); updProgress = -2; Serial.println("[ota] self-update failed"); }
 }
 static void netTask(void *) {
     uint32_t lastPoll = 0, lastUpd = 0;

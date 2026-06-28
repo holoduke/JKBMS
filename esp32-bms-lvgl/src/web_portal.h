@@ -283,7 +283,7 @@ static String webJson() {
         "\",\"up\":" + String(millis() / 1000) + ",\"clk\":\"" + clk + "\",\"tsync\":" + String(timeSynced ? 1 : 0) +
         ",\"heap\":" + String((unsigned long)ESP.getFreeHeap()) + ",\"heapBig\":" + String((unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)) + ",\"n\":" + String(numBms) +
         ",\"flushUs\":" + String((unsigned long)g_flushUs) + ",\"fps\":" + String((unsigned long)g_fps) +
-        ",\"upd\":" + String(updAvail ? 1 : 0) + ",\"updTag\":\"" + jesc(updTag) + "\",\"autoUpd\":" + String(autoUpdate ? 1 : 0) +
+        ",\"upd\":" + String(updAvail ? 1 : 0) + ",\"updTag\":\"" + jesc(updTag) + "\",\"autoUpd\":" + String(autoUpdate ? 1 : 0) + ",\"updProg\":" + String(updProgress) +
         ",\"mqEn\":" + String(mqttEnabled ? 1 : 0) + ",\"mqUp\":" + String(mqttUp ? 1 : 0) +
         ",\"mqHost\":\"" + jesc(mqttHost) + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + jesc(mqttUser) + "\"" +
         ",\"alEn\":" + String(alertEnabled ? 1 : 0) + ",\"alUrl\":\"" + jesc(alertUrl) + "\"" +
