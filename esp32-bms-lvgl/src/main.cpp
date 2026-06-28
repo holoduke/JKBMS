@@ -83,9 +83,10 @@ public:
         }
     }
     // Push an EXTERNAL buffer (a snapshot of the framebuffer) — same call the base flush()
-    // uses, so the flush task can transmit a snapshot on core 0 while core 1 renders ahead.
-    void flushBuffer(uint16_t *buf) { if (_output) _output->draw16bitRGBBitmap(_output_x, _output_y, buf, _width, _height); }
-    size_t fbBytes() const { return (size_t)_width * _height * 2; }
+    // uses. MUST pass WIDTH/HEIGHT (the raw, never-rotated dims), NOT _width/_height (the
+    // rotated dims) — the latter gives a wrong stride → duplicated/distorted lines.
+    void flushBuffer(uint16_t *buf) { if (_output) _output->draw16bitRGBBitmap(_output_x, _output_y, buf, WIDTH, HEIGHT); }
+    size_t fbBytes() const { return (size_t)WIDTH * HEIGHT * 2; }
 };
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(TFT_CS, TFT_SCK, TFT_SDA0, TFT_SDA1, TFT_SDA2, TFT_SDA3);
