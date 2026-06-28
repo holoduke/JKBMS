@@ -851,11 +851,11 @@ static void drawTabs(bool autoActive, float prog) {
     }
     // wifi status icon, just right of the battery buttons (green = connected, grey = not)
     // centred on y+h/2 — same vertical centre as the weather glyph, temperature and clock
-    int wifiX = 214;   // status cluster starts at the right column (where the gauges/tiles begin, rx=200), independent of tab width
+    int wifiX = 210;   // status cluster starts at the right column (where the gauges/tiles begin, rx=200), independent of tab width
     int midY = y + h / 2;   // shared vertical centre for the whole top-bar row
     drawWifiSmall(wifiX, midY, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
     if (wxOk) {   // today's weather: glyph + temp, right of the wifi icon
-        int wx = wifiX + 30; drawWxIcon(wx, midY + 1, wxCurCode);   // +1 centres the sun glyph (its art sits slightly high)
+        int wx = wifiX + 36; drawWxIcon(wx, midY + 1, wxCurCode);   // +1 centres the sun glyph (its art sits slightly high)
         char wt[6]; snprintf(wt, sizeof(wt), "%d", wxCurTemp);
         int tw = textW(wt, F16), tx = wx + 18;
         cText(wt, tx + tw / 2, midY, F16, C_TEXT);                  // centred on midY, same as the clock
@@ -2992,6 +2992,17 @@ static void wifiTick_cb(lv_timer_t *t) {
 // Good home for any future blocking/background job (extra sensors, cloud sync, etc.).
 // Panel push task (core 0): transmits the snapshot core 1 hands it. This is the ~40ms
 // blocking pixel-swizzle+DMA — doing it here keeps core 1 free for touch + next-frame render.
+// Compare dotted numeric versions ("1.0.224") component-wise → true if `rel` > `cur`.
+// Non-numeric tags parse as 0, so a stray tag won't trigger a (false) update.
+static bool verNewer(const char *rel, const char *cur) {
+    while (*rel || *cur) {
+        int r = atoi(rel), c = atoi(cur);
+        if (r != c) return r > c;
+        const char *dr = strchr(rel, '.'), *dc = strchr(cur, '.');
+        rel = dr ? dr + 1 : ""; cur = dc ? dc + 1 : "";
+    }
+    return false;
+}
 // Ask GitHub for the latest RELEASE: its tag (= firmware version) and the firmware.bin
 // asset URL. updAvail = the released version differs from this build. Runs on core-0.
 static void updateCheck() {
@@ -3014,8 +3025,8 @@ static void updateCheck() {
             if (tag[0] && url[0]) {
                 strncpy(updTag, tag, sizeof(updTag) - 1); updTag[sizeof(updTag) - 1] = 0;
                 strncpy(updUrl, url, sizeof(updUrl) - 1); updUrl[sizeof(updUrl) - 1] = 0;
-                const char *cur = instTag[0] ? instTag : FW_VERSION;   // robust to arbitrary tag names
-                updAvail = (strcmp(updTag, cur) != 0);
+                const char *cur = instTag[0] ? instTag : FW_VERSION;
+                updAvail = verNewer(updTag, cur);   // only flag a genuinely NEWER release (not a downgrade)
             }
         }
     }
