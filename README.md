@@ -98,6 +98,53 @@ pins. The whole UI — tabs, web app and API — adapts automatically.
 
 ---
 
+## 🤖 Install with an AI assistant
+
+Don't want to touch the command line yourself? Plug the board into your computer over USB, then
+paste the prompt below into an **agentic AI coding assistant with terminal access** (e.g. Claude
+Code, Cursor, Windsurf, or Aider). It will install the toolchain, build, and flash for you.
+
+```text
+You are helping me flash the "JK BMS Controller" firmware onto a Guition JC3248W535
+(ESP32-S3) board that is connected to this computer over USB. Do the steps in order
+and check each one succeeded before moving to the next. Show me the commands you run.
+
+Repository:  https://github.com/holoduke/JKBMS
+Firmware:    the `esp32-bms-lvgl/` subfolder — PlatformIO, environment `jc3248w535`.
+
+1. Prerequisites: confirm PlatformIO Core is installed (`pio --version`). If not, install it
+   (`pip install -U platformio`, or pipx). Python 3 is required.
+2. Get the code: if it isn't already here, run
+   `git clone https://github.com/holoduke/JKBMS && cd JKBMS`. Otherwise cd into the repo.
+3. Detect the board: `pio device list`. The USB serial port is usually
+   /dev/cu.usbmodem* or /dev/cu.usbserial* (macOS), /dev/ttyACM0 or /dev/ttyUSB0 (Linux),
+   or COMx (Windows). If nothing shows up, tell me to check the cable (must be data, not
+   charge-only) and the USB-C orientation.
+4. Build and flash over USB:
+       cd esp32-bms-lvgl
+       pio run -t upload
+   If the port isn't auto-detected, append `--upload-port <port>`. If flashing won't start,
+   tell me to hold the BOOT button while it says "Connecting…".
+5. Verify it booted: `pio device monitor -b 115200`. Expect a line like
+   "[lvgl] dashboard ready". Then exit the monitor.
+6. Report success and explain the on-device setup: Settings → WiFi to join my network,
+   Settings → BMS for the number of packs and the UART pins, and that the web app is at
+   http://<device-ip>/ — login `admin` plus the per-device password shown under
+   Settings → System.
+
+Important:
+- Only the FIRST flash needs USB. After that, updates are wireless: the web app's
+  "Firmware update", or `pio run` + espota to hostname `jkbms`.
+- If the board is powered from the buck converter, its USB *data* line is often disabled —
+  so do the first flash over USB from a PC, then switch to buck power.
+- Do NOT change my WiFi credentials, device password, or any BMS protection setting without
+  asking me first.
+```
+
+> Already comfortable with a terminal? Skip this and follow **[Getting started](#getting-started)** above — it's the same two commands.
+
+---
+
 ## Also in this repo
 
 If you don't have the hardware yet, or want a quick check from a phone, two smaller front-ends
