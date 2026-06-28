@@ -89,6 +89,8 @@ Arduino_GFX *g = new Arduino_AXS15231B(bus, GFX_NOT_DEFINED, 0, false, TFT_res_W
 FastCanvas *gfx = new FastCanvas(TFT_res_W, TFT_res_H, g, 0, 0, TFT_rot);
 AXS15231B_Touch touch(Touch_SCL, Touch_SDA, Touch_INT, Touch_ADDR, TFT_rot);
 static bool gfxDirty = false;
+static volatile uint32_t g_flushUs = 0;     // [perf spike] last full-canvas flush duration (µs)
+static volatile uint32_t g_fps = 0;         // [perf spike] flushes/sec measured over the last second
 
 // ---- simulated BMS data ----
 struct Bms {
@@ -2943,6 +2945,10 @@ void loop() {
         if (now - lastFrame >= period) { lastFrame = now; renderIdleFrame(); gfx->flush(); gfxDirty = false; }
         delay(1); return;
     }
-    if (gfxDirty) { gfx->flush(); gfxDirty = false; }
+    if (gfxDirty) {
+        uint32_t t = micros(); gfx->flush(); g_flushUs = micros() - t; gfxDirty = false;   // [perf spike] time the blocking full-canvas push
+        static uint32_t fc = 0, fsec = 0; fc++;
+        uint32_t ms = millis(); if (ms - fsec >= 1000) { g_fps = fc; fc = 0; fsec = ms; }
+    }
     delay(1);
 }
