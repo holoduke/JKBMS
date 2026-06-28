@@ -1007,28 +1007,31 @@ static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24
 }
 static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    char ph[24]; snprintf(ph, sizeof(ph), "%s  W", T(K_POWER_DRAW)); lText(ph, x + 8, y + 6, F10, C_MUTED);
+    // Window is stored draw-positive (discharge up, charge down). Show it single-sided and
+    // always positive: while charging it's the "Charge" power, while discharging it's the
+    // "Power draw" — title + line colour track the live current direction.
+    bool charging = b.i > 0.5f;
+    uint32_t gcol = charging ? C_ACCENT : C_CYAN;
+    char ph[24]; snprintf(ph, sizeof(ph), "%s  W", charging ? T(K_M_CHG) : T(K_POWER_DRAW));
+    lText(ph, x + 8, y + 6, F10, C_MUTED);
     if (b.pwrCount < 2) { cText(T(K_COLLECTING), x + w / 2, y + h / 2, F12, C_MUTED); return; }
     const int lblW = 24, gx = x + 8 + lblW, gy = y + 22, gw = w - 14 - lblW, gh = h - 38, base = gy + gh;
     int cnt = b.pwrCount > NCAP ? NCAP : b.pwrCount;
-    float lo = 1e9f, hi = -1e9f;
-    for (int i = 0; i < cnt; i++) { float v = b.pwr[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
-    if (lo > 0) lo = 0; if (hi < 0) hi = 0;
-    if (hi - lo < 50) { float g = (50 - (hi - lo)) * 0.5f; hi += g; lo -= g; }   // min 50W span → no sawtooth on idle noise
-    int zeroY = base - (int)((0 - lo) / (hi - lo) * gh);
+    auto pv = [&](int i) { float v = charging ? -b.pwr[i] : b.pwr[i]; return v < 0 ? 0.0f : v; };   // current-mode magnitude
+    float hi = 0;
+    for (int i = 0; i < cnt; i++) { float v = pv(i); if (v > hi) hi = v; }
+    if (hi < 50) hi = 50;   // min span → no sawtooth on idle noise
     for (int k = 0; k < 5; k++) line(gx + (int)((float)k / 4 * gw), gy, gx + (int)((float)k / 4 * gw), gy + gh, C_BORDER, 170);
-    line(gx, zeroY, gx + gw, zeroY, C_BORDER, 170);
+    line(gx, base, gx + gw, base, C_BORDER, 170);   // zero baseline at the bottom
     char lb[8];
     snprintf(lb, sizeof(lb), "%d", (int)hi); lText(lb, x + 4, gy - 3, F10, C_MUTED);
-    lText("0", x + 4, zeroY - 7, F10, C_MUTED);
-    snprintf(lb, sizeof(lb), "%d", (int)lo); lText(lb, x + 4, base - 9, F10, C_MUTED);
+    lText("0", x + 4, base - 9, F10, C_MUTED);
     int px = -1, py = -1;
     for (int i = 0; i < cnt; i++) {
         int sx = gx + (int)((float)i / (cnt - 1) * gw);
-        int sy = base - (int)((b.pwr[i] - lo) / (hi - lo) * gh);
-        int t = sy < zeroY ? sy : zeroY;
-        line(sx, t, sx, t + abs(sy - zeroY), C_CYAN, 45);
-        if (px >= 0) line(px, py, sx, sy, C_CYAN, LV_OPA_COVER, 2);
+        int sy = base - (int)(pv(i) / hi * gh);
+        line(sx, sy, sx, base, gcol, 45);                       // fill from baseline up
+        if (px >= 0) line(px, py, sx, sy, gcol, LV_OPA_COVER, 2);
         px = sx; py = sy;
     }
     for (int k = 0; k < 5; k++) {
