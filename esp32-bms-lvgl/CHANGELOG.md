@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.0.217
+- Test release to exercise on-device self-update.
+
 ## 1.0.215
 - **Self-update from GitHub Releases** — the device checks for new releases and can
   download + flash `firmware.bin` itself (manual "Update now" button, or an optional
