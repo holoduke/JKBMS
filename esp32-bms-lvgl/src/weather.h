@@ -15,7 +15,6 @@ static bool wxGeo = false;
 #define WX_NVS_MAGIC 0x57583101u   // 'WX' + v01
 static void saveWeather() {
     prefs.begin("wx", false);
-    prefs.putUInt("magic", WX_NVS_MAGIC);
     prefs.putUChar("ok", wxOk ? 1 : 0);
     prefs.putInt("t", wxCurTemp);
     prefs.putInt("c", wxCurCode);
@@ -25,6 +24,7 @@ static void saveWeather() {
     prefs.putFloat("lat", wxLat);
     prefs.putFloat("lon", wxLon);
     prefs.putString("city", wxCity);
+    prefs.putUInt("magic", WX_NVS_MAGIC);   // magic LAST → a torn first write leaves no magic → ignored on load
     prefs.end();
 }
 static void loadWeather() {
@@ -111,7 +111,7 @@ static bool wxFetch() {
                 n++;
             }
             wxDays = n; wxOk = n > 0; ok = wxOk;
-            if (wxOk) { wxFetchedAt = time(nullptr); wxFreshThisBoot = true; saveWeather(); }   // cache for reboot + clear stale
+            if (wxOk) { wxFetchedAt = time(nullptr); wxFreshThisBoot = true; wxDirty = true; }   // cache for reboot + clear stale; core 1 does the NVS write (prefs is core-1-only)
         }
     }
     http.end(); return ok;

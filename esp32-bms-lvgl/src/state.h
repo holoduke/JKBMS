@@ -202,6 +202,7 @@ static char wxCity[28] = "";
 static int wxHttp = 0;              // diagnostic: last Open-Meteo HTTP code (negative = HTTPClient error)
 static time_t wxFetchedAt = 0;      // epoch of the last successful fetch (persisted → survives reboot)
 static bool wxFreshThisBoot = false;// a live fetch has succeeded since power-on (else the data is restored-from-NVS)
+static volatile bool wxDirty = false;   // wxFetch (core 0) flags a new forecast; core 1 flushes it to NVS (prefs is core-1-only)
 #define WX_STALE_SECS 3600          // weather older than this (or never refreshed this boot) → dim the glyph
 // "stale" = we're showing weather but it isn't current: restored from NVS with no live fetch yet,
 // or the last good fetch is over an hour old (WiFi dropped / Open-Meteo failing). The top bar greys
@@ -213,6 +214,7 @@ static bool wxStale() {
     return wxFetchedAt && now > wxFetchedAt && (now - wxFetchedAt) > WX_STALE_SECS;
 }
 static void weatherLoop();          // defined in weather.h
+static void saveWeather();          // defined in weather.h; only ever called on core 1 (NVS write)
 static bool timeSynced = false;     // NTP has produced a valid wall-clock
 static int sysScroll = 0;           // System-tab scroll offset (px)
 static int bmsScroll = 0;           // BMS-tab scroll offset (px)

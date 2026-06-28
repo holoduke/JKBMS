@@ -253,6 +253,7 @@ static void dataTick_cb(lv_timer_t *t) {
     }
     if (!uiBusy()) {   // NVS writes block for tens of ms — never mid-scroll/fling
         if (cfgDirty && now - cfgDirtyAt > 1500) { cfgDirty = false; saveSettings(); }   // persist settings
+        if (wxDirty) { wxDirty = false; saveWeather(); }   // flush a new forecast (flagged by core-0 wxFetch) — prefs must stay core-1-only
         // History rides a ~30-min cadence (not every 5-min sample) to spare NVS flash —
         // the full ring stays in RAM, so we only lose the last <30 min on an unclean reboot.
         static uint32_t lastHistSave = 0;
