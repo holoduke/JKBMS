@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.220
+- On-device update flow: top-bar update icon → modal → "Update now" with a progress bar.
+- CI now attaches firmware.bin to each release (devices self-update).
+
 ## 1.0.217
 - Test release to exercise on-device self-update.
 
