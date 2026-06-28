@@ -82,11 +82,6 @@ public:
             for (int j = 0; j < h; j++) { *d-- = *s; s += w; }       // ly++ → fb addr-- (contiguous)
         }
     }
-    // Push an EXTERNAL buffer (a snapshot of the framebuffer) — same call the base flush()
-    // uses. MUST pass WIDTH/HEIGHT (the raw, never-rotated dims), NOT _width/_height (the
-    // rotated dims) — the latter gives a wrong stride → duplicated/distorted lines.
-    void flushBuffer(uint16_t *buf) { if (_output) _output->draw16bitRGBBitmap(_output_x, _output_y, buf, WIDTH, HEIGHT); }
-    size_t fbBytes() const { return (size_t)WIDTH * HEIGHT * 2; }
 };
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(TFT_CS, TFT_SCK, TFT_SDA0, TFT_SDA1, TFT_SDA2, TFT_SDA3);
@@ -96,11 +91,6 @@ AXS15231B_Touch touch(Touch_SCL, Touch_SDA, Touch_INT, Touch_ADDR, TFT_rot);
 static bool gfxDirty = false;
 static volatile uint32_t g_flushUs = 0;     // last full-canvas flush duration (µs)
 static volatile uint32_t g_fps = 0;         // flushes/sec measured over the last second
-// Async flush pipeline: core 1 snapshots a finished frame into fbSnap and signals the
-// core-0 flush task, which does the ~40ms panel push while core 1 renders the next frame.
-static uint16_t *fbSnap = nullptr;          // PSRAM snapshot the flush task transmits
-static SemaphoreHandle_t flushReq = nullptr;
-static volatile bool flushBusy = false;     // true while the flush task is pushing fbSnap
 
 // ---- simulated BMS data ----
 struct Bms {
@@ -679,6 +669,13 @@ static void ring(int cx, int cy, int ro, int ri, int a0, int a1, uint32_t col) {
     d.start_angle = a0; d.end_angle = a1;
     lv_draw_arc(L, &d);
 }
+static void ringA(int cx, int cy, int ro, int ri, int a0, int a1, uint32_t col, lv_opa_t opa) {
+    lv_draw_arc_dsc_t d; lv_draw_arc_dsc_init(&d);
+    d.color = lv_color_hex(col); d.width = ro - ri; d.opa = opa;
+    d.center.x = cx; d.center.y = cy; d.radius = ro;
+    d.start_angle = a0; d.end_angle = a1;
+    lv_draw_arc(L, &d);
+}
 static int textW(const char *s, const lv_font_t *f) {
     lv_point_t p; lv_text_get_size(&p, s, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE); return p.x;
 }
@@ -832,6 +829,22 @@ static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col, bo
     char buf[8]; snprintf(buf, sizeof(buf), "%d", (int)(pct + 0.5f));
     cText(buf, cx, cy - 6, F48, C_TEXT);
     cText("%", cx, cy + 30, F16, C_MUTED);
+}
+// Charging spinner: a thin track + a comet-tail arc orbiting just outside the SOC ring.
+// Built from N short segments whose opacity fades from the bright leading head down the
+// tail, so it reads as a glowing trail when it turns. Angle is time-based (millis) → the
+// rotation speed is constant regardless of frame rate.
+static void drawSpinner(int cx, int cy, uint32_t nowMs) {
+    const int ro = 82, ri = 80;                       // 2px thin, ~6px outside the 74px SOC ring
+    ring(cx, cy, ro, ri, 0, 360, C_BORDER);           // faint full track
+    const int N = 9, seg = 9;                         // 9 segments × 9° ≈ 80° comet tail
+    float head = fmodf(nowMs * 0.45f, 360.0f);        // ~1.25 rev/sec leading edge
+    for (int k = 0; k < N; k++) {
+        int a0 = (((int)(head - (k + 1) * seg)) % 360 + 360) % 360;
+        int a1 = (a0 + seg) % 360; if (a1 == 0) a1 = 360;
+        lv_opa_t opa = (lv_opa_t)(40 + (215 * (N - 1 - k)) / (N - 1));   // head ~255 → tail ~40
+        ringA(cx, cy, ro, ri, a0, a1, C_ACCENT, opa);
+    }
 }
 static void drawTile(int x, int y, int w, int h, const char *label, const char *val, const char *unit, uint32_t valCol) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
@@ -1153,6 +1166,7 @@ static void renderBms() {
     }
     bool stale = (!demoMode && !bmsLive[view]);   // live mode, this pack isn't answering → no data
     drawRing(cx, cy, 74, 58, b.soc, socRingColor(b.soc), stale);
+    if (!stale && b.i > 0.5f) drawSpinner(cx, cy, now);   // comet spinner only while charging
     int py = cy + 100;                            // power + current readout, big & centered, just below the ring
     if (stale) {
         cText("--", cx, py + 2, F28, C_MUTED);
@@ -2738,6 +2752,15 @@ static void barTick_cb(lv_timer_t *t) {
     if (!autoSwitch || numBms < 2 || millis() < manualUntil) return;   // paused/off/single-pack → bar not moving, skip flush
     invArea(6, 4, TAB2_X + TAB_W, 36);
 }
+// Drives the liveness spinner at high fps — repaints only the ring annulus. Pauses when
+// in settings/standby/screensaver or once the screen auto-dims (nobody watching → save power).
+static void spin_cb(lv_timer_t *t) {
+    if (standby || view == V_SETTINGS || idleActiveNow()) return;
+    if (appliedB <= DIM_LEVEL) return;                 // dimmed (user away) → don't burn the panel
+    if (!(demoMode || bmsLive[view])) return;          // only when the shown pack is live
+    if (bms[view].i <= 0.5f) return;                   // only while charging (spinner indicates charge in progress)
+    invArea(18, 96, 182, 260);                          // ring + spinner box → renderBms repaints it
+}
 static void dataTick_cb(lv_timer_t *t) {
     uint32_t now = millis();
     simStep(now);
@@ -2817,17 +2840,6 @@ static void wifiTick_cb(lv_timer_t *t) {
 // Good home for any future blocking/background job (extra sensors, cloud sync, etc.).
 // Panel push task (core 0): transmits the snapshot core 1 hands it. This is the ~40ms
 // blocking pixel-swizzle+DMA — doing it here keeps core 1 free for touch + next-frame render.
-static void flushTask(void *) {
-    for (;;) {
-        xSemaphoreTake(flushReq, portMAX_DELAY);
-        uint32_t t = micros();
-        gfx->flushBuffer(fbSnap);
-        g_flushUs = micros() - t;
-        static uint32_t fc = 0, fsec = 0; fc++;
-        uint32_t ms = millis(); if (ms - fsec >= 1000) { g_fps = fc; fc = 0; fsec = ms; }
-        flushBusy = false;
-    }
-}
 static void netTask(void *) {
     uint32_t lastPoll = 0;
     for (;;) {
@@ -2936,14 +2948,9 @@ void setup() {
     barTimer = lv_timer_create(barTick_cb, 250, NULL);    // auto-switch progress bar (250ms is smooth enough at the 24fps ceiling)
     dataTimer = lv_timer_create(dataTick_cb, 220, NULL);  // live values (+ power-save supervisor)
     lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
+    lv_timer_create(spin_cb, 33, NULL);                   // liveness spinner (~30fps target, capped by flush)
     lv_timer_create(wifiTick_cb, 500, NULL);
     lv_timer_create(bmsPoll_cb, 500, NULL);               // react to core-0 poll results (reconnect repaint, graph refresh)
-    // Async panel-flush pipeline: a PSRAM snapshot + a core-0 task that does the blocking
-    // ~40ms push, so core 1 never blocks on it. Falls back to inline flush if alloc fails.
-    fbSnap = (uint16_t *)ps_malloc(gfx->fbBytes());
-    flushReq = xSemaphoreCreateBinary();
-    if (fbSnap && flushReq) xTaskCreatePinnedToCore(flushTask, "flush", 4096, NULL, 2, NULL, 0);
-    else { free(fbSnap); fbSnap = nullptr; Serial.println("[flush] no PSRAM/sem — inline flush fallback"); }
     // Blocking network I/O on core 0, away from the render/touch core (1). 10 KB stack
     // covers the mbedTLS handshake; low priority so it never preempts the UI.
     xTaskCreatePinnedToCore(netTask, "net", 10240, NULL, 1, NULL, 0);
@@ -2958,7 +2965,6 @@ void loop() {
     // I/O can't stall rendering or touch — see netTask().
     if (pendingSleep) {
         pendingSleep = false;
-        while (flushBusy) delay(1);   // let the core-0 task finish before we drive the bus directly
         playSleepAnimation();   // blocking, draws + flushes itself; sets standby
         gfxDirty = false;
         return;
@@ -2972,16 +2978,13 @@ void loop() {
     if (idle) {
         static uint32_t lastFrame = 0; uint32_t now = millis();
         uint32_t period = (appliedB <= DIM_LEVEL) ? 250 : 80;   // ~4 fps once dimmed (motion invisible), else ~12 fps
-        if (now - lastFrame >= period) { lastFrame = now; renderIdleFrame(); while (flushBusy) delay(1); gfx->flush(); gfxDirty = false; }
+        if (now - lastFrame >= period) { lastFrame = now; renderIdleFrame(); gfx->flush(); gfxDirty = false; }
         delay(1); return;
     }
-    if (gfxDirty && !flushBusy) {
-        if (fbSnap) {   // async: snapshot the finished frame, hand it to the core-0 flush task, keep going
-            memcpy(fbSnap, gfx->getFramebuffer(), gfx->fbBytes());
-            gfxDirty = false; flushBusy = true; xSemaphoreGive(flushReq);
-        } else {        // fallback (no PSRAM snapshot): inline blocking flush
-            uint32_t t = micros(); gfx->flush(); g_flushUs = micros() - t; gfxDirty = false;
-        }
+    if (gfxDirty) {
+        uint32_t t = micros(); gfx->flush(); g_flushUs = micros() - t; gfxDirty = false;
+        static uint32_t fc = 0, fsec = 0; fc++;
+        uint32_t ms = millis(); if (ms - fsec >= 1000) { g_fps = fc; fc = 0; fsec = ms; }
     }
     delay(1);
 }
