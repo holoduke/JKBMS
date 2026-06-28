@@ -544,6 +544,14 @@ static uint32_t socRingColor(float soc) {
     if (soc >= 90) return lerpColor(C_ACCENT, C_FULL, (soc - 90) / 10.0f);
     return socColor(soc);
 }
+// Position along the SOC scale → colour: 0=red, 0.5=amber, 1=green. Used to paint the
+// ring fill as a smooth red→amber→green gradient (and to tint the big % to match its end).
+static uint32_t socGrad(float f) {
+    if (f < 0) f = 0; if (f > 1) f = 1;
+    return f < 0.5f ? lerpColor(C_BAD, C_WARN, f * 2.0f) : lerpColor(C_WARN, C_ACCENT, (f - 0.5f) * 2.0f);
+}
+// Cell balance heatmap: a cell's deviation from the pack mean (mV) → colour.
+static uint32_t cellDevColor(float devMv) { return devMv < 10.0f ? C_ACCENT : devMv < 30.0f ? C_WARN : C_BAD; }
 static uint32_t tempColor(float t) { return t >= 55 ? C_BAD : t >= 45 ? C_WARN : C_ACCENT; }
 #define PACK_AH 100.0f
 static float avgDrawW(int v, int nSamples);            // typical recent discharge power — defined after the history helpers
@@ -656,11 +664,32 @@ static void line(int x1, int y1, int x2, int y2, uint32_t col, lv_opa_t opa = LV
     d.p1.x = x1; d.p1.y = y1; d.p2.x = x2; d.p2.y = y2;
     lv_draw_line(L, &d);
 }
+// Graph area fill for one column: 3 stacked bands fading from the line down to the
+// baseline, approximating a vertical gradient (brighter under the trace, faint below).
+static void fillCol(int sx, int top, int base, uint32_t col) {
+    int h = base - top; if (h <= 0) return;
+    int s = h / 3;
+    if (s < 1) { line(sx, top, sx, base, col, 60); return; }
+    line(sx, top, sx, top + s, col, 80);
+    line(sx, top + s, sx, top + 2 * s, col, 42);
+    line(sx, top + 2 * s, sx, base, col, 16);
+}
 static void tri(int x1, int y1, int x2, int y2, int x3, int y3, uint32_t col) {
     lv_draw_triangle_dsc_t d; lv_draw_triangle_dsc_init(&d);
     d.color = lv_color_hex(col); d.opa = LV_OPA_COVER;
     d.p[0].x = x1; d.p[0].y = y1; d.p[1].x = x2; d.p[1].y = y2; d.p[2].x = x3; d.p[2].y = y3;
     lv_draw_triangle(L, &d);
+}
+// --- small 10px card-title icons (drawn at the F10 title baseline) ---
+static void icoBattery(int x, int y, uint32_t col) {   // capacity/energy
+    dRect(x, y + 1, 11, 7, 1, col); fRect(x + 11, y + 3, 2, 3, 0, col); fRect(x + 2, y + 3, 5, 3, 0, col);
+}
+static void icoCells(int x, int y, uint32_t col) {     // cells = stacked bars
+    for (int k = 0; k < 3; k++) fRect(x, y + 1 + k * 3, 10, 2, 1, col);
+}
+static void icoBolt(int x, int y, uint32_t col) {      // power = lightning bolt
+    tri(x + 6, y, x + 1, y + 6, x + 5, y + 5, col);
+    tri(x + 5, y + 4, x + 9, y + 4, x + 4, y + 10, col);
 }
 static void ring(int cx, int cy, int ro, int ri, int a0, int a1, uint32_t col) {
     lv_draw_arc_dsc_t d; lv_draw_arc_dsc_init(&d);
@@ -817,17 +846,22 @@ static void drawTabs(bool autoActive, float prog) {
     drawGear(GEAR_X + GEAR_W / 2, GEAR_Y + h / 2, 7, C_MUTED, C_CARD);
 }
 static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col, bool stale = false) {
-    ring(cx, cy, ro, ri, 0, 360, C_BORDER);          // empty track only when stale
+    ring(cx, cy, ro, ri, 0, 360, C_BORDER);          // full track
     if (!stale) {
-        if (pct >= 99.5f) ring(cx, cy, ro, ri, 0, 360, col);
-        else if (pct > 0.5f) {
-            int ea = 270 + (int)(pct * 3.6f); while (ea >= 360) ea -= 360;
-            ring(cx, cy, ro, ri, 270, ea, col);
+        // Fill as a red→amber→green gradient: each segment coloured by its position along
+        // the 0..100% scale, so a low pack reads red and a full one green at a glance.
+        float ff = pct >= 99.5f ? 1.0f : (pct > 0.5f ? pct / 100.0f : 0.0f);
+        const int N = 40;                             // segments around the full circle (9° each)
+        for (int s = 0; s < N; s++) {
+            float f = (float)s / N; if (f >= ff) break;
+            int a0 = (270 + (int)(f * 360)) % 360;
+            int a1 = (270 + (int)((float)(s + 1) / N * 360)) % 360; if (a1 == 0) a1 = 360;
+            ring(cx, cy, ro, ri, a0, a1, socGrad(f));
         }
     }
     if (stale) { cText("--", cx, cy - 6, F48, C_MUTED); return; }
     char buf[8]; snprintf(buf, sizeof(buf), "%d", (int)(pct + 0.5f));
-    cText(buf, cx, cy - 6, F48, C_TEXT);
+    cText(buf, cx, cy - 6, F48, socGrad(pct >= 99.5f ? 1.0f : pct / 100.0f));   // big % tinted to the fill end
     cText("%", cx, cy + 30, F16, C_MUTED);
 }
 // Charging spinner: a thin track + a comet-tail arc orbiting just outside the SOC ring.
@@ -910,12 +944,13 @@ static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, 
 static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = false) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
     int n = b.nCells; if (n < 1) n = 1; if (n > MAXCELLS) n = MAXCELLS;
-    float lo = 9, hi = 0; int loI = 0, hiI = 0;
-    for (int i = 0; i < n; i++) { if (b.cell[i] < lo) { lo = b.cell[i]; loI = i; } if (b.cell[i] > hi) { hi = b.cell[i]; hiI = i; } }
+    float lo = 9, hi = 0, sum = 0;
+    for (int i = 0; i < n; i++) { float c = b.cell[i]; if (c < lo) lo = c; if (c > hi) hi = c; sum += c; }
+    float mean = sum / n;   // heatmap: colour each cell by its deviation from the pack mean
     char hdr[28];
     if (stale) snprintf(hdr, sizeof(hdr), "%s  --", T(K_CELLS));
     else snprintf(hdr, sizeof(hdr), "%s  %dmV", T(K_CELLS), (int)((hi - lo) * 1000));
-    lText(hdr, x + 8, y + 6, F10, C_MUTED);   // title size matches CAPACITY (F10)
+    icoCells(x + 8, y + 7, C_MUTED); lText(hdr, x + 22, y + 6, F10, C_MUTED);   // title size matches CAPACITY (F10)
     if (!stale && b.balWork) {                 // balancer active → show its current, right-aligned in the header
         char bt[12]; snprintf(bt, sizeof(bt), "%.1fA", b.balCur);
         int tw = textW(bt, F10);
@@ -931,13 +966,14 @@ static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = fal
         int cxo = x + 6 + col * cw, ry = top + row * rh, midY = ry + (rh - 9) / 2;
         char cl[5]; snprintf(cl, sizeof(cl), "C%d", i + 1);
         lText(cl, cxo, midY, F10, C_MUTED);
-        uint32_t c = stale ? C_MUTED : (i == loI) ? C_CYAN : (i == hiI) ? C_WARN : C_TEXT;
+        float devMv = fabsf(b.cell[i] - mean) * 1000.0f;        // distance from the mean → balance colour
+        uint32_t c = stale ? C_MUTED : cellDevColor(devMv);     // green balanced · amber drifting · red outlier
         char cv[8]; if (stale) snprintf(cv, sizeof(cv), "--"); else snprintf(cv, sizeof(cv), "%.2f", b.cell[i]);
         lText(cv, cxo + cw - 8 - textW(cv, F10), midY, F10, c);
         if (cols == 1 && !stale) {   // room for a fill bar only in single-column mode
             int bx = cxo + 22, bw = cw - 22 - 36, by = ry + 3, bh = rh - 6;
             float frac = (b.cell[i] - 3.0f) / 0.6f; frac = frac < 0.05f ? 0.05f : frac > 1 ? 1 : frac;
-            fRect(bx, by, bw, bh, 2, C_BORDER); fRect(bx, by, (int)(bw * frac), bh, 2, (i == loI) ? C_CYAN : (i == hiI) ? C_WARN : C_ACCENT);
+            fRect(bx, by, bw, bh, 2, C_BORDER); fRect(bx, by, (int)(bw * frac), bh, 2, c);
         }
     }
 }
@@ -988,7 +1024,7 @@ static float packTotalWh(int t) {
 }
 static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24, float wh6, bool stale) {
     fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
-    lText(T(K_CAPACITY), x + 8, y + 6, F10, C_MUTED);
+    icoBattery(x + 8, y + 6, C_MUTED); lText(T(K_CAPACITY), x + 24, y + 6, F10, C_MUTED);
     char buf[12];
     if (stale) snprintf(buf, sizeof(buf), "--"); else fmtWh(buf, sizeof(buf), totalWh);
     lText(buf, x + 8, y + 22, F16, C_ACCENT);                  // headline: total pack capacity
@@ -1013,7 +1049,7 @@ static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     bool charging = b.i > 0.5f;
     uint32_t gcol = charging ? C_ACCENT : C_CYAN;
     char ph[24]; snprintf(ph, sizeof(ph), "%s  W", charging ? T(K_M_CHG) : T(K_POWER_DRAW));
-    lText(ph, x + 8, y + 6, F10, C_MUTED);
+    icoBolt(x + 8, y + 6, gcol); lText(ph, x + 21, y + 6, F10, C_MUTED);
     if (b.pwrCount < 2) { cText(T(K_COLLECTING), x + w / 2, y + h / 2, F12, C_MUTED); return; }
     const int lblW = 24, gx = x + 8 + lblW, gy = y + 22, gw = w - 14 - lblW, gh = h - 38, base = gy + gh;
     int cnt = b.pwrCount > NCAP ? NCAP : b.pwrCount;
@@ -1030,7 +1066,7 @@ static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     for (int i = 0; i < cnt; i++) {
         int sx = gx + (int)((float)i / (cnt - 1) * gw);
         int sy = base - (int)(pv(i) / hi * gh);
-        line(sx, sy, sx, base, gcol, 45);                       // fill from baseline up
+        fillCol(sx, sy, base, gcol);                            // gradient fill from line → baseline
         if (px >= 0) line(px, py, sx, sy, gcol, LV_OPA_COVER, 2);
         px = sx; py = sy;
     }
@@ -1066,7 +1102,7 @@ static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
     for (int i = 0; i < cnt; i++) {
         int sx = gx + (int)((float)i / (cnt - 1) * gw);
         int sy = base - (int)(b.cap[i] / 100.0f * gh);
-        line(sx, sy, sx, base, C_ACCENT, 45);
+        fillCol(sx, sy, base, C_ACCENT);   // gradient fill under the SOC trace
         if (px >= 0) line(px, py, sx, sy, C_ACCENT, LV_OPA_COVER, 2);
         px = sx; py = sy;
     }
