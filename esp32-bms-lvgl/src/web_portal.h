@@ -93,7 +93,10 @@ img{width:100%;max-width:480px;border:1px solid var(--bd);border-radius:10px;ima
   <div class=card><div class=ct data-i18n=temps>Temperatures</div><div id=temps></div></div>
   <div class=card><div class=ct data-i18n=session>Session</div><div id=sess></div></div>
   <div class=card><div class=ct data-i18n=history>History</div>
-   <a class="btn sm" href=/history.csv download style="display:inline-block;text-decoration:none" data-i18n=csvexport>Download CSV</a></div>
+   <div class=mut style=font-size:11px>SOC %</div><canvas id=hsoc style=width:100%;height:78px;display:block></canvas>
+   <div class=mut style="font-size:11px;margin-top:8px">Power W</div><canvas id=hpw style=width:100%;height:78px;display:block></canvas>
+   <div class=row style=margin-top:8px><span class=mut id=hspan></span>
+    <a class="btn sm" href=/history.csv download style=text-decoration:none data-i18n=csvexport>Download CSV</a></div></div>
   <div class=card><div class=ct data-i18n=controls>Controls</div><div id=ctl></div></div>
  </div>
  <div class=col>
@@ -141,9 +144,27 @@ function t(k){return (I18N[L]&&I18N[L][k])||I18N.en[k]||k}
 function applyI18n(){document.documentElement.lang=L;
  document.querySelectorAll('[data-i18n]').forEach(e=>e.textContent=t(e.dataset.i18n));
  document.querySelectorAll('[data-ph]').forEach(e=>e.placeholder=t(e.dataset.ph));}
-let cur=0,D={},shotBusy=false,mqInit=false,scrInit=false,alInit=false;
+let cur=0,D={},shotBusy=false,mqInit=false,scrInit=false,alInit=false,HIST=null;
 function esc(s){return String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}
-function sel(b){cur=b;t0.className='tab'+(b==0?' on':'');t1.className='tab'+(b==1?' on':'');render()}
+function sel(b){cur=b;t0.className='tab'+(b==0?' on':'');t1.className='tab'+(b==1?' on':'');render();drawHist()}
+function chart(cv,arr,o){let dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;
+ let x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,w,h);
+ if(!arr||arr.length<2){x.fillStyle='#8593a4';x.font='11px system-ui';x.textBaseline='middle';x.fillText(t('loading'),24,h/2);return}
+ let mn=o.min,mx=o.max;
+ if(mn==null){mn=Math.min(...arr);mx=Math.max(...arr);if(o.zero){mn=Math.min(mn,0);mx=Math.max(mx,0)}let p=(mx-mn)*0.12||1;mn-=p;mx+=p}
+ if(mx-mn<1)mx=mn+1;
+ let gx=26,gy=4,gw=w-gx-4,gh=h-12,yOf=v=>gy+gh-(v-mn)/(mx-mn)*gh;
+ x.fillStyle='#8593a4';x.font='9px system-ui';x.textBaseline='middle';
+ x.fillText(Math.round(mx),2,yOf(mx));x.fillText(Math.round(mn),2,yOf(mn));
+ if(o.zero&&mn<0&&mx>0){let zy=yOf(0);x.strokeStyle='rgba(255,255,255,.12)';x.lineWidth=1;x.beginPath();x.moveTo(gx,zy);x.lineTo(gx+gw,zy);x.stroke()}
+ x.beginPath();arr.forEach((v,i)=>{let px=gx+i/(arr.length-1)*gw,py=yOf(v);i?x.lineTo(px,py):x.moveTo(px,py)});
+ x.strokeStyle=o.color;x.lineWidth=1.6;x.stroke();
+ let bl=yOf(o.zero?0:mn);x.lineTo(gx+gw,bl);x.lineTo(gx,bl);x.closePath();x.fillStyle=o.fill;x.fill()}
+function drawHist(){if(!HIST||!HIST.packs)return;let p=HIST.packs[cur];if(!p)return;
+ hspan.textContent=(p.span||0).toFixed(1)+'d';
+ chart(hsoc,p.soc,{min:0,max:100,color:'#34d399',fill:'rgba(52,211,153,.15)'});
+ chart(hpw,p.w,{zero:1,color:'#22d3ee',fill:'rgba(34,211,238,.15)'})}
+async function loadHist(){try{HIST=await(await fetch('/history.json')).json();drawHist()}catch(e){}}
 function tc(t){return(t<-50||t>120)?'--':t.toFixed(0)+'°C'}
 function wh(w){return Math.abs(w)>=1000?(w/1000).toFixed(2)+'kWh':w.toFixed(0)+'Wh'}
 function pc(w,tt){return tt>1?' ('+Math.round(w/tt*100)+'%)':''}
@@ -230,6 +251,8 @@ function upl(){let f=fwf.files[0];if(!f){ust.textContent=t('pickbin');return}
  x.onload=()=>{ust.textContent=x.status==200?t('rebooting'):t('failed')+': '+x.responseText};
  let fd=new FormData();fd.append('f',f);x.send(fd)}
 load();setInterval(load,2000);   // /api every 2s; the JPEG snapshot auto-loads once then on Refresh
+loadHist();setInterval(loadHist,60000);   // 7-day history charts (changes every 5min; refetch each minute)
+window.addEventListener('resize',drawHist);
 </script></body></html>)HTML";
 
 // Minimal JSON string escaper for free-text values (host/user/URL/city) that could
@@ -428,6 +451,32 @@ static void webBegin() {
         }
         if (chunk.length()) webServer.sendContent(chunk);
         webServer.sendContent("");                                          // end the chunked response
+    });
+    webServer.on("/history.json", []() {                                    // downsampled history for the in-browser charts
+        if (!webAuth()) return;
+        const int N = 120;                                                  // chart resolution
+        String j = "{\"packs\":[";
+        for (int t = 0; t < numBms; t++) {
+            if (t) j += ",";
+            int cnt = histCount[t];
+            float span = cnt > 1 ? (float)(cnt - 1) / 288.0f : 0.0f;        // days
+            int pts = cnt < N ? cnt : N;
+            j += "{\"span\":" + String(span, 2) + ",\"soc\":[";
+            for (int k = 0; k < pts; k++) {                                 // bucket-average SOC
+                int lo = (int)((int64_t)k * cnt / pts), hi = (int)((int64_t)(k + 1) * cnt / pts); if (hi <= lo) hi = lo + 1;
+                int s = 0; for (int i = lo; i < hi; i++) s += histCap[t][i];
+                if (k) j += ","; j += String(s / (hi - lo));
+            }
+            j += "],\"w\":[";
+            for (int k = 0; k < pts; k++) {                                 // bucket-average power (charge-positive)
+                int lo = (int)((int64_t)k * cnt / pts), hi = (int)((int64_t)(k + 1) * cnt / pts); if (hi <= lo) hi = lo + 1;
+                long s = 0; for (int i = lo; i < hi; i++) s += histPwr[t][i];
+                if (k) j += ","; j += String((int)(s / (hi - lo)));
+            }
+            j += "]}";
+        }
+        j += "]}";
+        webServer.send(200, "application/json", j);
     });
     webServer.on("/setpass", HTTP_POST, []() {
         if (!webAuth()) return;

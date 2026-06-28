@@ -57,6 +57,19 @@ static void mqPubSwitch(int t, const char *key, const char *name) {
     mqtt.publish(topic, pl, true);
 }
 
+// Per-cell voltage sensor. All cells share one state topic (.../cells = JSON array);
+// each sensor pulls its index. Marked diagnostic so they don't clutter the main HA card.
+static void mqPubCell(int t, int i) {
+    char uid[52], topic[84], dev[120], pl[480];
+    snprintf(uid, sizeof(uid), "%s_p%d_c%d", mqId.c_str(), t, i);
+    snprintf(topic, sizeof(topic), "homeassistant/sensor/%s/config", uid);
+    snprintf(dev, sizeof(dev), "{\"ids\":[\"jkbms_%s_p%d\"],\"name\":\"JK BMS %d\",\"mf\":\"holoduke\",\"mdl\":\"JKBMS-ESP32\"}", mqId.c_str(), t, t + 1);
+    snprintf(pl, sizeof(pl),
+        "{\"name\":\"Cell %d\",\"uniq_id\":\"%s\",\"stat_t\":\"%s/p%d/cells\",\"val_tpl\":\"{{value_json[%d]}}\","
+        "\"unit_of_meas\":\"V\",\"dev_cla\":\"voltage\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"%s/status\",\"dev\":%s}",
+        i + 1, uid, mqBase.c_str(), t, i, mqBase.c_str(), dev);
+    mqtt.publish(topic, pl, true);
+}
 static void mqDiscovery() {
     for (int t = 0; t < numBms; t++) {
         mqPubSensor(t, "soc", "SOC", "%", "battery");
@@ -75,6 +88,7 @@ static void mqDiscovery() {
         mqPubSwitch(t, "chg", "Charge MOSFET");
         mqPubSwitch(t, "dis", "Discharge MOSFET");
         mqPubSwitch(t, "bal", "Balancer");
+        for (int i = 0; i < bms[t].nCells && i < MAXCELLS; i++) { mqPubCell(t, i); delay(2); }   // per-cell voltage sensors
         delay(3);
     }
 }
@@ -99,6 +113,13 @@ static void mqPublishState() {
             st, al, bmsCharge[t] ? 1 : 0, bmsDischarge[t] ? 1 : 0, bmsBalancer[t] ? 1 : 0);
         snprintf(topic, sizeof(topic), "%s/p%d/state", mqBase.c_str(), t);
         mqtt.publish(topic, buf);
+        if (b.nCells > 0) {   // per-cell voltages as a JSON array on a side topic (each Cell N sensor pulls its index)
+            char cb[220]; int cn = snprintf(cb, sizeof(cb), "[");
+            for (int i = 0; i < b.nCells && i < MAXCELLS; i++) cn += snprintf(cb + cn, sizeof(cb) - cn, "%s%.3f", i ? "," : "", b.cell[i]);
+            snprintf(cb + cn, sizeof(cb) - cn, "]");
+            snprintf(topic, sizeof(topic), "%s/p%d/cells", mqBase.c_str(), t);
+            mqtt.publish(topic, cb);
+        }
     }
 }
 
