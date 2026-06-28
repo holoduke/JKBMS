@@ -186,8 +186,9 @@ function render(){renderWx();if(!D.packs)return;let p=D.packs[cur];
   <div><div class="v ${cc}">${p.w.toFixed(0)} W</div><div class=mut>${p.i>0.5?t('charging'):p.i<-0.5?t('discharging'):t('idle')}</div></div>
   <div><div class=v>${p.v.toFixed(2)} V</div><div class=mut>${t('voltage')}</div></div>
   <div><div class="v ${cc}">${Math.abs(p.i).toFixed(1)} A</div><div class=mut>${t('curr')}</div></div>`;
- let mn=Math.min(...p.cells),mx=Math.max(...p.cells),mnI=p.cells.indexOf(mn)+1,mxI=p.cells.indexOf(mx)+1;
- cd.innerHTML='Δ '+((mx-mn)*1000).toFixed(0)+' mV · <span class=cy>↓C'+mnI+'</span> <span class=amb>↑C'+mxI+'</span>'+(p.balw?' · <span class=cy>⚖ '+t('balancing')+'</span>':'');
+ let hc=p.cells&&p.cells.length>0;
+ let mn=hc?Math.min(...p.cells):0,mx=hc?Math.max(...p.cells):0,mnI=hc?p.cells.indexOf(mn)+1:0,mxI=hc?p.cells.indexOf(mx)+1:0;
+ cd.innerHTML=hc?('Δ '+((mx-mn)*1000).toFixed(0)+' mV · <span class=cy>↓C'+mnI+'</span> <span class=amb>↑C'+mxI+'</span>'+(p.balw?' · <span class=cy>⚖ '+t('balancing')+'</span>':'')):'—';
  cells.innerHTML=p.cells.map((c,i)=>`<div class="cell${c==mx?' hi':c==mn?' lo':''}">C${i+1}<br><b>${c.toFixed(3)}</b>${(p.res&&p.res[i]!=null)?`<br><span class=mut>${p.res[i].toFixed(2)} mΩ</span>`:''}</div>`).join('');
  temps.innerHTML=[[t('mosfet'),p.tmos],[t('sensor')+' 1',p.t1],[t('sensor')+' 2',p.t2]]
   .map(([n,v])=>`<div class=row><span class=mut>${n}</span><b>${tc(v)}</b></div>`).join('');

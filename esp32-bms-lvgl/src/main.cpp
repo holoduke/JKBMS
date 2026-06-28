@@ -136,7 +136,7 @@ static uint16_t histCount[2] = {0, 0};
 static uint32_t histLastMs[2] = {0, 0};
 static bool histDirty = false; static uint32_t histDirtyAt = 0;
 // Lifetime cumulative energy per pack (Wh), integrated from v*i every poll while live.
-// Persisted alongside the graph history (NVS "hist") on the same 5-min cadence.
+// Persisted alongside the graph history (NVS "hist") on its ~30-min save cadence.
 static double lifeWhIn[2] = {0, 0}, lifeWhOut[2] = {0, 0};
 static uint32_t lifeLastMs[2] = {0, 0};
 // Power graph: fast rolling 10-minute window, one sample per refresh (~1 s), per BMS.
@@ -883,7 +883,7 @@ static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float
         int ry = y + 12 + r * 19;
         lText(lbl[r], x + 8, ry + 2, F10, C_MUTED);
         // an unwired probe reads a saturated sentinel (~±200C) → show n/c, not a fake temp
-        bool noProbe = (r > 0) && (v[r] < -50 || v[r] > 120);
+        bool noProbe = (v[r] < -50 || v[r] > 120);   // saturated sentinel → n/c (applies to MOS + both probes)
         if (stale || noProbe) { lText("--", x + 34, ry, F12, C_MUTED); continue; }
         char buf[8]; snprintf(buf, sizeof(buf), "%.0fC", v[r]);
         lText(buf, x + 34, ry, F12, tempColor(v[r]));
@@ -1090,25 +1090,29 @@ static lv_obj_t *powCv = nullptr, *capCv = nullptr;
 // Capacity graph: persisted 7-day SOC history (live) or genCap() curve (demo).
 // Power graph: the fast 10-minute rolling window (always), decimated to fit.
 #define POW_PTS 160                  // display columns for the power window
-static void prepGraphData(int v) {
+// Capacity downsample (2016 history → ≤NCAP). Only changes on a new 5-min sample or view
+// switch, so it's NOT redone on the per-second power tick (see renderPwrCanvas).
+static void prepCapData(int v) {
     Bms &b = bms[v];
-    if (!demoMode) {                                         // capacity from history
-        int n = histCount[v];
-        b.capSpanDays = n > 1 ? (float)(n - 1) / 288.0f : 0.0f;   // 288 samples/day (5 min)
-        if (n <= NCAP) { for (int i = 0; i < n; i++) b.cap[i] = histCap[v][i]; b.capCount = n; }
-        else {
-            for (int j = 0; j < NCAP; j++) {
-                int lo = (int)((int64_t)j * n / NCAP), hi = (int)((int64_t)(j + 1) * n / NCAP);
-                if (hi <= lo) hi = lo + 1;
-                float sc = 0; for (int i = lo; i < hi; i++) sc += histCap[v][i];
-                b.cap[j] = sc / (hi - lo);
-            }
-            b.capCount = NCAP;
+    if (demoMode) return;                                   // demo: b.cap stays the genCap() curve
+    int n = histCount[v];
+    b.capSpanDays = n > 1 ? (float)(n - 1) / 288.0f : 0.0f;   // 288 samples/day (5 min)
+    if (n <= NCAP) { for (int i = 0; i < n; i++) b.cap[i] = histCap[v][i]; b.capCount = n; }
+    else {
+        for (int j = 0; j < NCAP; j++) {
+            int lo = (int)((int64_t)j * n / NCAP), hi = (int)((int64_t)(j + 1) * n / NCAP);
+            if (hi <= lo) hi = lo + 1;
+            float sc = 0; for (int i = lo; i < hi; i++) sc += histCap[v][i];
+            b.cap[j] = sc / (hi - lo);
         }
-    }   // demo: b.cap stays the genCap() curve
-    // power = 10-minute window, newest-on-right
+        b.capCount = NCAP;
+    }
+}
+// Power 10-minute window → ≤POW_PTS, newest-on-right. Cheap; refreshed every ~1s.
+static void prepPwrData(int v) {
+    Bms &b = bms[v];
     int pn = pwrWinN[v];
-    b.pwrSpanMin = pn * (PWR_DT / 1000.0f) / 60.0f;
+    b.pwrSpanMin = (pn > 1 ? (pn - 1) : 0) * (PWR_DT / 1000.0f) / 60.0f;   // (n-1) intervals between first & last
     if (pn <= POW_PTS) { for (int i = 0; i < pn; i++) b.pwr[i] = pwrWin[v][i]; b.pwrCount = pn; }
     else {
         for (int j = 0; j < POW_PTS; j++) {
@@ -1120,19 +1124,25 @@ static void prepGraphData(int v) {
         b.pwrCount = POW_PTS;
     }
 }
-static void renderGraphs() {
-    if (!powCv || !capCv) return;
-    prepGraphData(view);
+static void renderPwrCanvas() {
+    if (!powCv) return;
+    prepPwrData(view);
     lv_layer_t lyr;
     lv_canvas_init_layer(powCv, &lyr); L = &lyr;
     fRect(0, 0, POW_W, POW_H, 0, C_BG);
     drawPowerGraph(0, 0, POW_W, POW_H, bms[view]);
     lv_canvas_finish_layer(powCv, &lyr);
+}
+static void renderCapCanvas() {
+    if (!capCv) return;
+    prepCapData(view);
+    lv_layer_t lyr;
     lv_canvas_init_layer(capCv, &lyr); L = &lyr;
     fRect(0, 0, CAP_W, CAP_H, 0, C_BG);
     drawCapacityGraph(0, 0, CAP_W, CAP_H, bms[view]);
     lv_canvas_finish_layer(capCv, &lyr);
 }
+static void renderGraphs() { renderPwrCanvas(); renderCapCanvas(); }   // both (view switch / startup)
 static void blitCanvas(lv_obj_t *cv, int x, int y, int w, int h) {
     lv_draw_image_dsc_t id; lv_draw_image_dsc_init(&id);
     id.src = lv_canvas_get_image(cv);
@@ -1174,7 +1184,9 @@ static void renderBms() {
     if (stale) {
         cText("--", cx, py + 2, F28, C_MUTED);
     } else {
-        bool chg = (b.i >= 0); uint32_t pcol = chg ? C_ACCENT : C_DISCHG;   // green = charging, purple/blue = discharging
+        bool idle = fabsf(b.i) < 0.5f;          // same ±0.5A dead-band as the status pill / runtime
+        bool chg = (b.i >= 0);
+        uint32_t pcol = idle ? C_MUTED : chg ? C_ACCENT : C_DISCHG;   // grey idle / green charge / purple discharge
         char pw[10], cu[10];
         snprintf(pw, sizeof(pw), "%.0fW", fabsf(b.v * b.i));
         if (fabsf(b.i) < 100) snprintf(cu, sizeof(cu), "%.1fA", fabsf(b.i));
@@ -1182,8 +1194,9 @@ static void renderBms() {
         lText(pw, cx - 16 - textW(pw, F28), py, F28, pcol);   // power: right-aligned, left of centre
         lText(cu, cx + 16, py, F28, pcol);                     // current: left-aligned, right of centre
         int aw = 7, ay = py + 8, ah = 15;                      // direction arrow, vertically centred with the W/A numbers
-        if (chg) tri(cx - aw, ay + ah, cx + aw, ay + ah, cx, ay, pcol);   // up = charging
-        else     tri(cx - aw, ay, cx + aw, ay, cx, ay + ah, pcol);        // down = discharging
+        if (idle) {}                                           // idle → no arrow
+        else if (chg) tri(cx - aw, ay + ah, cx + aw, ay + ah, cx, ay, pcol);   // up = charging
+        else          tri(cx - aw, ay, cx + aw, ay, cx, ay + ah, pcol);        // down = discharging
     }
 
     const int rx = 200, rw = Wd - rx - 8;
@@ -1828,7 +1841,7 @@ static void saveHistory() {
         if (wc != capN || wp != pwrN) Serial.printf("[nvs] history save BMS%d short (cap %u/%u, pwr %u/%u) — NVS full?\n",
                                                      t + 1, (unsigned)wc, (unsigned)capN, (unsigned)wp, (unsigned)pwrN);
     }
-    prefs.putBytes("ein", lifeWhIn, sizeof(lifeWhIn));     // lifetime energy counters ride the same 5-min save
+    prefs.putBytes("ein", lifeWhIn, sizeof(lifeWhIn));     // lifetime energy counters ride this ~30-min history save
     prefs.putBytes("eout", lifeWhOut, sizeof(lifeWhOut));
     prefs.end();
 }
@@ -2735,6 +2748,8 @@ static void invArea(int x1, int y1, int x2, int y2) {
 // Core-1 reaction to the core-0 poll: the actual Modbus read happens in netTask; here we
 // only repaint when the cached state the user sees has changed (no blocking work).
 static void bmsPoll_cb(lv_timer_t *t) {
+    histSample();        // append a 5-min point when due — on core 1, same core as the graph/energy readers
+    energyIntegrate();   // accumulate lifetime kWh (dt-integrated, so the 500ms cadence is fine)
     static bool was0 = false, was1 = false; static int lastHc = -1;
     bool l0 = bmsLive[0], l1 = numBms >= 2 ? bmsLive[1] : false;
     int hc = histCount[view];
@@ -2744,9 +2759,9 @@ static void bmsPoll_cb(lv_timer_t *t) {
         invArea(6, 4, TAB2_X + TAB_W, 36);     // tab colours
         invArea(0, 36, Wd - 1, Ht - 1);        // body: stale ↔ live values
     }
-    if (hc != lastHc) {                         // a new history sample landed → refresh the graphs
+    if (hc != lastHc) {                         // a new 5-min history sample landed → refresh the capacity canvas (power is on the 1s tick)
         lastHc = hc;
-        renderGraphs();
+        renderCapCanvas();
         invArea(196, 118, Wd - 1, 313);        // power + capacity graph slots
     }
 }
@@ -2767,8 +2782,8 @@ static void spin_cb(lv_timer_t *t) {
 static void dataTick_cb(lv_timer_t *t) {
     uint32_t now = millis();
     simStep(now);
-    if (pwrSample() && !standby && view != V_SETTINGS && !idleActiveNow()) {   // new power point → refresh graphs
-        renderGraphs(); invArea(196, 118, Wd - 1, 313);
+    if (pwrSample() && !standby && view != V_SETTINGS && !idleActiveNow()) {   // new power point → refresh ONLY the power canvas (capacity changes every 5min, not every second)
+        renderPwrCanvas(); invArea(196, 118, Wd - 1, 313);
     }
     if (!uiBusy()) {   // NVS writes block for tens of ms — never mid-scroll/fling
         if (cfgDirty && now - cfgDirtyAt > 1500) { cfgDirty = false; saveSettings(); }   // persist settings
@@ -2855,7 +2870,7 @@ static void netTask(void *) {
         uint32_t now = millis();
         if (now - lastPoll >= 1000) {
             lastPoll = now;
-            bmsRead(); histSample(); energyIntegrate();
+            bmsRead();   // history sampling + energy integration run on core 1 (see bmsPoll_cb) to avoid a cross-core race on those buffers
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }

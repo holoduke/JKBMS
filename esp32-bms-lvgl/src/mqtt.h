@@ -85,6 +85,7 @@ static void mqPublishState() {
         const Bms &b = bms[t];
         float mn = 9, mx = 0;
         for (int i = 0; i < b.nCells; i++) { if (b.cell[i] < mn) mn = b.cell[i]; if (b.cell[i] > mx) mx = b.cell[i]; }
+        int deltaMv = b.nCells > 0 ? (int)((mx - mn) * 1000) : 0;   // no cells read yet → 0, not -9000
         uint32_t sc; const char *st = bmsStatusStr(t, demoMode || bmsLive[t], &sc);
         char al[90] = ""; int na = 0;
         for (int bit = 0; bit < 29 && na < 3; bit++)
@@ -93,7 +94,7 @@ static void mqPublishState() {
         snprintf(buf, sizeof(buf),
             "{\"soc\":%.0f,\"v\":%.2f,\"i\":%.1f,\"w\":%.0f,\"tmos\":%.0f,\"soh\":%d,\"cyc\":%lu,\"delta\":%d,\"bcur\":%.2f,"
             "\"ein\":%.3f,\"eout\":%.3f,\"status\":\"%s\",\"alarms\":\"%s\",\"chg\":\"%d\",\"dis\":\"%d\",\"bal\":\"%d\"}",
-            b.soc, b.v, b.i, b.v * b.i, b.tMos, b.soh, (unsigned long)b.cycles, (int)((mx - mn) * 1000), b.balCur,
+            b.soc, b.v, b.i, b.v * b.i, b.tMos, b.soh, (unsigned long)b.cycles, deltaMv, b.balCur,
             lifeWhIn[t] / 1000.0, lifeWhOut[t] / 1000.0,
             st, al, bmsCharge[t] ? 1 : 0, bmsDischarge[t] ? 1 : 0, bmsBalancer[t] ? 1 : 0);
         snprintf(topic, sizeof(topic), "%s/p%d/state", mqBase.c_str(), t);
