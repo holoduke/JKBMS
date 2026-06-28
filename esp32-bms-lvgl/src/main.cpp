@@ -61,9 +61,9 @@ static int updBoxL = 0, updBoxR = 0;     // top-bar update-icon hit region
 #define Ht 320
 
 // top-bar geometry (matches original)
-#define TAB_W 104
+#define TAB_W 88              // narrower so BAT1+BAT2 fit the left (SOC) column (ends ~192, left of rx=200)
 #define TAB1_X 8
-#define TAB2_X 120
+#define TAB2_X 104
 #define GEAR_X (Wd - 38)
 #define GEAR_Y 6
 #define GEAR_W 30
@@ -851,7 +851,7 @@ static void drawTabs(bool autoActive, float prog) {
     }
     // wifi status icon, just right of the battery buttons (green = connected, grey = not)
     // centred on y+h/2 — same vertical centre as the weather glyph, temperature and clock
-    int wifiX = (numBms >= 2 ? TAB2_X + TAB_W : TAB1_X + TAB_W) + 22;   // just right of the last battery tab
+    int wifiX = 214;   // status cluster starts at the right column (where the gauges/tiles begin, rx=200), independent of tab width
     int midY = y + h / 2;   // shared vertical centre for the whole top-bar row
     drawWifiSmall(wifiX, midY, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
     if (wxOk) {   // today's weather: glyph + temp, right of the wifi icon
@@ -873,10 +873,10 @@ static void drawTabs(bool autoActive, float prog) {
     fRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_CARD);
     dRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_BORDER);
     drawGear(GEAR_X + GEAR_W / 2, GEAR_Y + h / 2, 7, C_MUTED, C_CARD);
-    if (updAvail) {   // firmware update available → bare green arrow in the gap between weather temp and clock
-        int ux = BED_X - 66;
+    if (updAvail) {   // firmware update available → bare green arrow, now with room between weather and clock
+        int ux = BED_X - 84;
         icoUpdate(ux, midY, C_ACCENT);
-        updBoxL = ux - 11; updBoxR = ux + 11;   // generous tap target (no box — the top bar is tight)
+        updBoxL = ux - 12; updBoxR = ux + 12;
     } else { updBoxL = updBoxR = 0; }
 }
 static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col, bool stale = false) {
