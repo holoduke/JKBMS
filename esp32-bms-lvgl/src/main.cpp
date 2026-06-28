@@ -873,11 +873,10 @@ static void drawTabs(bool autoActive, float prog) {
     fRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_CARD);
     dRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_BORDER);
     drawGear(GEAR_X + GEAR_W / 2, GEAR_Y + h / 2, 7, C_MUTED, C_CARD);
-    if (updAvail) {   // firmware update available → tappable icon left of the clock (next to weather)
-        int ux = BED_X - 64;
-        fRect(ux - 11, y + 2, 22, h - 4, 7, C_CARD); dRect(ux - 11, y + 2, 22, h - 4, 7, C_ACCENT);
+    if (updAvail) {   // firmware update available → bare green arrow in the gap between weather temp and clock
+        int ux = BED_X - 66;
         icoUpdate(ux, midY, C_ACCENT);
-        updBoxL = ux - 13; updBoxR = ux + 13;
+        updBoxL = ux - 11; updBoxR = ux + 11;   // generous tap target (no box — the top bar is tight)
     } else { updBoxL = updBoxR = 0; }
 }
 static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col, bool stale = false) {
