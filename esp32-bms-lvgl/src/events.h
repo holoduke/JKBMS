@@ -60,7 +60,8 @@ static void renderLockPad(bool setMode) {
 }
 static void lockCommit(bool setMode) {      // called when the 6th digit lands
     if (setMode) { strncpy(lockPin, lockEntry, sizeof(lockPin) - 1); lockPin[sizeof(lockPin) - 1] = 0;
-                   lockSetMode = false; lockEntryLen = 0; lockEntry[0] = 0; saveSettings(); }
+                   lockSetMode = false; lockEntryLen = 0; lockEntry[0] = 0; saveSettings();
+                   if (view != V_SETTINGS) locked = true; }   // PIN set from the dashboard lock icon → lock right away
     else if (strcmp(lockEntry, lockPin) == 0) { locked = false; lockEntryLen = 0; lockEntry[0] = 0; }
     else { lockWrongUntil = millis() + 1500; lockEntryLen = 0; lockEntry[0] = 0; }   // wrong → clear, retry
 }
@@ -83,6 +84,7 @@ static void draw_cb(lv_event_t *e) {
     L = lv_event_get_layer(e);
     tpi = 0;
     if (updProgress != -1) { renderUpdating(); return; }   // self-update in progress takes over the whole display
+    if (lockSetMode) { renderLockPad(true); return; }      // setting a new PIN (from dashboard lock icon or settings)
     if (lockShowing()) { renderLockPad(false); return; }   // unlock screen takes over the whole display
     if (view == V_SETTINGS) renderSettings();
     else renderBms();

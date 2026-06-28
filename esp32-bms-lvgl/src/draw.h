@@ -132,14 +132,12 @@ static void drawWxIcon(int cx, int cy, int code, float k = 1.15f) {   // centred
     else if (cat == 4) for (int i = 0; i < 3; i++) { float bx = 9 + i * 4; fCircle(wpx(bx), wpy(21.5f), wpr(1.4f), SNW); }                                        // snow dots
     else if (cat == 5) { tri(wpx(13), wpy(18), wpx(9.5f), wpy(22.5f), wpx(13), wpy(20), BOLT); tri(wpx(13), wpy(20), wpx(16), wpy(20), wpx(10.5f), wpy(25.5f), BOLT); }    // filled bolt
 }
-static void drawBed(int cx, int cy, uint32_t col) {
-    int x = cx - 13, y = cy + 5;
-    fRect(x + 1, y, 2, 4, 0, col);
-    fRect(x + 22, y, 2, 4, 0, col);
-    fRect(x, y - 6, 26, 6, 2, col);
-    fRect(x, y - 13, 3, 9, 0, col);
-    fRect(x + 4, y - 9, 8, 4, 2, col);
-    lText("z", x + 20, y - 18, F12, col);
+static void drawLock(int cx, int cy, uint32_t col) {   // padlock — manual screen lock
+    int bw = 13, bh = 10, by = cy - 2;                  // body
+    ring(cx, by, 5, 3, 180, 360, col);                  // shackle: top half-ring sitting on the body
+    fRect(cx - bw / 2, by, bw, bh, 3, col);             // body
+    fCircle(cx, by + 4, 2, C_CARD);                     // keyhole (punched in the card colour)
+    fRect(cx - 1, by + 4, 2, 4, 0, C_CARD);
 }
 // compact wifi glyph for the top bar; cy is the VISUAL centre (dot below, arcs fanning up),
 // so it lines up with the weather glyph / temperature / clock which all centre on the same y.

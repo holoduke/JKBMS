@@ -32,7 +32,7 @@ static void drawTabs(bool autoActive, float prog) {
     }
     fRect(BED_X, y, BED_W, h, 8, C_CARD);
     dRect(BED_X, y, BED_W, h, 8, C_BORDER);
-    drawBed(BED_X + BED_W / 2, y + h / 2, C_MUTED);
+    drawLock(BED_X + BED_W / 2, y + h / 2, C_MUTED);
     fRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_CARD);
     dRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_BORDER);
     drawGear(GEAR_X + GEAR_W / 2, GEAR_Y + h / 2, 7, C_MUTED, C_CARD);

@@ -134,7 +134,11 @@ static void handleTap(int x, int y) {
         else if (numBms >= 2 && x >= TAB2_X && x < TAB2_X + TAB_W) { switchView(V_BMS2); lastSwitch = millis(); }
         else if (x >= GEAR_X - 10) { cfgBms = (view == V_BMS2 && numBms >= 2) ? 1 : 0; view = V_SETTINGS; kbActive = false; infoPopup = false; }  // keep last sub-tab
         else if (updAvail && updBoxR > updBoxL && x >= updBoxL && x <= updBoxR) updPopup = true;                   // update icon → update modal
-        else if (x >= BED_X - 8) pendingSleep = true;                                                              // sleep, left of the gear
+        else if (x >= BED_X - 8) {                                                                                  // lock icon, left of the gear
+            lockEntryLen = 0; lockEntry[0] = 0; lockWrongUntil = 0;
+            if (lockPin[0]) locked = true;        // PIN set → lock now (unlock pad takes over)
+            else lockSetMode = true;              // no PIN yet → set one first; lockCommit then locks (see events.h)
+        }
         else if (wxOk && wxBoxR > wxBoxL && x >= wxBoxL && x <= wxBoxR) wxPopup = true;                            // weather glyph → forecast popup
     }
 }
