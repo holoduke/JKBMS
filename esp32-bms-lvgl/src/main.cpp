@@ -82,6 +82,10 @@ public:
             for (int j = 0; j < h; j++) { *d-- = *s; s += w; }       // ly++ → fb addr-- (contiguous)
         }
     }
+    // Push an EXTERNAL buffer (a snapshot of the framebuffer) — same call the base flush()
+    // uses, so the flush task can transmit a snapshot on core 0 while core 1 renders ahead.
+    void flushBuffer(uint16_t *buf) { if (_output) _output->draw16bitRGBBitmap(_output_x, _output_y, buf, _width, _height); }
+    size_t fbBytes() const { return (size_t)_width * _height * 2; }
 };
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(TFT_CS, TFT_SCK, TFT_SDA0, TFT_SDA1, TFT_SDA2, TFT_SDA3);
@@ -89,6 +93,13 @@ Arduino_GFX *g = new Arduino_AXS15231B(bus, GFX_NOT_DEFINED, 0, false, TFT_res_W
 FastCanvas *gfx = new FastCanvas(TFT_res_W, TFT_res_H, g, 0, 0, TFT_rot);
 AXS15231B_Touch touch(Touch_SCL, Touch_SDA, Touch_INT, Touch_ADDR, TFT_rot);
 static bool gfxDirty = false;
+static volatile uint32_t g_flushUs = 0;     // last full-canvas flush duration (µs)
+static volatile uint32_t g_fps = 0;         // flushes/sec measured over the last second
+// Async flush pipeline: core 1 snapshots a finished frame into fbSnap and signals the
+// core-0 flush task, which does the ~40ms panel push while core 1 renders the next frame.
+static uint16_t *fbSnap = nullptr;          // PSRAM snapshot the flush task transmits
+static SemaphoreHandle_t flushReq = nullptr;
+static volatile bool flushBusy = false;     // true while the flush task is pushing fbSnap
 
 // ---- simulated BMS data ----
 struct Bms {
@@ -2803,6 +2814,19 @@ static void wifiTick_cb(lv_timer_t *t) {
 // and the alert webhook POSTs. The MQTT command path (mqCallback → bmsSet) is the only
 // one that touches the Modbus bus, and that's serialised against the core-1 poll by busMux.
 // Good home for any future blocking/background job (extra sensors, cloud sync, etc.).
+// Panel push task (core 0): transmits the snapshot core 1 hands it. This is the ~40ms
+// blocking pixel-swizzle+DMA — doing it here keeps core 1 free for touch + next-frame render.
+static void flushTask(void *) {
+    for (;;) {
+        xSemaphoreTake(flushReq, portMAX_DELAY);
+        uint32_t t = micros();
+        gfx->flushBuffer(fbSnap);
+        g_flushUs = micros() - t;
+        static uint32_t fc = 0, fsec = 0; fc++;
+        uint32_t ms = millis(); if (ms - fsec >= 1000) { g_fps = fc; fc = 0; fsec = ms; }
+        flushBusy = false;
+    }
+}
 static void netTask(void *) {
     uint32_t lastPoll = 0;
     for (;;) {
@@ -2913,6 +2937,12 @@ void setup() {
     lv_timer_create(fling_cb, 30, NULL);                  // momentum scroll
     lv_timer_create(wifiTick_cb, 500, NULL);
     lv_timer_create(bmsPoll_cb, 500, NULL);               // react to core-0 poll results (reconnect repaint, graph refresh)
+    // Async panel-flush pipeline: a PSRAM snapshot + a core-0 task that does the blocking
+    // ~40ms push, so core 1 never blocks on it. Falls back to inline flush if alloc fails.
+    fbSnap = (uint16_t *)ps_malloc(gfx->fbBytes());
+    flushReq = xSemaphoreCreateBinary();
+    if (fbSnap && flushReq) xTaskCreatePinnedToCore(flushTask, "flush", 4096, NULL, 2, NULL, 0);
+    else { free(fbSnap); fbSnap = nullptr; Serial.println("[flush] no PSRAM/sem — inline flush fallback"); }
     // Blocking network I/O on core 0, away from the render/touch core (1). 10 KB stack
     // covers the mbedTLS handshake; low priority so it never preempts the UI.
     xTaskCreatePinnedToCore(netTask, "net", 10240, NULL, 1, NULL, 0);
@@ -2927,6 +2957,7 @@ void loop() {
     // I/O can't stall rendering or touch — see netTask().
     if (pendingSleep) {
         pendingSleep = false;
+        while (flushBusy) delay(1);   // let the core-0 task finish before we drive the bus directly
         playSleepAnimation();   // blocking, draws + flushes itself; sets standby
         gfxDirty = false;
         return;
@@ -2940,9 +2971,16 @@ void loop() {
     if (idle) {
         static uint32_t lastFrame = 0; uint32_t now = millis();
         uint32_t period = (appliedB <= DIM_LEVEL) ? 250 : 80;   // ~4 fps once dimmed (motion invisible), else ~12 fps
-        if (now - lastFrame >= period) { lastFrame = now; renderIdleFrame(); gfx->flush(); gfxDirty = false; }
+        if (now - lastFrame >= period) { lastFrame = now; renderIdleFrame(); while (flushBusy) delay(1); gfx->flush(); gfxDirty = false; }
         delay(1); return;
     }
-    if (gfxDirty) { gfx->flush(); gfxDirty = false; }
+    if (gfxDirty && !flushBusy) {
+        if (fbSnap) {   // async: snapshot the finished frame, hand it to the core-0 flush task, keep going
+            memcpy(fbSnap, gfx->getFramebuffer(), gfx->fbBytes());
+            gfxDirty = false; flushBusy = true; xSemaphoreGive(flushReq);
+        } else {        // fallback (no PSRAM snapshot): inline blocking flush
+            uint32_t t = micros(); gfx->flush(); g_flushUs = micros() - t; gfxDirty = false;
+        }
+    }
     delay(1);
 }
