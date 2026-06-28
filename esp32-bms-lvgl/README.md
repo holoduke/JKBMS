@@ -66,7 +66,7 @@ default is derived from the eFuse MAC, e.g. `jk-xxxx`):
   (two columns on desktop, stacked on mobile).
 - **Controls:** toggle charge/discharge/balancer, tap any setting to edit it.
 - **Device screen** — a live screenshot of the LCD framebuffer, JPEG-encoded on the device (`/screen.jpg`, ~30 KB).
-- **CSV export** — download the full 7-day SOC/power log (`/history.csv`, timestamped, both packs).
+- **History charts + CSV** — the portal renders the 7-day SOC & power history as live line charts (`/history.json`), and you can download the full timestamped log (`/history.csv`, both packs).
 - **Push alerts** — POST a notification to an [ntfy.sh](https://ntfy.sh) topic (or any webhook) when a
   problem appears: BMS fault, low SOC, high temperature, or a large cell delta. Edge-triggered (fires
   once per event, re-arms when it clears), with a **Test** button.
@@ -74,8 +74,9 @@ default is derived from the eFuse MAC, e.g. `jk-xxxx`):
 - **Security** — change the portal/OTA password (stored in NVS).
 - **Home Assistant (MQTT)** — enable in the portal's *Home Assistant (MQTT)* card; each pack
   is published with MQTT **auto-discovery** (SOC/V/A/W/temps/health/cycles/cell-delta/balance-current/
-  status sensors + **lifetime energy charged & discharged** as `total_increasing` kWh sensors for the HA
-  Energy dashboard + Charge/Discharge/Balancer switches) and an availability (LWT) topic — no YAML needed.
+  status sensors + **per-cell voltage** diagnostic sensors + **lifetime energy charged & discharged** as
+  `total_increasing` kWh sensors for the HA Energy dashboard + Charge/Discharge/Balancer switches) and an
+  availability (LWT) topic — no YAML needed.
 
 Two ways to update without a cable (HTTP Basic auth on everything):
 
