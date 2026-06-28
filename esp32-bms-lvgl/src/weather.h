@@ -9,6 +9,41 @@ static uint32_t wxLastFetch = 0;
 static float wxLat = 0, wxLon = 0;
 static bool wxGeo = false;
 
+// Persist the last good forecast so a reboot-while-offline shows weather immediately
+// (greyed as stale until a live fetch refreshes it). Coords ride along so we skip
+// re-geolocating on a fixed install. Magic-gated so a layout change ignores old blobs.
+#define WX_NVS_MAGIC 0x57583101u   // 'WX' + v01
+static void saveWeather() {
+    prefs.begin("wx", false);
+    prefs.putUInt("magic", WX_NVS_MAGIC);
+    prefs.putUChar("ok", wxOk ? 1 : 0);
+    prefs.putInt("t", wxCurTemp);
+    prefs.putInt("c", wxCurCode);
+    prefs.putInt("days", wxDays);
+    prefs.putBytes("day", wxDay, sizeof(wxDay));
+    prefs.putBytes("at", &wxFetchedAt, sizeof(wxFetchedAt));
+    prefs.putFloat("lat", wxLat);
+    prefs.putFloat("lon", wxLon);
+    prefs.putString("city", wxCity);
+    prefs.end();
+}
+static void loadWeather() {
+    prefs.begin("wx", true);
+    if (prefs.getUInt("magic", 0) == WX_NVS_MAGIC) {
+        wxOk = prefs.getUChar("ok", 0) != 0;
+        wxCurTemp = prefs.getInt("t", 0);
+        wxCurCode = prefs.getInt("c", -1);
+        wxDays = prefs.getInt("days", 0);
+        prefs.getBytes("day", wxDay, sizeof(wxDay));
+        prefs.getBytes("at", &wxFetchedAt, sizeof(wxFetchedAt));
+        wxLat = prefs.getFloat("lat", 0); wxLon = prefs.getFloat("lon", 0);
+        wxGeo = (wxLat != 0 || wxLon != 0);    // have coords → skip re-geolocation, go straight to the forecast
+        String c = prefs.getString("city", ""); strncpy(wxCity, c.c_str(), sizeof(wxCity) - 1); wxCity[sizeof(wxCity) - 1] = 0;
+    }
+    prefs.end();
+    // wxFreshThisBoot stays false → restored data shows greyed until the first live fetch this boot.
+}
+
 // Primary geo source: boogiewoogiedoo /visitors/location (HTTPS, precise lat/lon as strings).
 static bool wxGeoPrimary() {
     WiFiClientSecure net; net.setInsecure();
@@ -76,6 +111,7 @@ static bool wxFetch() {
                 n++;
             }
             wxDays = n; wxOk = n > 0; ok = wxOk;
+            if (wxOk) { wxFetchedAt = time(nullptr); wxFreshThisBoot = true; saveWeather(); }   // cache for reboot + clear stale
         }
     }
     http.end(); return ok;

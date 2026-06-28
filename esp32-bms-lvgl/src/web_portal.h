@@ -201,7 +201,7 @@ function wxsvg(c,s){var cat=wxcat(c);
  else body=cl+'<polygon points="13,18 9.5,22.5 12,22.5 10.5,25.5 16,20 13,20" fill="#ffd43b"/>';
  return '<svg width="'+s+'" height="'+s+'" viewBox="0 0 24 26" style="vertical-align:middle">'+body+'</svg>'}
 function renderWx(){if(!D.wxOk){wx.innerHTML='<div class=mut>'+t('wxnone')+'</div>';wxc.textContent='';return}
- wxc.textContent=D.wxCity||'';
+ wxc.textContent=(D.wxCity||'')+(D.wxStale?' · stale':'');
  let rows=(D.wxD||[]).map((d,i)=>`<div class=row><span>${wxsvg(d.c,24)} ${i==0?t('today'):i==1?t('tomorrow'):t('indays').replace('{n}',i)}</span><b>${d.mx}° / ${d.mn}°</b></div>`).join('');
  wx.innerHTML=`<div class=row><span class=big>${D.wxT}°</span>${wxsvg(D.wxC,46)}</div>${rows}`}
 function render(){renderWx();if(!D.packs)return;let p=D.packs[cur];
@@ -288,7 +288,7 @@ static String webJson() {
         ",\"mqHost\":\"" + jesc(mqttHost) + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + jesc(mqttUser) + "\"" +
         ",\"alEn\":" + String(alertEnabled ? 1 : 0) + ",\"alUrl\":\"" + jesc(alertUrl) + "\"" +
         ",\"alSoc\":" + String(alSocLo) + ",\"alTmp\":" + String(alTempHi) + ",\"alDlt\":" + String(alDeltaHi) + ",\"alFlt\":" + String(alOnFault ? 1 : 0) +
-        ",\"wxOk\":" + String(wxOk ? 1 : 0) + ",\"wxHttp\":" + String(wxHttp) + ",\"wxCity\":\"" + jesc(wxCity) + "\",\"wxT\":" + String(wxCurTemp) + ",\"wxC\":" + String(wxCurCode) + ",\"wxD\":[";
+        ",\"wxOk\":" + String(wxOk ? 1 : 0) + ",\"wxStale\":" + String(wxStale() ? 1 : 0) + ",\"wxHttp\":" + String(wxHttp) + ",\"wxCity\":\"" + jesc(wxCity) + "\",\"wxT\":" + String(wxCurTemp) + ",\"wxC\":" + String(wxCurCode) + ",\"wxD\":[";
     for (int i = 0; i < wxDays; i++) { if (i) j += ","; j += "{\"c\":" + String(wxDay[i].code) + ",\"mx\":" + String(wxDay[i].tmax) + ",\"mn\":" + String(wxDay[i].tmin) + "}"; }
     j += "],\"packs\":[";
     for (int t = 0; t < numBms; t++) {

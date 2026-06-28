@@ -47,6 +47,7 @@ void setup() {
     if (freshWebPass) saveSettings();   // first boot → lock in the randomly-generated default password
     if (lockAfterSec > 0 && lockPin[0]) locked = true;
     loadHistory();              // restore the persisted graph history (survives reboot)
+    loadWeather();              // restore the last forecast → shows immediately (greyed as stale until a live fetch)
 
     // 40 MHz QSPI — 80 MHz caused pixel-offset artifacts on this AXS15231B panel.
     if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");

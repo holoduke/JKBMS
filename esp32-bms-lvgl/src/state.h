@@ -200,6 +200,18 @@ struct WxDay { int code; int tmax, tmin; int pop; };   // pop = max precipitatio
 static bool wxOk = false; static int wxCurTemp = 0, wxCurCode = -1; static WxDay wxDay[5]; static int wxDays = 0;
 static char wxCity[28] = "";
 static int wxHttp = 0;              // diagnostic: last Open-Meteo HTTP code (negative = HTTPClient error)
+static time_t wxFetchedAt = 0;      // epoch of the last successful fetch (persisted → survives reboot)
+static bool wxFreshThisBoot = false;// a live fetch has succeeded since power-on (else the data is restored-from-NVS)
+#define WX_STALE_SECS 3600          // weather older than this (or never refreshed this boot) → dim the glyph
+// "stale" = we're showing weather but it isn't current: restored from NVS with no live fetch yet,
+// or the last good fetch is over an hour old (WiFi dropped / Open-Meteo failing). The top bar greys
+// the glyph + temp so a frozen reading isn't mistaken for live.
+static bool wxStale() {
+    if (!wxOk) return false;
+    if (!wxFreshThisBoot) return true;                 // restored from NVS, not yet refreshed this boot
+    time_t now = time(nullptr);
+    return wxFetchedAt && now > wxFetchedAt && (now - wxFetchedAt) > WX_STALE_SECS;
+}
 static void weatherLoop();          // defined in weather.h
 static bool timeSynced = false;     // NTP has produced a valid wall-clock
 static int sysScroll = 0;           // System-tab scroll offset (px)

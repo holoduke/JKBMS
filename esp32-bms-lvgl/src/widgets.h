@@ -18,11 +18,13 @@ static void drawTabs(bool autoActive, float prog) {
     int midY = y + h / 2;   // shared vertical centre for the whole top-bar row
     drawWifiSmall(wifiX, midY, WiFi.status() == WL_CONNECTED ? C_ACCENT : C_MUTED);
     if (wxOk) {   // today's weather: glyph + temp, right of the wifi icon
-        int wx = wifiX + 36; drawWxIcon(wx, midY + 1, wxCurCode);   // +1 centres the sun glyph (its art sits slightly high)
+        bool stale = wxStale();                                     // offline / not refreshed → grey it out
+        uint32_t wcol = stale ? C_MUTED : C_TEXT;
+        int wx = wifiX + 36; drawWxIcon(wx, midY + 1, wxCurCode, 1.15f, stale);   // +1 centres the sun glyph (its art sits slightly high)
         char wt[6]; snprintf(wt, sizeof(wt), "%d", wxCurTemp);
         int tw = textW(wt, F16), tx = wx + 18;
-        cText(wt, tx + tw / 2, midY, F16, C_TEXT);                  // centred on midY, same as the clock
-        fCircle(tx + tw + 3, midY - 5, 1, C_TEXT);                  // degree mark, upper-right of the digits
+        cText(wt, tx + tw / 2, midY, F16, wcol);                    // centred on midY, same as the clock
+        fCircle(tx + tw + 3, midY - 5, 1, wcol);                    // degree mark, upper-right of the digits
         wxBoxL = wx - 16; wxBoxR = tx + tw + 8;                     // tap zone → opens the forecast popup
     } else { wxBoxL = wxBoxR = 0; }
     struct tm ti;

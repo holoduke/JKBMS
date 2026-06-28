@@ -121,8 +121,9 @@ static void wxCloudAt(uint32_t col) {   // web cloud: 3 bumps (small-left, big-m
     fCircle(wpx(18), wpy(14), wpr(3.6f), col);
     fRect(wpx(8), wpy(13), wpr(11), wpr(5.2f), wpr(2.6f), col);
 }
-static void drawWxIcon(int cx, int cy, int code, float k = 1.15f) {   // centred at (cx,cy); k scales the 24-unit glyph
-    const uint32_t SUN = 0xffd43b, CLD = 0xc9d1d9, RN = 0x4aa3ff, SNW = 0xcfe6ff, BOLT = 0xffd43b;
+static void drawWxIcon(int cx, int cy, int code, float k = 1.15f, bool dim = false) {   // centred at (cx,cy); k scales the 24-unit glyph; dim greys it (stale)
+    const uint32_t SUN = dim ? C_MUTED : 0xffd43b, CLD = dim ? C_MUTED : 0xc9d1d9, RN = dim ? C_MUTED : 0x4aa3ff,
+                   SNW = dim ? C_MUTED : 0xcfe6ff, BOLT = dim ? C_MUTED : 0xffd43b;
     gCx = cx; gCy = cy; gK = k;   // 1.15 → ~28px top-bar glyph; larger k for the forecast popup
     int cat = wxCat(code);
     if (cat == 0) { wxSunAt(12, 11, 4.6f, SUN); return; }                   // clear
