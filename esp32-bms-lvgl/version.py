@@ -32,4 +32,6 @@ except ValueError:
 version = "%s.%d" % (BASE, patch)
 print("Firmware version: %s%s" % (version, "  (uncommitted changes)" if dirty else ""))
 
-env.Append(CPPDEFINES=[("FW_VERSION", env.StringifyMacro(version))])  # noqa: F821
+sha = git(["rev-parse", "--short=7", "HEAD"], "0000000")
+env.Append(CPPDEFINES=[("FW_VERSION", env.StringifyMacro(version)),       # noqa: F821
+                       ("FW_GIT_SHA", env.StringifyMacro(sha))])          # for the update-available check

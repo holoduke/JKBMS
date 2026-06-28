@@ -95,6 +95,7 @@ img{width:100%;max-width:480px;border:1px solid var(--bd);border-radius:10px;ima
   <div class=card><div class=ct data-i18n=history>History</div>
    <div class=mut style=font-size:11px>SOC %</div><canvas id=hsoc style=width:100%;height:78px;display:block></canvas>
    <div class=mut style="font-size:11px;margin-top:8px">Power W</div><canvas id=hpw style=width:100%;height:78px;display:block></canvas>
+   <div class=mut style="font-size:11px;margin-top:8px">Temp °C</div><canvas id=htmp style=width:100%;height:78px;display:block></canvas>
    <div class=row style=margin-top:8px><span class=mut id=hspan></span>
     <a class="btn sm" href=/history.csv download style=text-decoration:none data-i18n=csvexport>Download CSV</a></div></div>
   <div class=card><div class=ct data-i18n=controls>Controls</div><div id=ctl></div></div>
@@ -163,7 +164,8 @@ function chart(cv,arr,o){let dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=c
 function drawHist(){if(!HIST||!HIST.packs)return;let p=HIST.packs[cur];if(!p)return;
  hspan.textContent=(p.span||0).toFixed(1)+'d';
  chart(hsoc,p.soc,{min:0,max:100,color:'#34d399',fill:'rgba(52,211,153,.15)'});
- chart(hpw,p.w,{zero:1,color:'#22d3ee',fill:'rgba(34,211,238,.15)'})}
+ chart(hpw,p.w,{zero:1,color:'#22d3ee',fill:'rgba(34,211,238,.15)'});
+ chart(htmp,p.tmp,{color:'#fbbf24',fill:'rgba(251,191,36,.15)'})}
 async function loadHist(){try{HIST=await(await fetch('/history.json')).json();drawHist()}catch(e){}}
 function tc(t){return(t<-50||t>120)?'--':t.toFixed(0)+'°C'}
 function wh(w){return Math.abs(w)>=1000?(w/1000).toFixed(2)+'kWh':w.toFixed(0)+'Wh'}
@@ -172,7 +174,7 @@ function pc(w,tt){return tt>1?' ('+Math.round(w/tt*100)+'%)':''}
  s.innerHTML=Object.keys(LNAMES).map(k=>`<option value=${k}${k==L?' selected':''}>${LNAMES[k]}</option>`).join('');
  s.onchange=()=>{L=s.value;localStorage.setItem('lang',L);t0.textContent=t('bat')+' 1';t1.textContent=t('bat')+' 2';applyI18n();render()};
  t0.textContent=t('bat')+' 1';t1.textContent=t('bat')+' 2';applyI18n();})();
-async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json();fw.textContent='v'+D.fw;
+async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json();fw.textContent='v'+D.fw+(D.upd?' · ⬆ update available':'');
  net.style.color='';net.textContent=D.ip+' · '+t('up')+' '+Math.floor(D.up/60)+'m';fwv.textContent=t('current')+': v'+D.fw;
  let multi=D.n>1;seg.style.display=multi?'':'none';single.style.display=multi?'none':'';if(!multi)cur=0;if(cur>=D.n)sel(0);
  mqe.checked=!!D.mqEn;mqst.textContent=D.mqEn?(D.mqUp?t('connected')+' ✓':t('notconn')):t('disabled');mqst.className=D.mqUp?'grn':D.mqEn?'amb':'mut';
@@ -273,7 +275,7 @@ static String webJson() {
     j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
         "\",\"up\":" + String(millis() / 1000) + ",\"clk\":\"" + clk + "\",\"tsync\":" + String(timeSynced ? 1 : 0) +
         ",\"heap\":" + String((unsigned long)ESP.getFreeHeap()) + ",\"heapBig\":" + String((unsigned long)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)) + ",\"n\":" + String(numBms) +
-        ",\"flushUs\":" + String((unsigned long)g_flushUs) + ",\"fps\":" + String((unsigned long)g_fps) +
+        ",\"flushUs\":" + String((unsigned long)g_flushUs) + ",\"fps\":" + String((unsigned long)g_fps) + ",\"upd\":" + String(updAvail ? 1 : 0) +
         ",\"mqEn\":" + String(mqttEnabled ? 1 : 0) + ",\"mqUp\":" + String(mqttUp ? 1 : 0) +
         ",\"mqHost\":\"" + jesc(mqttHost) + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + jesc(mqttUser) + "\"" +
         ",\"alEn\":" + String(alertEnabled ? 1 : 0) + ",\"alUrl\":\"" + jesc(alertUrl) + "\"" +
@@ -472,6 +474,12 @@ static void webBegin() {
                 int lo = (int)((int64_t)k * cnt / pts), hi = (int)((int64_t)(k + 1) * cnt / pts); if (hi <= lo) hi = lo + 1;
                 long s = 0; for (int i = lo; i < hi; i++) s += histPwr[t][i];
                 if (k) j += ","; j += String((int)(s / (hi - lo)));
+            }
+            j += "],\"tmp\":[";
+            for (int k = 0; k < pts; k++) {                                 // bucket-average MOSFET temp (°C)
+                int lo = (int)((int64_t)k * cnt / pts), hi = (int)((int64_t)(k + 1) * cnt / pts); if (hi <= lo) hi = lo + 1;
+                int s = 0; for (int i = lo; i < hi; i++) s += histTmp[t][i];
+                if (k) j += ","; j += String(s / (hi - lo));
             }
             j += "]}";
         }

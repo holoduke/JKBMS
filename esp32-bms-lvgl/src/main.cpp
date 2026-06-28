@@ -22,6 +22,10 @@
 #ifndef FW_VERSION
 #define FW_VERSION "1.0-dev"   // fallback; the real version is injected from git by version.py at build time
 #endif
+#ifndef FW_GIT_SHA
+#define FW_GIT_SHA "0000000"   // short HEAD SHA (build-time); used for the update-available check
+#endif
+static volatile bool updAvail = false;   // a newer commit exists on origin/main than this build
 #define BL_CH_FREQ 5000
 #define BL_CH_RES 8
 #define BMS_TX_PIN 17               // BMS1: ESP TX -> BMS RX
@@ -32,6 +36,7 @@
 // ---- palette (identical to the original) ----
 #define C_BG 0x04060c
 #define C_CARD 0x121824
+#define C_CARD_HI 0x1b2436   // slightly lighter card top → subtle depth sheen
 #define C_BORDER 0x2a3342
 #define C_TEXT 0xeaf2fb
 #define C_MUTED 0x7e8ba0
@@ -132,6 +137,7 @@ static const char *errNameL(int bit) { return (bit < 29 && ERR_KEY[bit] != 0xFF)
 #define HIST_N 2016                  // 5 min × 7 days
 static uint8_t  histCap[2][HIST_N];  // SOC %, oldest→newest
 static int16_t  histPwr[2][HIST_N];  // pack power (W), oldest→newest
+static int8_t   histTmp[2][HIST_N];  // MOSFET temp (°C), oldest→newest
 static uint16_t histCount[2] = {0, 0};
 static uint32_t histLastMs[2] = {0, 0};
 static bool histDirty = false; static uint32_t histDirtyAt = 0;
@@ -271,16 +277,19 @@ static void genCap(Bms &b, float span, int count) {
 }
 static void simInit() { genCap(bms[0], 7, 168); genCap(bms[1], 1, 48); }
 // Append one real sample to BMS idx's history (ring-buffer, drops the oldest when full).
-static void histAppend(int idx, float soc, float watt) {
+static void histAppend(int idx, float soc, float watt, float tmp) {
     if (histCount[idx] >= HIST_N) {
         memmove(histCap[idx], histCap[idx] + 1, (HIST_N - 1) * sizeof(histCap[0][0]));
         memmove(histPwr[idx], histPwr[idx] + 1, (HIST_N - 1) * sizeof(histPwr[0][0]));
+        memmove(histTmp[idx], histTmp[idx] + 1, (HIST_N - 1) * sizeof(histTmp[0][0]));
         histCount[idx] = HIST_N - 1;
     }
     int s = (int)(soc + 0.5f); s = s < 0 ? 0 : s > 100 ? 100 : s;
     float w = watt < -32000 ? -32000 : watt > 32000 ? 32000 : watt;
+    int tc = (int)lroundf(tmp); tc = tc < -128 ? -128 : tc > 127 ? 127 : tc;
     histCap[idx][histCount[idx]] = (uint8_t)s;
     histPwr[idx][histCount[idx]] = (int16_t)w;
+    histTmp[idx][histCount[idx]] = (int8_t)tc;
     histCount[idx]++;
     histDirty = true; histDirtyAt = millis();
 }
@@ -291,7 +300,7 @@ static void histSample() {
         if (!bmsLive[t]) continue;
         if (bms[t].soc < 1) continue;                  // skip implausible 0% (BMS not settled / bad read)
         if (histCount[t] == 0 || (now - histLastMs[t]) >= HIST_INTERVAL_MS) {
-            histAppend(t, bms[t].soc, bms[t].v * bms[t].i);
+            histAppend(t, bms[t].soc, bms[t].v * bms[t].i, bms[t].tMos);
             histLastMs[t] = now;
         }
     }
@@ -691,6 +700,13 @@ static void icoBolt(int x, int y, uint32_t col) {      // power = lightning bolt
     tri(x + 6, y, x + 1, y + 6, x + 5, y + 5, col);
     tri(x + 5, y + 4, x + 9, y + 4, x + 4, y + 10, col);
 }
+// Card background with a subtle top sheen (depth) + border. Replaces the flat fRect+dRect.
+static void cardBg(int x, int y, int w, int h) {
+    fRect(x, y, w, h, 8, C_CARD);
+    fRect(x + 2, y + 2, w - 4, 7, 6, C_CARD_HI, 46);
+    fRect(x + 2, y + 9, w - 4, 6, 0, C_CARD_HI, 22);
+    dRect(x, y, w, h, 8, C_BORDER);
+}
 static void ring(int cx, int cy, int ro, int ri, int a0, int a1, uint32_t col) {
     lv_draw_arc_dsc_t d; lv_draw_arc_dsc_init(&d);
     d.color = lv_color_hex(col); d.width = ro - ri; d.opa = LV_OPA_COVER;
@@ -844,6 +860,7 @@ static void drawTabs(bool autoActive, float prog) {
     fRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_CARD);
     dRect(GEAR_X, GEAR_Y, GEAR_W, h, 8, C_BORDER);
     drawGear(GEAR_X + GEAR_W / 2, GEAR_Y + h / 2, 7, C_MUTED, C_CARD);
+    if (updAvail) fCircle(GEAR_X + GEAR_W - 3, GEAR_Y + 3, 3, C_ACCENT);   // firmware update available
 }
 static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col, bool stale = false) {
     ring(cx, cy, ro, ri, 0, 360, C_BORDER);          // full track
@@ -881,7 +898,7 @@ static void drawSpinner(int cx, int cy, uint32_t nowMs) {
     }
 }
 static void drawTile(int x, int y, int w, int h, const char *label, const char *val, const char *unit, uint32_t valCol) {
-    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    cardBg(x, y, w, h);
     lText(label, x + 8, y + 6, F10, C_MUTED);   // title size matches CAPACITY/POWER DRAW (F10)
     if (unit) {
         lText(val, x + 8, y + 24, F20, valCol);
@@ -897,7 +914,7 @@ static void drawTile(int x, int y, int w, int h, const char *label, const char *
 // statuses below, each a short translated label + a state dot (green = on, red = off; the
 // balancer's off state is muted since idle is normal).
 static void drawVoltTile(int x, int y, int w, int h, const Bms &b, bool stale = false) {
-    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    cardBg(x, y, w, h);
     char vbuf[10]; if (stale) snprintf(vbuf, sizeof(vbuf), "--"); else snprintf(vbuf, sizeof(vbuf), "%.2fV", b.v);
     lText(vbuf, x + 8, y + 4, F20, stale ? C_MUTED : C_TEXT);
     const int key[3] = {K_M_CHG, K_M_DIS, K_M_BAL};
@@ -911,7 +928,7 @@ static void drawVoltTile(int x, int y, int w, int h, const Bms &b, bool stale = 
     }
 }
 static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float t2, bool stale = false) {
-    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    cardBg(x, y, w, h);
     const char *lbl[3] = {T(K_MOS), T(K_T1), T(K_T2)}; float v[3] = {mos, t1, t2};
     for (int r = 0; r < 3; r++) {
         int ry = y + 12 + r * 19;
@@ -924,7 +941,7 @@ static void drawTempsTile(int x, int y, int w, int h, float mos, float t1, float
     }
 }
 static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, uint32_t upSec, const char *rt, uint32_t rtCol, bool stale = false) {
-    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    cardBg(x, y, w, h);
     const char *lbl[4] = {T(K_PK_CHG), T(K_PK_DIS), T(K_UPTIME), T(K_REMAIN)};
     char val[4][10];
     snprintf(val[0], sizeof(val[0]), "%.0fW", pkChg);
@@ -942,7 +959,7 @@ static void drawStatsTile(int x, int y, int w, int h, float pkChg, float pkDis, 
     }
 }
 static void drawCells(int x, int y, int w, int h, const Bms &b, bool stale = false) {
-    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    cardBg(x, y, w, h);
     int n = b.nCells; if (n < 1) n = 1; if (n > MAXCELLS) n = MAXCELLS;
     float lo = 9, hi = 0, sum = 0;
     for (int i = 0; i < n; i++) { float c = b.cell[i]; if (c < lo) lo = c; if (c > hi) hi = c; sum += c; }
@@ -1022,17 +1039,23 @@ static float packTotalWh(int t) {
     if (cells < 1) cells = NCELLS;
     return fullAh * cells * 3.2f;
 }
-static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24, float wh6, bool stale) {
-    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float remAh, float wh24, float wh6, int hcount, bool stale) {
+    cardBg(x, y, w, h);
     icoBattery(x + 8, y + 6, C_MUTED); lText(T(K_CAPACITY), x + 24, y + 6, F10, C_MUTED);
     char buf[12];
     if (stale) snprintf(buf, sizeof(buf), "--"); else fmtWh(buf, sizeof(buf), totalWh);
     lText(buf, x + 8, y + 22, F16, C_ACCENT);                  // headline: total pack capacity
+    if (!stale) { char ah[10]; snprintf(ah, sizeof(ah), "%.0fAh", remAh); lText(ah, x + w - 8 - textW(ah, F12), y + 25, F12, C_MUTED); }   // remaining Ah, right
     line(x + 8, y + 48, x + w - 8, y + 48, C_BORDER, 170);
-    const char *lbl[2] = {"24h", "6h"}; float val[2] = {wh24, wh6};   // energy drawn (used) over each window
+    float val[2] = {wh24, wh6};   // energy drawn (used) over each window (24h, 6h)
     for (int r = 0; r < 2; r++) {
         int ry = y + 56 + r * 20;
-        lText(lbl[r], x + 8, ry, F10, C_MUTED);
+        int win = r ? 72 : 288, have = hcount < win ? hcount : win; float hrs = have * 5.0f / 60.0f;   // real span until the ring fills
+        char lb[8];
+        if (have >= win) snprintf(lb, sizeof(lb), "%dh", r ? 6 : 24);
+        else if (hrs >= 1.0f) snprintf(lb, sizeof(lb), "%.0fh", hrs);
+        else snprintf(lb, sizeof(lb), "%.0fm", hrs * 60.0f);
+        lText(lb, x + 8, ry, F10, C_MUTED);
         if (stale) { lText("--", x + w - textW("--", F12) - 8, ry, F12, C_MUTED); continue; }
         fmtWh(buf, sizeof(buf), val[r]);
         char pc[8]; snprintf(pc, sizeof(pc), "%d%%", totalWh > 1 ? (int)(val[r] / totalWh * 100.0f + 0.5f) : 0);
@@ -1042,7 +1065,7 @@ static void drawEnergyTile(int x, int y, int w, int h, float totalWh, float wh24
     }
 }
 static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
-    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    cardBg(x, y, w, h);
     // Window is stored draw-positive (discharge up, charge down). Show it single-sided and
     // always positive: while charging it's the "Charge" power, while discharging it's the
     // "Power draw" — title + line colour track the live current direction.
@@ -1083,7 +1106,7 @@ static void drawPowerGraph(int x, int y, int w, int h, const Bms &b) {
     }
 }
 static void drawCapacityGraph(int x, int y, int w, int h, const Bms &b) {
-    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    cardBg(x, y, w, h);
     char hdr[40];
     if (b.capSpanDays >= 2.0f) snprintf(hdr, sizeof(hdr), "%s   %.0f %s", T(K_CAPACITY), b.capSpanDays, T(K_DAYS));
     else if (b.capCount >= 2) snprintf(hdr, sizeof(hdr), "%s   %.0f %s", T(K_CAPACITY), b.capSpanDays * 24.0f, T(K_HOURS));
@@ -1250,7 +1273,8 @@ static void renderBms() {
     drawCells(rx, 120, cellsW, 86, b, stale);
     blitCanvas(powCv, rx + cellsW + 8, 120, POW_W, POW_H);
     // bottom row, columns aligned with the row above: energy summary (left) + capacity graph (right)
-    drawEnergyTile(rx, 216, cellsW, CAP_H, packTotalWh(view), whSpent(view, 288), whSpent(view, 72), stale);
+    float remAh = b.soc / 100.0f * ((!demoMode && bmsLive[view]) ? packFullAh[view] : PACK_AH);   // remaining capacity
+    drawEnergyTile(rx, 216, cellsW, CAP_H, packTotalWh(view), remAh, whSpent(view, 288), whSpent(view, 72), histCount[view], stale);
     blitCanvas(capCv, rx + cellsW + 8, 216, CAP_W, CAP_H);
     if (wxPopup) renderWeatherPopup();   // forecast modal overlays the dashboard
 }
@@ -1270,7 +1294,7 @@ static const char *KB[3][4] = {
 static int srowY(int i) { return 86 + i * SROW_STEP; }   // fixed rows (BMS tab)
 static void srowAt(int y, const char *label, const char *val, uint32_t vc) {
     int x = 8, w = Wd - 16, h = SROW_H;
-    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    cardBg(x, y, w, h);
     lText(label, x + 14, y + h / 2 - 9, F16, C_TEXT);
     lText(val, x + w - textW(val, F16) - 16, y + h / 2 - 9, F16, vc);
 }
@@ -1278,7 +1302,7 @@ static void srow(int i, const char *label, const char *val, uint32_t vc) { srowA
 // iOS-style pill toggle, right-aligned in a settings row
 static void srowToggle(int y, const char *label, bool on) {
     int x = 8, w = Wd - 16, h = SROW_H;
-    fRect(x, y, w, h, 8, C_CARD); dRect(x, y, w, h, 8, C_BORDER);
+    cardBg(x, y, w, h);
     lText(label, x + 14, y + h / 2 - 9, F16, C_TEXT);
     int tw = 44, th = 22, tx = x + w - 16 - tw, ty = y + h / 2 - th / 2;
     fRect(tx, ty, tw, th, th / 2, on ? C_ACCENT : C_BORDER);
@@ -1868,6 +1892,7 @@ static void saveHistory() {
         size_t capN = histCount[t] * sizeof(histCap[0][0]), pwrN = histCount[t] * sizeof(histPwr[0][0]);
         snprintf(k, sizeof(k), "cap%d", t); size_t wc = prefs.putBytes(k, histCap[t], capN);
         snprintf(k, sizeof(k), "pwr%d", t); size_t wp = prefs.putBytes(k, histPwr[t], pwrN);
+        snprintf(k, sizeof(k), "tmp%d", t); prefs.putBytes(k, histTmp[t], histCount[t] * sizeof(histTmp[0][0]));
         // write the count LAST and only as large as BOTH blobs actually persisted, so a short/failed
         // data write can never leave a count out-running the cap OR pwr data (→ zero-tail graph).
         uint16_t capOk = (wc < capN) ? (uint16_t)wc : histCount[t];
@@ -1879,6 +1904,8 @@ static void saveHistory() {
     }
     prefs.putBytes("ein", lifeWhIn, sizeof(lifeWhIn));     // lifetime energy counters ride this ~30-min history save
     prefs.putBytes("eout", lifeWhOut, sizeof(lifeWhOut));
+    float pk[4] = {bms[0].peakChg, bms[0].peakDis, bms[1].peakChg, bms[1].peakDis};   // persist peaks (else lost on reboot)
+    prefs.putBytes("pk", pk, sizeof(pk));
     prefs.end();
 }
 static void loadHistory() {
@@ -1891,6 +1918,7 @@ static void loadHistory() {
         snprintf(k, sizeof(k), "c%d", t); int c = prefs.getUShort(k, 0); if (c > HIST_N) c = HIST_N;
         snprintf(k, sizeof(k), "cap%d", t); size_t gotC = prefs.getBytes(k, histCap[t], c * sizeof(histCap[0][0]));
         snprintf(k, sizeof(k), "pwr%d", t); size_t gotP = prefs.getBytes(k, histPwr[t], c * sizeof(histPwr[0][0]));
+        snprintf(k, sizeof(k), "tmp%d", t); prefs.getBytes(k, histTmp[t], c * sizeof(histTmp[0][0]));   // temp (may be absent on old data → zeros)
         if (gotC < (size_t)c) c = gotC;                          // cap blob shorter than the saved count → trust the bytes
         if (gotP / sizeof(histPwr[0][0]) < (size_t)c) c = gotP / sizeof(histPwr[0][0]);   // keep pwr aligned with cap
         while (c > 0 && histCap[t][c - 1] == 0) c--;    // SOC is never 0 → trailing zeros are corruption; drop them
@@ -1898,6 +1926,8 @@ static void loadHistory() {
     }
     if (prefs.isKey("ein")) prefs.getBytes("ein", lifeWhIn, sizeof(lifeWhIn));      // restore lifetime energy
     if (prefs.isKey("eout")) prefs.getBytes("eout", lifeWhOut, sizeof(lifeWhOut));
+    if (prefs.isKey("pk")) { float pk[4]; prefs.getBytes("pk", pk, sizeof(pk));      // restore peaks
+        bms[0].peakChg = pk[0]; bms[0].peakDis = pk[1]; bms[1].peakChg = pk[2]; bms[1].peakDis = pk[3]; }
     prefs.end();
 }
 
@@ -2894,8 +2924,23 @@ static void wifiTick_cb(lv_timer_t *t) {
 // Good home for any future blocking/background job (extra sensors, cloud sync, etc.).
 // Panel push task (core 0): transmits the snapshot core 1 hands it. This is the ~40ms
 // blocking pixel-swizzle+DMA — doing it here keeps core 1 free for touch + next-frame render.
+// Check GitHub for a newer commit on main than this build. Uses the .sha media type so the
+// response is just the 40-char SHA (tiny). Sets updAvail; runs on the core-0 net task.
+static void updateCheck() {
+    if (WiFi.status() != WL_CONNECTED || otaActive) return;
+    WiFiClientSecure net; net.setInsecure();
+    HTTPClient http; http.setConnectTimeout(5000); http.setTimeout(5000);
+    if (!http.begin(net, "https://api.github.com/repos/holoduke/JKBMS/commits/main")) return;
+    http.addHeader("User-Agent", "jkbms-device");          // GitHub requires a UA
+    http.addHeader("Accept", "application/vnd.github.sha"); // → plain-text commit SHA
+    if (http.GET() == 200) {
+        String s = http.getString(); s.trim();
+        if (s.length() >= 7) updAvail = (s.substring(0, 7) != FW_GIT_SHA);
+    }
+    http.end();
+}
 static void netTask(void *) {
-    uint32_t lastPoll = 0;
+    uint32_t lastPoll = 0, lastUpd = 0;
     for (;;) {
         mqttLoop();     // HA / MQTT — connect, keepalive, publish, handle commands
         weatherLoop();  // geo-IP + Open-Meteo forecast (self-throttled)
@@ -2908,6 +2953,7 @@ static void netTask(void *) {
             lastPoll = now;
             bmsRead();   // history sampling + energy integration run on core 1 (see bmsPoll_cb) to avoid a cross-core race on those buffers
         }
+        if ((!lastUpd && now > 30000) || (lastUpd && now - lastUpd > 21600000UL)) { lastUpd = now; updateCheck(); }   // GitHub update check ~30s after boot, then every 6h
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
