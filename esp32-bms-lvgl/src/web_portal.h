@@ -318,7 +318,7 @@ static String webJson() {
         for (int i = 0; i < b.nCells; i++) { if (i) j += ","; j += String(b.cellRes[i], 2); }
         j += "],\"al\":[";
         int na = 0;
-        for (int bit = 0; bit < 29; bit++)
+        for (int bit = 0; bit < NERR; bit++)
             if (((b.errFlags >> bit) & 1u) && ERR_NAMES[bit][0]) { if (na++) j += ","; j += "\""; j += ERR_NAMES[bit]; j += "\""; }
         j += "]}";
     }
@@ -392,9 +392,9 @@ static void webBegin() {
         int b = webServer.arg("bms").toInt(); String w = webServer.arg("which");
         if (b < 0 || b >= numBms) { webServer.send(400, "text/plain", "pack not enabled"); return; }
         bool ok = false;
-        if (w == "chg")      { bool n = !bmsCharge[b];    if (bmsSet(b, 0x1070, n)) { bmsCharge[b] = n; ok = true; } }
-        else if (w == "dis") { bool n = !bmsDischarge[b]; if (bmsSet(b, 0x1074, n)) { bmsDischarge[b] = n; ok = true; } }
-        else if (w == "bal") { bool n = !bmsBalancer[b];  if (bmsSet(b, 0x1078, n)) { bmsBalancer[b] = n; ok = true; } }
+        if (w == "chg")      { bool n = !bmsCharge[b];    if (bmsSet(b, REG_CHG_SW, n)) { bmsCharge[b] = n; ok = true; } }
+        else if (w == "dis") { bool n = !bmsDischarge[b]; if (bmsSet(b, REG_DIS_SW, n)) { bmsDischarge[b] = n; ok = true; } }
+        else if (w == "bal") { bool n = !bmsBalancer[b];  if (bmsSet(b, REG_BAL_SW, n)) { bmsBalancer[b] = n; ok = true; } }
         if (ok) { cfgDirty = true; cfgDirtyAt = millis(); }
         webServer.send(ok ? 200 : 500, "text/plain", ok ? "ok" : "write failed");
     });

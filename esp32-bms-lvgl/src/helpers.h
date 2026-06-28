@@ -118,7 +118,6 @@ static inline const lv_font_t *curFont(int sz) {
 }
 #define F10 curFont(10)
 #define F12 curFont(12)
-#define F14 curFont(14)
 #define F16 curFont(16)
 #define F20 curFont(20)
 #define F28 curFont(28)

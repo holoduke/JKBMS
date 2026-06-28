@@ -38,7 +38,6 @@ static bool wifiPoll() {
             snprintf(wifiMsg, sizeof(wifiMsg), "%s %s", T(K_WIFI_CONNECTED), WiFi.SSID().c_str());
             webBegin();   // start the web portal + OTA once we have an IP
             configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.nist.gov", "time.google.com");   // (re)start NTP on every (re)connect
-            ntpStarted = true;
             if (!wifiSaved && connSsid[0]) { prefs.begin("wifi", false); prefs.putString("ssid", connSsid); prefs.putString("pass", connPass); prefs.end(); wifiSaved = true; }
         } else if (st == WL_CONNECT_FAILED) snprintf(wifiMsg, sizeof(wifiMsg), "%s", T(K_WIFI_CONN_FAIL));
         else if (st == WL_NO_SSID_AVAIL) snprintf(wifiMsg, sizeof(wifiMsg), "%s", T(K_WIFI_NOT_FOUND));
@@ -58,7 +57,6 @@ static bool wifiPoll() {
 static bool dirtyFull = true;
 static lv_area_t dirtyRect;
 static void markRowAt(int y) { dirtyFull = false; dirtyRect = (lv_area_t){8, y, Wd - 9, y + SROW_H - 1}; }
-static void markRow(int i) { markRowAt(srowY(i)); }
 
 // ---- settings persistence (NVS) ----
 static void markCfg() { cfgDirty = true; cfgDirtyAt = millis(); }

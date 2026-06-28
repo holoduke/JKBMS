@@ -87,7 +87,7 @@ static void cText(const char *s, int cx, int cy, const lv_font_t *f, uint32_t co
 }
 
 // ============================================================================
-//  Widgets — ported 1:1 from esp32-bms/src/main.cpp
+//  Widgets — gear, weather glyphs, sleep/wifi icons
 // ============================================================================
 static void drawGear(int cx, int cy, int r, uint32_t col, uint32_t hole) {
     for (int k = 0; k < 8; k++) {
@@ -140,20 +140,6 @@ static void drawBed(int cx, int cy, uint32_t col) {
     fRect(x, y - 13, 3, 9, 0, col);
     fRect(x + 4, y - 9, 8, 4, 2, col);
     lText("z", x + 20, y - 18, F12, col);
-}
-static void drawWifi(int cx, int cy, uint32_t color) {
-    fCircle(cx, cy, 2, color);
-    const float a0 = 50.0f * (PI / 180.0f), a1 = 130.0f * (PI / 180.0f), yScale = 0.72f;
-    int radii[3] = {7, 12, 17};
-    for (int k = 0; k < 3; k++) {
-        int r = radii[k], px = -1, py = -1;
-        for (int s = 0; s <= 10; s++) {
-            float a = a0 + (a1 - a0) * s / 10.0f;
-            int x = cx + (int)(r * cosf(a)), y = cy - (int)(r * sinf(a) * yScale);
-            if (px >= 0) { line(px, py, x, y, color); line(px, py + 1, x, y + 1, color); }
-            px = x; py = y;
-        }
-    }
 }
 // compact wifi glyph for the top bar; cy is the VISUAL centre (dot below, arcs fanning up),
 // so it lines up with the weather glyph / temperature / clock which all centre on the same y.

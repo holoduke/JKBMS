@@ -99,9 +99,9 @@ static void handleTap(int x, int y) {
             if (idx == 3) { bmsPin[b * 2 + 1] = nextPin(bmsPin[b * 2 + 1]); bmsBegin(); markCfg(); markRowAt(ry); return; } // UART RX pin
             if (!live) return;                                                                        // offline/demo: nothing below
             int si = idx - BMS_FIXED;                                                                 // live section
-            if (si == 0) { bmsCharge[b] = !bmsCharge[b]; if (!bmsSet(b, 0x1070, bmsCharge[b] ? 1 : 0)) bmsCharge[b] = !bmsCharge[b]; markCfg(); markRowAt(ry); return; }
-            if (si == 1) { bmsDischarge[b] = !bmsDischarge[b]; if (!bmsSet(b, 0x1074, bmsDischarge[b] ? 1 : 0)) bmsDischarge[b] = !bmsDischarge[b]; markCfg(); markRowAt(ry); return; }
-            if (si == 2) { bmsBalancer[b] = !bmsBalancer[b]; if (!bmsSet(b, 0x1078, bmsBalancer[b] ? 1 : 0)) bmsBalancer[b] = !bmsBalancer[b]; markCfg(); markRowAt(ry); return; }
+            if (si == 0) { bmsCharge[b] = !bmsCharge[b]; if (!bmsSet(b, REG_CHG_SW, bmsCharge[b] ? 1 : 0)) bmsCharge[b] = !bmsCharge[b]; markCfg(); markRowAt(ry); return; }
+            if (si == 1) { bmsDischarge[b] = !bmsDischarge[b]; if (!bmsSet(b, REG_DIS_SW, bmsDischarge[b] ? 1 : 0)) bmsDischarge[b] = !bmsDischarge[b]; markCfg(); markRowAt(ry); return; }
+            if (si == 2) { bmsBalancer[b] = !bmsBalancer[b]; if (!bmsSet(b, REG_BAL_SW, bmsBalancer[b] ? 1 : 0)) bmsBalancer[b] = !bmsBalancer[b]; markCfg(); markRowAt(ry); return; }
             if (setOk[b]) {
                 int pi = si - 3;
                 // Only the main 4-byte (UINT32) settings are writable; the packed tail

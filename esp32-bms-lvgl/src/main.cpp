@@ -1,8 +1,11 @@
 // JK BMS LVGL dashboard — Guition JC3248W535 (480x320 landscape).
-// Faithful pixel-for-pixel reproduction of the esp32-bms/ Arduino_GFX dashboard,
-// drawn through LVGL's vector draw API (so the text is anti-aliased). Every shape,
-// coordinate and colour matches the original; only the fonts are nicer. Data is
-// simulated; tabs auto-switch (BMS1<->BMS2), a tap pauses it for 30s.
+// Reads one or two JK-BMS packs over Modbus-RTU (each on its own UART) and renders
+// the dashboard through LVGL's vector draw API (anti-aliased text). Tabs auto-switch
+// between connected packs; a tap pauses the rotation for 30s. A demo mode (Settings)
+// substitutes simulated data when no real pack is wired up.
+//
+// Single translation unit: feature code lives in the .h files #included below, in
+// dependency order (shared globals, no separate compilation — include order matters).
 #include <Arduino.h>
 #include <lvgl.h>
 #include <Arduino_GFX_Library.h>

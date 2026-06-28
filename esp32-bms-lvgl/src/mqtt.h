@@ -102,7 +102,7 @@ static void mqPublishState() {
         int deltaMv = b.nCells > 0 ? (int)((mx - mn) * 1000) : 0;   // no cells read yet → 0, not -9000
         uint32_t sc; const char *st = bmsStatusStr(t, demoMode || bmsLive[t], &sc);
         char al[90] = ""; int na = 0;
-        for (int bit = 0; bit < 29 && na < 3; bit++)
+        for (int bit = 0; bit < NERR && na < 3; bit++)
             if (((b.errFlags >> bit) & 1u) && ERR_NAMES[bit][0]) { if (na++) strncat(al, ", ", sizeof(al) - strlen(al) - 1); strncat(al, ERR_NAMES[bit], sizeof(al) - strlen(al) - 1); }
         if (!na) strcpy(al, "none");
         snprintf(buf, sizeof(buf),
@@ -129,10 +129,10 @@ static void mqCallback(char *topic, byte *pl, unsigned int len) {
     if (pp < 0 || pp + 2 >= (int)tp.length()) return;
     int t = topic[pp + 2] - '0'; if (t < 0 || t >= numBms) return;
     bool on = len && pl[0] == '1';
-    uint16_t reg = tp.indexOf("/chg/") > 0 ? 0x1070 : tp.indexOf("/dis/") > 0 ? 0x1074 : tp.indexOf("/bal/") > 0 ? 0x1078 : 0;
+    uint16_t reg = tp.indexOf("/chg/") > 0 ? REG_CHG_SW : tp.indexOf("/dis/") > 0 ? REG_DIS_SW : tp.indexOf("/bal/") > 0 ? REG_BAL_SW : 0;
     if (!reg) return;
     if (bmsSet(t, reg, on ? 1 : 0)) {
-        if (reg == 0x1070) bmsCharge[t] = on; else if (reg == 0x1074) bmsDischarge[t] = on; else bmsBalancer[t] = on;
+        if (reg == REG_CHG_SW) bmsCharge[t] = on; else if (reg == REG_DIS_SW) bmsDischarge[t] = on; else bmsBalancer[t] = on;
         cfgDirty = true; cfgDirtyAt = millis();
     }
     mqPublishState();

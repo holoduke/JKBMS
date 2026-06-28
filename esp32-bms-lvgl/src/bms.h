@@ -1,4 +1,8 @@
 // Part of the JK BMS firmware — one translation unit; #included by main.cpp in dependency order.
+// JK Modbus holding registers for the toggleable switches (written via bmsSet, 1=on/0=off).
+#define REG_CHG_SW 0x1070   // charge MOSFET enable
+#define REG_DIS_SW 0x1074   // discharge MOSFET enable
+#define REG_BAL_SW 0x1078   // balancer enable
 static void genCap(Bms &b, float span, int count) {
     if (count > NCAP) count = NCAP; if (count < 2) count = 2;
     b.capSpanDays = span; b.capCount = count;

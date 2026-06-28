@@ -102,7 +102,8 @@ struct Bms {
 };
 static Bms bms[2];
 // JK protection/warning bitmask bit → name (realtime errors field, offset 166). Bits 3,29-31 unused.
-static const char *ERR_NAMES[29] = {
+#define NERR 29   // number of defined protection/warning bits (loop bound for ERR_NAMES/ERR_KEY)
+static const char *ERR_NAMES[NERR] = {
     "Wire resistance", "MOSFET over-temp", "Cell count mismatch", "", "Fully charged",
     "Pack over-voltage", "Charge over-current", "Charge short-circuit", "Charge over-temp",
     "Charge under-temp", "Coprocessor comm err", "Cell under-voltage", "Pack under-voltage",
@@ -111,13 +112,13 @@ static const char *ERR_NAMES[29] = {
     "Battery over-temp", "Temp sensor anomaly", "PL module anomaly", "SCP release failed",
     "Discharge OCP2", "Discharge OCP3", "Discharge under-temp", "GPS remote lock"};
 // i18n keys parallel to ERR_NAMES (English kept for MQTT/web). 0xFF = no name (skip).
-static const uint8_t ERR_KEY[29] = {
+static const uint8_t ERR_KEY[NERR] = {
     K_E_WIRE_RES, K_E_MOS_OT, K_E_CELL_MISMATCH, 0xFF, K_E_FULLY_CHARGED, K_E_PACK_OV, K_E_CHG_OC,
     K_E_CHG_SC, K_E_CHG_OT, K_E_CHG_UT, K_E_COPROC, K_E_CELL_UV, K_E_PACK_UV, K_E_DIS_OC,
     K_E_DIS_SC, K_E_DIS_OT, K_E_CHG_MOS_FAULT, K_E_DIS_MOS_FAULT, K_E_GPS_DISC, K_E_CHG_PWD,
     K_E_DIS_ON_FAIL, K_E_BAT_OT, K_E_TEMP_ANOM, K_E_PL_ANOM, K_E_SCP_REL_FAIL, K_E_DIS_OCP2,
     K_E_DIS_OCP3, K_E_DIS_UT, K_E_GPS_LOCK};
-static const char *errNameL(int bit) { return (bit < 29 && ERR_KEY[bit] != 0xFF) ? T(ERR_KEY[bit]) : ""; }
+static const char *errNameL(int bit) { return (bit < NERR && ERR_KEY[bit] != 0xFF) ? T(ERR_KEY[bit]) : ""; }
 // Real graph history: one sample / 5 min per BMS, ring-buffered to HIST_N (=2016 = 7 days),
 // persisted to NVS so the trends survive a reboot. Demo mode uses genCap() instead.
 // Compact storage: SOC fits a byte, pack power an int16 (W) → ~6 KB/BMS in NVS.
@@ -240,7 +241,7 @@ static char netSsid[MAXNET][33];
 static int netRssi[MAXNET];
 static bool netEnc[MAXNET];
 static int netCount = 0, wifiSel = -1, wifiScroll = 0, kbMode = 0;
-static bool kbActive = false, wifiScanning = false, ntpStarted = false, wifiSaved = false;
+static bool kbActive = false, wifiScanning = false, wifiSaved = false;
 enum KbTarget { KBT_WIFI = 0, KBT_WUSER, KBT_WPASS };   // what the text keyboard is editing
 static int kbTarget = KBT_WIFI;
 static char wifiPass[33] = ""; static int wifiPassLen = 0;   // also reused as the scratch buffer for web user/pass entry

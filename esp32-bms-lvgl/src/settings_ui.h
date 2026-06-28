@@ -1,6 +1,6 @@
 // Part of the JK BMS firmware — one translation unit; #included by main.cpp in dependency order.
 // ============================================================================
-//  Settings screen — ported 1:1 from esp32-bms (size1->F12, size2->F16)
+//  Settings screen — keyboard, settings tabs, info/weather/update popups
 // ============================================================================
 #define CLOSE_X (Wd - 40)
 static const char *KB[3][4] = {

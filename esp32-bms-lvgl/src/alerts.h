@@ -61,7 +61,7 @@ static void alertLoop() {
         char msg[200]; int n = snprintf(msg, sizeof(msg), "BMS %d: ", t + 1); bool first = true;
         if (fresh & AL_FAULT) {
             n += snprintf(msg + n, sizeof(msg) - n, "%sfault", first ? "" : ", "); first = false;
-            for (int bit = 0, shown = 0; bit < 29 && shown < 2; bit++)
+            for (int bit = 0, shown = 0; bit < NERR && shown < 2; bit++)
                 if (((b.errFlags >> bit) & 1u) && ERR_NAMES[bit][0]) { n += snprintf(msg + n, sizeof(msg) - n, "%s%s", shown++ ? ", " : " (", ERR_NAMES[bit]); }
             if (msg[n - 1] != ' ' && strchr(msg, '(')) n += snprintf(msg + n, sizeof(msg) - n, ")");
         }
