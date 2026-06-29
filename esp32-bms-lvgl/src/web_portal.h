@@ -6,6 +6,7 @@
 #include <ArduinoOTA.h>
 #include <Update.h>
 #include <JPEGENC.h>
+#include <ArduinoJson.h>   // /restore parses an uploaded settings backup
 
 static WebServer webServer(80);
 static bool webStarted = false;
@@ -110,7 +111,9 @@ img{width:100%;max-width:480px;border:1px solid var(--bd);border-radius:10px;ima
    <div class=stack style=margin-top:8px><input type=file id=fwf accept=.bin> <button onclick=upl() data-i18n=flash>Upload &amp; flash</button></div>
    <div id=prog><div id=pb></div></div><p id=ust></p></div>
   <div class=card><div class=ct data-i18n=security>Security</div><div class=row><span data-i18n=chgpw>Change password</span>
-   <span class=stack><input type=password id=np data-ph=newpw><button class=sm onclick=chpw() data-i18n=save>Save</button></span></div></div>
+   <span class=stack><input type=password id=np data-ph=newpw><button class=sm onclick=chpw() data-i18n=save>Save</button></span></div>
+   <div class=row style=margin-top:6px><span>Backup / Restore</span><span class=stack><button class=sm onclick=bkp()>Backup</button><button class=sm onclick=rfi.click()>Restore</button></span></div>
+   <input type=file id=rfi accept=.json,application/json style=display:none onchange=doRst(this)></div></div>
   <div class=card><div class=ct>Home Assistant (MQTT)</div>
    <div class=row><span class=mut data-i18n=status>Status</span><span id=mqst>—</span></div>
    <div class=row><span data-i18n=broker>Broker host</span><input id=mqh placeholder=192.168.x.x></div>
@@ -246,6 +249,10 @@ async function ed(i){let s=(D.params[cur]||[]).find(x=>x.i==i);if(!s)return;
  let v=prompt(t('newval')+' '+s.l,s.v);if(v===null||v==='')return;
  let r=await fetch('/setparam?bms='+cur+'&idx='+i+'&val='+encodeURIComponent(v),{method:'POST'});
  if(!r.ok)alert(t('writefail'));setTimeout(load,600)}
+function bkp(){location='/backup'}
+async function doRst(i){let f=i.files[0];i.value='';if(!f)return;if(!confirm('Restore settings from this file and reboot the device?'))return;
+ let txt=await f.text();let r=await fetch('/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:txt});
+ ust.textContent=r.ok?t('rebooting'):t('failed');if(r.ok)setTimeout(()=>location.reload(),9000)}
 async function chpw(){if(np.value.length<4){ust.textContent=t('pwmin');return}
  let r=await fetch('/setpass',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'p='+encodeURIComponent(np.value)});
  np.value='';ust.textContent=r.ok?t('pwok'):t('pwfail')}
@@ -479,12 +486,69 @@ static String webMetrics() {
     return m;
 }
 
+// Full settings backup (router-style): everything needed to reproduce or clone a device,
+// INCLUDING credentials (WiFi/web/MQTT/PIN) — so the downloaded file is sensitive. Auth-gated.
+static String webBackup() {
+    String j = "{\"v\":1,\"fw\":\"" FW_VERSION "\"";
+    j += ",\"autosw\":" + String(autoSwitch ? 1 : 0) + ",\"ival\":" + String(intervalMs);
+    j += ",\"bright\":" + String(brightness) + ",\"sleep\":" + String(autoSleepMin);
+    j += ",\"eco\":" + String(ecoMode ? 1 : 0) + ",\"dim\":" + String(dimAfterSec);
+    j += ",\"tF\":" + String(tempF ? 1 : 0) + ",\"f12\":" + String(fmt12 ? 1 : 0);
+    j += ",\"wauto\":" + String(wifiAuto ? 1 : 0) + ",\"sim\":" + String(simSpeed);
+    j += ",\"demo\":" + String(demoMode ? 1 : 0) + ",\"idle\":" + String(idleScreen);
+    j += ",\"saver\":" + String(saverAfterSec) + ",\"lockAft\":" + String(lockAfterSec);
+    j += ",\"lockPin\":\"" + jesc(lockPin) + "\",\"lang\":" + String(g_lang) + ",\"nbms\":" + String(numBms);
+    j += ",\"pins\":["; for (int i = 0; i < 4; i++) { if (i) j += ","; j += String(bmsPin[i]); } j += "]";
+    j += ",\"wifiSsid\":\"" + jesc(connSsid) + "\",\"wifiPass\":\"" + jesc(connPass) + "\"";
+    j += ",\"wuser\":\"" + jesc(webUser) + "\",\"wpass\":\"" + jesc(webPass) + "\"";
+    j += ",\"mqEn\":" + String(mqttEnabled ? 1 : 0) + ",\"mqHost\":\"" + jesc(mqttHost) + "\",\"mqPort\":" + String(mqttPort);
+    j += ",\"mqUser\":\"" + jesc(mqttUser) + "\",\"mqPass\":\"" + jesc(mqttPass) + "\"";
+    j += ",\"alEn\":" + String(alertEnabled ? 1 : 0) + ",\"alUrl\":\"" + jesc(alertUrl) + "\"";
+    j += ",\"alSoc\":" + String(alSocLo) + ",\"alTmp\":" + String(alTempHi) + ",\"alDlt\":" + String(alDeltaHi) + ",\"alFlt\":" + String(alOnFault ? 1 : 0);
+    j += ",\"autoUpd\":" + String(autoUpdate ? 1 : 0);
+    j += "}";
+    return j;
+}
+
 static void webBegin() {
     if (webStarted) return;
     webServer.on("/", []() { if (!webAuth()) return; webServer.send_P(200, "text/html", WEB_PAGE); });
     webServer.on("/screen.jpg", handleScreen);
     webServer.on("/api", []() { if (!webAuth()) return; webServer.send(200, "application/json", webJson()); });
     webServer.on("/metrics", []() { webServer.send(200, "text/plain; version=0.0.4", webMetrics()); });   // Prometheus scrape — telemetry only, no auth (see webMetrics)
+    webServer.on("/backup", []() {   // download all settings (incl. credentials) as JSON — auth-gated, sensitive
+        if (!webAuth()) return;
+        webServer.sendHeader("Content-Disposition", "attachment; filename=jkbms-backup.json");
+        webServer.send(200, "application/json", webBackup());
+    });
+    webServer.on("/restore", HTTP_POST, []() {   // apply an uploaded backup, then reboot
+        if (!webAuth()) return;
+        JsonDocument d;
+        if (deserializeJson(d, webServer.arg("plain"))) { webServer.send(400, "application/json", "{\"ok\":0}"); return; }
+        autoSwitch = (d["autosw"] | (int)autoSwitch) != 0; intervalMs = d["ival"] | intervalMs;
+        brightness = d["bright"] | brightness; if (brightness < 10) brightness = 10; if (brightness > 255) brightness = 255;
+        autoSleepMin = d["sleep"] | autoSleepMin; ecoMode = (d["eco"] | (int)ecoMode) != 0; dimAfterSec = d["dim"] | dimAfterSec;
+        tempF = (d["tF"] | (int)tempF) != 0; fmt12 = (d["f12"] | (int)fmt12) != 0;
+        wifiAuto = (d["wauto"] | (int)wifiAuto) != 0; simSpeed = d["sim"] | simSpeed;
+        demoMode = (d["demo"] | (int)demoMode) != 0; idleScreen = d["idle"] | idleScreen;
+        saverAfterSec = d["saver"] | saverAfterSec; lockAfterSec = d["lockAft"] | lockAfterSec;
+        g_lang = d["lang"] | g_lang; if (g_lang >= LANG_COUNT) g_lang = 0;
+        numBms = d["nbms"] | numBms; if (numBms < 1) numBms = 1; if (numBms > 2) numBms = 2;
+        mqttEnabled = (d["mqEn"] | (int)mqttEnabled) != 0; mqttPort = d["mqPort"] | mqttPort;
+        alertEnabled = (d["alEn"] | (int)alertEnabled) != 0;
+        alSocLo = d["alSoc"] | alSocLo; alTempHi = d["alTmp"] | alTempHi; alDeltaHi = d["alDlt"] | alDeltaHi; alOnFault = (d["alFlt"] | (int)alOnFault) != 0;
+        autoUpdate = (d["autoUpd"] | (int)autoUpdate) != 0;
+        auto cps = [&](const char *k, char *dst, size_t cap) { const char *s = d[k] | (const char *)nullptr; if (s) { strncpy(dst, s, cap - 1); dst[cap - 1] = 0; } };
+        cps("lockPin", lockPin, sizeof(lockPin)); cps("wuser", webUser, sizeof(webUser)); cps("wpass", webPass, sizeof(webPass));
+        cps("mqHost", mqttHost, sizeof(mqttHost)); cps("mqUser", mqttUser, sizeof(mqttUser)); cps("mqPass", mqttPass, sizeof(mqttPass));
+        cps("alUrl", alertUrl, sizeof(alertUrl));
+        if (d["pins"].is<JsonArray>()) { JsonArray a = d["pins"].as<JsonArray>(); for (int i = 0; i < 4 && i < (int)a.size(); i++) bmsPin[i] = a[i] | bmsPin[i]; }
+        { const char *ss = d["wifiSsid"] | (const char *)nullptr, *pw = d["wifiPass"] | (const char *)nullptr;   // → the dedicated "wifi" namespace setup() reads on boot
+          if (ss) { prefs.begin("wifi", false); prefs.putString("ssid", ss); if (pw) prefs.putString("pass", pw); prefs.end(); } }
+        saveSettings();
+        webServer.send(200, "application/json", "{\"ok\":1}");
+        delay(400); ESP.restart();
+    });
     webServer.on("/toggle", HTTP_POST, []() {
         if (!webAuth()) return;
         int b = webServer.arg("bms").toInt(); String w = webServer.arg("which");
@@ -623,6 +687,7 @@ static void webBegin() {
         []() {
             if (!webServer.authenticate(webUser, webPass)) { Update.abort(); webServer.requestAuthentication(DIGEST_AUTH, "JK BMS"); return; }
             HTTPUpload &up = webServer.upload();
+            esp_task_wdt_reset();   // the upload blocks loopTask for the whole flash → keep feeding the UI watchdog so it can't trip mid-write
             if (up.status == UPLOAD_FILE_START) { WiFi.setSleep(false); Update.begin(UPDATE_SIZE_UNKNOWN); }
             else if (up.status == UPLOAD_FILE_WRITE) { if (Update.write(up.buf, up.currentSize) != up.currentSize) Update.abort(); }
             else if (up.status == UPLOAD_FILE_END) { Update.end(true); }
