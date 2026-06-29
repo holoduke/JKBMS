@@ -221,14 +221,21 @@ function render(){renderWx();if(!D.packs)return;let p=D.packs[cur];
  cells.innerHTML=p.cells.map((c,i)=>`<div class="cell${c==mx?' hi':c==mn?' lo':''}">C${i+1}<br><b>${c.toFixed(3)}</b>${(p.res&&p.res[i]!=null)?`<br><span class=mut>${p.res[i].toFixed(2)} mΩ</span>`:''}</div>`).join('');
  temps.innerHTML=[[t('mosfet'),p.tmos],[t('sensor')+' 1',p.t1],[t('sensor')+' 2',p.t2]]
   .map(([n,v])=>`<div class=row><span class=mut>${n}</span><b>${tc(v)}</b></div>`).join('');
- sess.innerHTML=[[t('capacity'),p.cap.toFixed(0)+' Ah'],[t('totalenergy'),wh(p.twh)],
+ let srows=[[t('capacity'),p.cap.toFixed(0)+' Ah'],[t('totalenergy'),wh(p.twh)],
   [t('echg'),(p.ein||0).toFixed(1)+' kWh'],[t('edis'),(p.eout||0).toFixed(1)+' kWh'],
-  [t('cycles'),p.cyc],[t('health'),p.soh+'%'],
+  [t('cycles'),p.cyc],[t('health'),p.soh+'%'+(p.ret!=null?' · '+p.ret+'% cap':'')],
   [t('uptime'),(p.up_s/3600).toFixed(0)+' h'],[t('balcur'),(p.bcur||0).toFixed(2)+' A'],
   [t('peakchg'),p.pkc.toFixed(0)+' W'],[t('peakdis'),p.pkd.toFixed(0)+' W'],
   [t('chg24'),wh(p.c24||0)],[t('used24'),wh(p.u24)+pc(p.u24,p.twh)],
   [t('chg6'),wh(p.c6||0)],[t('used6'),wh(p.u6)+pc(p.u6,p.twh)]]
   .map(([n,v])=>`<div class=row><span class=mut>${n}</span><b>${v}</b></div>`).join('');
+ // capacity-fade sparkline (monthly points). Flat line if the BMS reports a static rated capacity.
+ let sh=p.sohH||[],spk='';
+ if(sh.length>=2){let cs=sh.map(x=>x.c),lo=Math.min(...cs),hi=Math.max(...cs),rg=(hi-lo)||1;
+  let pts=cs.map((c,i)=>`${(i/(cs.length-1)*100).toFixed(1)},${(28-(c-lo)/rg*26).toFixed(1)}`).join(' ');
+  spk=`<div class=row style=margin-top:8px><span class=mut>${t('health')} ↗</span><span class=mut>${cs[0].toFixed(0)}→${cs[cs.length-1].toFixed(0)} Ah</span></div>`+
+   `<svg width=100% height=34 viewBox="0 0 100 30" preserveAspectRatio=none style=display:block><polyline points="${pts}" fill=none stroke=#4aa3ff stroke-width=1.2 vector-effect=non-scaling-stroke/></svg>`;}
+ sess.innerHTML=srows+spk;
  ctl.innerHTML=[['chg',t('chgmos'),p.chg],['dis',t('dismos'),p.dis],['bal',t('balancer'),p.bal]]
   .map(([k,n,v])=>`<div class=row><span>${n}</span><button class="sm ${v?'':'off'}" onclick="tog('${k}')">${v?t('on'):t('off')}</button></div>`).join('');
  let ps=D.params&&D.params[cur]||[];
@@ -322,6 +329,12 @@ static String webJson() {
         int na = 0;
         for (int bit = 0; bit < NERR; bit++)
             if (((b.errFlags >> bit) & 1u) && ERR_NAMES[bit][0]) { if (na++) j += ","; j += "\""; j += ERR_NAMES[bit]; j += "\""; }
+        // capacity-fade trend: baseline ("as new"), retention %, and the monthly history points
+        int ret = sohBaseAh[t] > 1 ? (int)(100.0f * fullAh / sohBaseAh[t] + 0.5f) : 100;
+        j += "],\"capBase\":" + String(sohBaseAh[t], 0) + ",\"ret\":" + String(ret) + ",\"sohH\":[";
+        for (int s = 0; s < sohCount[t]; s++) { if (s) j += ",";
+            j += "{\"m\":" + String(sohHist[t][s].mon) + ",\"c\":" + String(sohHist[t][s].capX10 / 10.0f, 1) +
+                 ",\"s\":" + String(sohHist[t][s].soh) + ",\"y\":" + String(sohHist[t][s].cyc) + "}"; }
         j += "]}";
     }
     j += "],\"params\":[";
@@ -423,6 +436,13 @@ static String webMetrics() {
     for (int t = 0; t < numBms; t++) smp("jkbms_soh_percent", t, bms[t].soh);
     fam("jkbms_capacity_ah", "Full-charge capacity (Ah)", "gauge");
     for (int t = 0; t < numBms; t++) smp("jkbms_capacity_ah", t, (!demoMode && bmsLive[t]) ? packFullAh[t] : PACK_AH);
+    fam("jkbms_capacity_baseline_ah", "First recorded ('as new') capacity (Ah)", "gauge");
+    for (int t = 0; t < numBms; t++) smp("jkbms_capacity_baseline_ah", t, sohBaseAh[t]);
+    fam("jkbms_capacity_retention_percent", "Current capacity vs 'as new'", "gauge");
+    for (int t = 0; t < numBms; t++) {
+        double now = (!demoMode && bmsLive[t]) ? packFullAh[t] : PACK_AH;
+        smp("jkbms_capacity_retention_percent", t, sohBaseAh[t] > 1 ? 100.0 * now / sohBaseAh[t] : 100.0);
+    }
     fam("jkbms_cell_delta_volts", "Max-min cell voltage spread", "gauge");
     for (int t = 0; t < numBms; t++) {
         float mn = 9, mx = 0; for (int i = 0; i < bms[t].nCells; i++) { float c = bms[t].cell[i]; if (c < mn) mn = c; if (c > mx) mx = c; }

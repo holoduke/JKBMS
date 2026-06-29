@@ -176,4 +176,28 @@ static void loadHistory() {
         bms[0].peakChg = pk[0]; bms[0].peakDis = pk[1]; bms[1].peakChg = pk[2]; bms[1].peakDis = pk[3]; }
     prefs.end();
 }
+// Long-term capacity/SoH trend (monthly points + "as new" baseline). Written rarely (≈monthly),
+// flushed on core 1 via the sohDirty flag. Count written last so a torn data write is ignored.
+static void saveSoh() {
+    prefs.begin("soh", false);
+    for (int t = 0; t < 2; t++) {
+        char k[6];
+        snprintf(k, sizeof(k), "b%d", t); prefs.putFloat(k, sohBaseAh[t]);
+        snprintf(k, sizeof(k), "h%d", t); prefs.putBytes(k, sohHist[t], sohCount[t] * sizeof(SohPt));
+        snprintf(k, sizeof(k), "n%d", t); prefs.putUShort(k, sohCount[t]);   // count LAST
+    }
+    prefs.end();
+}
+static void loadSoh() {
+    prefs.begin("soh", true);
+    for (int t = 0; t < 2; t++) {
+        char k[6];
+        snprintf(k, sizeof(k), "b%d", t); sohBaseAh[t] = prefs.getFloat(k, 0);
+        snprintf(k, sizeof(k), "n%d", t); int n = prefs.getUShort(k, 0); if (n > SOH_N) n = SOH_N;
+        snprintf(k, sizeof(k), "h%d", t); size_t got = prefs.getBytes(k, sohHist[t], n * sizeof(SohPt));
+        if (got < (size_t)n * sizeof(SohPt)) n = got / sizeof(SohPt);   // short blob → trust the bytes
+        sohCount[t] = n;
+    }
+    prefs.end();
+}
 

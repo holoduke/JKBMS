@@ -56,6 +56,25 @@ static void energyIntegrate() {
         if (wh > 0) lifeWhIn[t] += wh; else lifeWhOut[t] += -wh;     // saved on the existing 5-min history cadence
     }
 }
+// Record one capacity/SoH/cycles point per calendar month (BMS-reported full capacity). Cheap
+// to call every poll — it early-returns until the month rolls over. Core 1 only (bmsPoll_cb).
+static void sohSample() {
+    struct tm tmv; if (!getLocalTime(&tmv, 0)) return;   // need a valid wall-clock
+    uint16_t mon = (uint16_t)((tmv.tm_year + 1900) * 12 + tmv.tm_mon);
+    for (int t = 0; t < numBms; t++) {
+        if (!demoMode && !bmsLive[t]) continue;
+        float ah = packFullAh[t];   // BMS-reported full capacity (defaults to 100 Ah in demo / before first read)
+        if (ah < 1) continue;
+        if (sohBaseAh[t] < 1) { sohBaseAh[t] = ah; sohDirty = true; }   // first ever reading → "as new" baseline
+        uint16_t n = sohCount[t];
+        if (n > 0 && sohHist[t][n - 1].mon == mon) continue;           // already captured this month
+        if (n >= SOH_N) { memmove(&sohHist[t][0], &sohHist[t][1], (SOH_N - 1) * sizeof(SohPt)); n = SOH_N - 1; }   // ring: drop oldest month
+        SohPt &p = sohHist[t][n];
+        p.mon = mon; p.capX10 = (uint16_t)(ah * 10 + 0.5f); p.soh = bms[t].soh;
+        p.cyc = bms[t].cycles > 65535u ? 65535u : (uint16_t)bms[t].cycles;
+        sohCount[t] = n + 1; sohDirty = true;
+    }
+}
 // Append the current power to each pack's 10-min window (once per PWR_DT). Samples
 // whenever there's data to plot (live, or demo sim). Returns true if a sample landed.
 static bool pwrSample() {

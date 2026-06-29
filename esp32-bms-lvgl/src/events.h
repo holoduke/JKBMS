@@ -215,6 +215,7 @@ static void invArea(int x1, int y1, int x2, int y2) {
 static void bmsPoll_cb(lv_timer_t *t) {
     histSample();        // append a 5-min point when due — on core 1, same core as the graph/energy readers
     energyIntegrate();   // accumulate lifetime kWh (dt-integrated, so the 500ms cadence is fine)
+    sohSample();         // capacity/SoH/cycles trend — self-throttled to one point per calendar month
     static bool was0 = false, was1 = false; static int lastHc = -1;
     bool l0 = bmsLive[0], l1 = numBms >= 2 ? bmsLive[1] : false;
     int hc = histCount[view];
@@ -254,6 +255,7 @@ static void dataTick_cb(lv_timer_t *t) {
     if (!uiBusy()) {   // NVS writes block for tens of ms — never mid-scroll/fling
         if (cfgDirty && now - cfgDirtyAt > 1500) { cfgDirty = false; saveSettings(); }   // persist settings
         if (wxDirty) { wxDirty = false; saveWeather(); }   // flush a new forecast (flagged by core-0 wxFetch) — prefs must stay core-1-only
+        if (sohDirty) { sohDirty = false; saveSoh(); }     // flush a new monthly capacity/SoH point (rare)
         // History rides a ~30-min cadence (not every 5-min sample) to spare NVS flash —
         // the full ring stays in RAM, so we only lose the last <30 min on an unclean reboot.
         static uint32_t lastHistSave = 0;

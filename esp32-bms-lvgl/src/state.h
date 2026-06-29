@@ -130,6 +130,15 @@ static int8_t   histTmp[2][HIST_N];  // MOSFET temp (°C), oldest→newest
 static uint16_t histCount[2] = {0, 0};
 static uint32_t histLastMs[2] = {0, 0};
 static bool histDirty = false; static uint32_t histDirtyAt = 0;
+// Long-term capacity / state-of-health trend: one BMS-reported sample per calendar month per
+// pack (capacity fade is a months-to-years signal). Baseline = first recorded full capacity
+// ("as new"). Persisted to NVS; all access on core 1 (sampled in bmsPoll_cb). SOH_N ≈ 3 years.
+#define SOH_N 36
+struct SohPt { uint16_t mon; uint16_t capX10; uint8_t soh; uint16_t cyc; };   // mon=year*12+month; capX10 = 0.1 Ah units
+static SohPt    sohHist[2][SOH_N];
+static uint16_t sohCount[2] = {0, 0};
+static float    sohBaseAh[2] = {0, 0};   // first recorded full-charge capacity (Ah) = "as new" reference
+static bool sohDirty = false;
 // Lifetime cumulative energy per pack (Wh), integrated from v*i every poll while live.
 // Persisted alongside the graph history (NVS "hist") on its ~30-min save cadence.
 static double lifeWhIn[2] = {0, 0}, lifeWhOut[2] = {0, 0};

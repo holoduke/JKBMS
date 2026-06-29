@@ -49,6 +49,7 @@ void setup() {
     if (lockAfterSec > 0 && lockPin[0]) locked = true;
     loadHistory();              // restore the persisted graph history (survives reboot)
     loadWeather();              // restore the last forecast → shows immediately (greyed as stale until a live fetch)
+    loadSoh();                  // restore the long-term capacity/SoH trend + baseline
 
     // 40 MHz QSPI — 80 MHz caused pixel-offset artifacts on this AXS15231B panel.
     if (!gfx->begin(40000000UL)) Serial.println("[lvgl] display init FAILED");
