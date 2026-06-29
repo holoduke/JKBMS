@@ -384,11 +384,87 @@ static void handleScreen() {
     free(out);
 }
 
+// Prometheus / OpenMetrics text exposition for Grafana/InfluxDB scraping. TELEMETRY ONLY —
+// no credentials, SSID or MQTT user — so it is served UNAUTHENTICATED on the trusted LAN.
+// (This portal authenticates with HTTP Digest, which Prometheus can't scrape; exposing a
+// read-only numeric metrics endpoint unauthenticated is the node_exporter convention.)
+static String webMetrics() {
+    String m; m.reserve(3072);
+    auto g = [&](const char *name, const char *help, double v) {   // one global gauge (HELP+TYPE+sample)
+        m += "# HELP "; m += name; m += ' '; m += help; m += "\n# TYPE "; m += name; m += " gauge\n";
+        m += name; m += ' '; m += String(v, 3); m += '\n';
+    };
+    g("jkbms_uptime_seconds", "Device uptime in seconds", millis() / 1000.0);
+    g("jkbms_heap_free_bytes", "Free internal heap", (double)ESP.getFreeHeap());
+    g("jkbms_fps", "UI render frames per second", (double)g_fps);
+    if (WiFi.status() == WL_CONNECTED) g("jkbms_wifi_rssi_dbm", "WiFi RSSI", (double)WiFi.RSSI());
+    if (wxOk) g("jkbms_weather_temp_celsius", "Outdoor temperature", (double)wxCurTemp);
+    m += "# HELP jkbms_info Build info (constant 1)\n# TYPE jkbms_info gauge\n";
+    m += "jkbms_info{version=\""; m += FW_VERSION; m += "\",board=\"JC3248W535\"} 1\n";
+
+    // Per-pack families: HELP/TYPE once, then one sample per pack (label pack="1"/"2").
+    auto fam = [&](const char *name, const char *help, const char *type) {
+        m += "# HELP "; m += name; m += ' '; m += help; m += "\n# TYPE "; m += name; m += ' '; m += type; m += '\n';
+    };
+    auto smp = [&](const char *name, int t, double v) {
+        m += name; m += "{pack=\""; m += String(t + 1); m += "\"} "; m += String(v, 3); m += '\n';
+    };
+    fam("jkbms_pack_live", "BMS answered Modbus this poll (1/0)", "gauge");
+    for (int t = 0; t < numBms; t++) smp("jkbms_pack_live", t, (demoMode || bmsLive[t]) ? 1 : 0);
+    fam("jkbms_soc_percent", "State of charge %", "gauge");
+    for (int t = 0; t < numBms; t++) smp("jkbms_soc_percent", t, bms[t].soc);
+    fam("jkbms_voltage_volts", "Pack voltage", "gauge");
+    for (int t = 0; t < numBms; t++) smp("jkbms_voltage_volts", t, bms[t].v);
+    fam("jkbms_current_amps", "Pack current (+charge/-discharge)", "gauge");
+    for (int t = 0; t < numBms; t++) smp("jkbms_current_amps", t, bms[t].i);
+    fam("jkbms_power_watts", "Pack power (+charge/-discharge)", "gauge");
+    for (int t = 0; t < numBms; t++) smp("jkbms_power_watts", t, bms[t].v * bms[t].i);
+    fam("jkbms_soh_percent", "State of health %", "gauge");
+    for (int t = 0; t < numBms; t++) smp("jkbms_soh_percent", t, bms[t].soh);
+    fam("jkbms_capacity_ah", "Full-charge capacity (Ah)", "gauge");
+    for (int t = 0; t < numBms; t++) smp("jkbms_capacity_ah", t, (!demoMode && bmsLive[t]) ? packFullAh[t] : PACK_AH);
+    fam("jkbms_cell_delta_volts", "Max-min cell voltage spread", "gauge");
+    for (int t = 0; t < numBms; t++) {
+        float mn = 9, mx = 0; for (int i = 0; i < bms[t].nCells; i++) { float c = bms[t].cell[i]; if (c < mn) mn = c; if (c > mx) mx = c; }
+        smp("jkbms_cell_delta_volts", t, bms[t].nCells > 0 ? (mx - mn) : 0);
+    }
+    fam("jkbms_errflags", "BMS protection/warning bitmask", "gauge");
+    for (int t = 0; t < numBms; t++) smp("jkbms_errflags", t, (double)bms[t].errFlags);
+    fam("jkbms_cycles_total", "Charge cycle count", "counter");
+    for (int t = 0; t < numBms; t++) smp("jkbms_cycles_total", t, (double)bms[t].cycles);
+    fam("jkbms_energy_in_kwh_total", "Lifetime energy charged", "counter");
+    for (int t = 0; t < numBms; t++) smp("jkbms_energy_in_kwh_total", t, lifeWhIn[t] / 1000.0);
+    fam("jkbms_energy_out_kwh_total", "Lifetime energy discharged", "counter");
+    for (int t = 0; t < numBms; t++) smp("jkbms_energy_out_kwh_total", t, lifeWhOut[t] / 1000.0);
+    // Comms health
+    fam("jkbms_comm_attempts_total", "Modbus poll attempts", "counter");
+    for (int t = 0; t < numBms; t++) smp("jkbms_comm_attempts_total", t, (double)commAttempts[t]);
+    fam("jkbms_comm_ok_total", "Modbus polls with a valid reply", "counter");
+    for (int t = 0; t < numBms; t++) smp("jkbms_comm_ok_total", t, (double)commOk[t]);
+    fam("jkbms_comm_consec_fail", "Current consecutive read-failure streak", "gauge");
+    for (int t = 0; t < numBms; t++) smp("jkbms_comm_consec_fail", t, (double)commConsecFail[t]);
+    fam("jkbms_comm_reconnects_total", "Offline->online transitions", "counter");
+    for (int t = 0; t < numBms; t++) smp("jkbms_comm_reconnects_total", t, (double)commReconnects[t]);
+    // Temperatures (sensor label) + per-cell voltages (cell label)
+    fam("jkbms_temp_celsius", "Temperatures by sensor", "gauge");
+    for (int t = 0; t < numBms; t++) {
+        m += "jkbms_temp_celsius{pack=\"" + String(t + 1) + "\",sensor=\"mos\"} " + String(bms[t].tMos, 1) + '\n';
+        m += "jkbms_temp_celsius{pack=\"" + String(t + 1) + "\",sensor=\"t1\"} " + String(bms[t].tp1, 1) + '\n';
+        m += "jkbms_temp_celsius{pack=\"" + String(t + 1) + "\",sensor=\"t2\"} " + String(bms[t].tp2, 1) + '\n';
+    }
+    fam("jkbms_cell_volts", "Per-cell voltage", "gauge");
+    for (int t = 0; t < numBms; t++)
+        for (int i = 0; i < bms[t].nCells; i++)
+            m += "jkbms_cell_volts{pack=\"" + String(t + 1) + "\",cell=\"" + String(i + 1) + "\"} " + String(bms[t].cell[i], 3) + '\n';
+    return m;
+}
+
 static void webBegin() {
     if (webStarted) return;
     webServer.on("/", []() { if (!webAuth()) return; webServer.send_P(200, "text/html", WEB_PAGE); });
     webServer.on("/screen.jpg", handleScreen);
     webServer.on("/api", []() { if (!webAuth()) return; webServer.send(200, "application/json", webJson()); });
+    webServer.on("/metrics", []() { webServer.send(200, "text/plain; version=0.0.4", webMetrics()); });   // Prometheus scrape — telemetry only, no auth (see webMetrics)
     webServer.on("/toggle", HTTP_POST, []() {
         if (!webAuth()) return;
         int b = webServer.arg("bms").toInt(); String w = webServer.arg("which");
