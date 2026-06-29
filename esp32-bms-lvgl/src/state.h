@@ -141,6 +141,11 @@ static int16_t pwrWin[2][PWR_WIN];   // pack power (W), oldest→newest
 static uint16_t pwrWinN[2] = {0, 0};
 static uint32_t pwrWinLast[2] = {0, 0};
 static bool bmsLive[2] = {false, false};   // per-BMS: real device responded over Modbus this poll
+// Modbus comms health (per pack) — updated on the poll (core 0), read by the info popup / /api / /metrics
+// (core 1). Same accepted cross-core treatment as bms[]: a torn read is cosmetic, self-corrects next poll.
+static uint32_t commAttempts[2] = {0, 0}, commOk[2] = {0, 0};       // poll attempts vs valid replies → success rate
+static uint16_t commConsecFail[2] = {0, 0}, commReconnects[2] = {0, 0};   // current fail streak; offline→online transitions
+static uint8_t  commLastErr[2] = {0, 0};   // last failure: 0=ok, 1=no/short reply (timeout), 2=bad frame/CRC
 static bool demoMode = false;              // ON = both BMSes simulated; OFF = poll real BMS 1 (addr 1) & 2 (addr 2)
 static float packFullAh[2] = {100.0f, 100.0f};   // full-charge capacity from each BMS (Ah)
 // Both packs are Modbus slave address 1, each on its OWN UART (no shared bus).

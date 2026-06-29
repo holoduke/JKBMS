@@ -306,6 +306,8 @@ static String webJson() {
              ",\"ok\":" + String(b.bmsOk ? 1 : 0) + ",\"st\":\"" + st + "\"" +
              ",\"cyc\":" + String(b.cycles) + ",\"soh\":" + String(b.soh) +
              ",\"up_s\":" + String(b.uptimeOk ? b.uptime : 0) + ",\"err\":" + String(b.errFlags) +
+             ",\"cAtt\":" + String(commAttempts[t]) + ",\"cOk\":" + String(commOk[t]) +
+             ",\"cFail\":" + String(commConsecFail[t]) + ",\"cRcn\":" + String(commReconnects[t]) + ",\"cErr\":" + String(commLastErr[t]) +
              ",\"pkc\":" + String(b.peakChg, 0) + ",\"pkd\":" + String(b.peakDis, 0) +
              ",\"twh\":" + String(packTotalWh(t), 0) + ",\"bcur\":" + String(b.balCur, 2) +
              ",\"balw\":" + String(b.balWork ? 1 : 0) +

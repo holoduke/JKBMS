@@ -17,6 +17,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <esp_random.h>
+#include <esp_task_wdt.h>   // hardware task watchdog → auto-reboot if the UI task wedges
 #include "pincfg.h"
 #include "dispcfg.h"
 #include "AXS15231B_touch.h"
@@ -134,11 +135,27 @@ void setup() {
     // Blocking network I/O on core 0, away from the render/touch core (1). 10 KB stack
     // covers the mbedTLS handshake; low priority so it never preempts the UI.
     xTaskCreatePinnedToCore(netTask, "net", 10240, NULL, 1, NULL, 0);
+
+    // Hardware task watchdog on the UI task (this loopTask, core 1). If rendering/touch ever
+    // wedges for >20s, the chip panics and reboots — the device self-recovers unattended.
+    // Only the UI task is watched: the core-0 netTask intentionally makes long blocking calls
+    // (TLS handshakes, OTA flash) and selfUpdate() runs there while loopTask keeps drawing the
+    // progress bar, so watching netTask would false-trip. 20s clears every legit UI stall
+    // (full-canvas flush ~40ms, sleep animation ~1.5s, NVS writes ~tens of ms).
+    esp_task_wdt_config_t wdtCfg = { .timeout_ms = 20000, .idle_core_mask = 0, .trigger_panic = true };
+    if (esp_task_wdt_init(&wdtCfg) == ESP_ERR_INVALID_STATE) esp_task_wdt_reconfigure(&wdtCfg);   // Arduino may have inited it already
+    esp_task_wdt_add(NULL);   // subscribe loopTask
     Serial.println("[lvgl] dashboard ready");
 }
 
 void loop() {
-    if (otaActive) { ArduinoOTA.handle(); return; }   // OTA in progress → give it the whole CPU
+    static bool wdtOn = true;
+    if (otaActive) {   // an OTA flash blocks here for tens of seconds → unsubscribe so the WDT can't bite mid-flash
+        if (wdtOn) { esp_task_wdt_delete(NULL); wdtOn = false; }
+        ArduinoOTA.handle(); return;   // OTA in progress → give it the whole CPU
+    }
+    if (!wdtOn) { esp_task_wdt_add(NULL); wdtOn = true; }   // OTA ended or failed → re-arm the watchdog
+    esp_task_wdt_reset();   // feed: UI task is alive
     lv_task_handler();
     webLoop();   // serve the web portal + handle OTA (no-op until WiFi connects)
     // MQTT / weather / alerts now run on the core-0 netTask so their blocking socket

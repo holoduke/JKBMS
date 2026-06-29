@@ -404,7 +404,14 @@ static void renderInfoPopup() {
         snprintf(b, sizeof(b), "%s / %s", webUser, webPass); kvLine(lx, &ly, T(K_WEB_LOGIN), b);   // portal + OTA credentials
     } else kvLine(lx, &ly, T(K_TAB_WIFI), T(K_NOT_CONNECTED));
     snprintf(b, sizeof(b), "%lu s", (unsigned long)(millis() / 1000)); kvLine(lx, &ly, T(K_UPTIME_INFO), b);
-    lText(T(K_BMS_SOON), lx, ly + 3, F12, C_MUTED);
+    // Modbus comms health per pack: read success rate + reconnect count (real diagnostics)
+    for (int t = 0; t < numBms; t++) {
+        if (!commAttempts[t]) continue;
+        int pct = (int)(100.0f * commOk[t] / commAttempts[t] + 0.5f);
+        snprintf(b, sizeof(b), "%d%% ok  %u reconn", pct, (unsigned)commReconnects[t]);
+        char key[8]; snprintf(key, sizeof(key), "BMS%d", t + 1);
+        kvLine(lx, &ly, key, b);
+    }
     lText(T(K_TAP_CLOSE), x + w - 92, y + h - 18, F12, C_MUTED);
 }
 static int wxCondKey(int code) {            // weather code → localized condition label

@@ -113,10 +113,10 @@ static bool bmsTryReadAddr(uint8_t addr, int idx) {
     // instant a full frame lands, so this timeout only bites when a pack is silent.
     static uint8_t r[260]; int n = 0; uint32_t t0 = millis();
     while (millis() - t0 < 70) { while (S.available() && n < 260) r[n++] = S.read(); if (n >= 5 && n >= 3 + r[2] + 2) break; }
-    if (n < 5 || r[0] != addr || r[1] != 3) return false;
+    if (n < 5 || r[0] != addr || r[1] != 3) { commLastErr[idx] = 1; return false; }   // no / too-short reply (timeout)
     int bc = r[2];
-    if (bc < 196) return false;   // a short but CRC-valid frame would decode stale buffer bytes → reject (we read up to offset 0xC3)
-    if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) return false;
+    if (bc < 196) { commLastErr[idx] = 2; return false; }   // a short but CRC-valid frame would decode stale buffer bytes → reject (we read up to offset 0xC3)
+    if (n < 3 + bc + 2 || (r[3 + bc] | (r[4 + bc] << 8)) != mbCrc(r, 3 + bc)) { commLastErr[idx] = 2; return false; }   // bad frame/CRC
     uint8_t *p = r + 3;
     auto U16 = [&](int o) { return (uint16_t)(p[o] << 8 | p[o + 1]); };
     auto U32 = [&](int o) { return (uint32_t)((uint32_t)p[o] << 24 | p[o + 1] << 16 | p[o + 2] << 8 | p[o + 3]); };
@@ -153,9 +153,11 @@ static bool bmsTryReadAddr(uint8_t addr, int idx) {
 // "offline" (which clears its data row + settings and loses a history sample).
 static void bmsReadAddr(uint8_t addr, int idx) {
     bool wasLive = bmsLive[idx];
-    if (bmsTryReadAddr(addr, idx)) return;
-    if (wasLive) { delay(6); if (bmsTryReadAddr(addr, idx)) return; }   // a live pack glitched → one retry (avoids flap); a silent pack isn't retried
+    commAttempts[idx]++;
+    if (bmsTryReadAddr(addr, idx)) { commOk[idx]++; commConsecFail[idx] = 0; commLastErr[idx] = 0; if (!wasLive) commReconnects[idx]++; return; }
+    if (wasLive) { delay(6); if (bmsTryReadAddr(addr, idx)) { commOk[idx]++; commConsecFail[idx] = 0; commLastErr[idx] = 0; return; } }   // a live pack glitched → one retry (avoids flap); a silent pack isn't retried
     bmsLive[idx] = false;
+    commConsecFail[idx]++;
 }
 // Poll both real BMSes (addr 1 → BMS 1, addr 2 → BMS 2). Skipped in demo mode.
 // A pack that's offline is retried only every BMS_RETRY polls, not every poll, so
