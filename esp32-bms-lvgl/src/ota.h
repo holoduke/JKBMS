@@ -8,9 +8,21 @@
 // Good home for any future blocking/background job (extra sensors, cloud sync, etc.).
 // Panel push task (core 0): transmits the snapshot core 1 hands it. This is the ~40ms
 // blocking pixel-swizzle+DMA — doing it here keeps core 1 free for touch + next-frame render.
+// TLS trust for the self-update path (GitHub API + release CDN). Weather/alerts stay
+// setInsecure (read-only data / user-chosen webhook), but here a MITM could feed us
+// arbitrary FIRMWARE — so validate against the Mozilla root bundle that ships inside
+// the prebuilt arduino-esp32 mbedtls (esp_crt_bundle; ~68KB flash, verified on demand
+// from flash so it costs no extra heap). Validation needs a sane clock → callers gate
+// on timeSynced. If GitHub ever rotates to a root outside the bundle the update check
+// fails closed (no update offered) — the device otherwise keeps working.
+extern const uint8_t CA_BUNDLE_START[] asm("_binary_x509_crt_bundle_start");
+extern const uint8_t CA_BUNDLE_END[]   asm("_binary_x509_crt_bundle_end");
+static void otaTrust(WiFiClientSecure &net) { net.setCACertBundle(CA_BUNDLE_START, (size_t)(CA_BUNDLE_END - CA_BUNDLE_START)); }
 // Compare dotted numeric versions ("1.0.224") component-wise → true if `rel` > `cur`.
 // Non-numeric tags parse as 0, so a stray tag won't trigger a (false) update.
 static bool verNewer(const char *rel, const char *cur) {
+    if (*rel == 'v' || *rel == 'V') rel++;   // tolerate "v1.0.225"-style tags
+    if (*cur == 'v' || *cur == 'V') cur++;
     while (*rel || *cur) {
         int r = atoi(rel), c = atoi(cur);
         if (r != c) return r > c;
@@ -22,8 +34,8 @@ static bool verNewer(const char *rel, const char *cur) {
 // Ask GitHub for the latest RELEASE: its tag (= firmware version) and the firmware.bin
 // asset URL. updAvail = the released version differs from this build. Runs on core-0.
 static void updateCheck() {
-    if (WiFi.status() != WL_CONNECTED || otaActive) return;
-    WiFiClientSecure net; net.setInsecure();
+    if (WiFi.status() != WL_CONNECTED || !timeSynced || otaActive) return;   // cert validation needs a real clock
+    WiFiClientSecure net; otaTrust(net);
     HTTPClient http; http.setConnectTimeout(5000); http.setTimeout(6000);
     if (!http.begin(net, "https://api.github.com/repos/holoduke/JKBMS/releases/latest")) return;
     http.addHeader("User-Agent", "jkbms-device");
@@ -55,7 +67,7 @@ static void selfUpdate() {
     if (!updUrl[0] || WiFi.status() != WL_CONNECTED) return;
     Serial.printf("[ota] self-update from %s\n", updUrl);
     updProgress = 0;
-    WiFiClientSecure net; net.setInsecure();
+    WiFiClientSecure net; otaTrust(net);
     HTTPClient http; http.setConnectTimeout(8000); http.setTimeout(15000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // GitHub asset → signed CDN redirect
     bool ok = false;
@@ -81,7 +93,9 @@ static void selfUpdate() {
     }
     if (ok) {   // remember which tag we installed so we don't re-flash it in a loop
         updProgress = 100;
-        prefs.begin("set", false); prefs.putString("instTag", updTag); prefs.end();
+        // NVS's C API is thread-safe, but the shared global `prefs` OBJECT is not (core 1 may be
+        // mid begin()/end() in a settings/history save) → use a private instance on this core-0 task.
+        Preferences lp; lp.begin("set", false); lp.putString("instTag", updTag); lp.end();
         Serial.println("[ota] ok — rebooting"); delay(700); ESP.restart();
     } else { Update.abort(); updProgress = -2; Serial.println("[ota] self-update failed"); }
 }
@@ -91,6 +105,7 @@ static void netTask(void *) {
         mqttLoop();     // HA / MQTT — connect, keepalive, publish, handle commands
         weatherLoop();  // geo-IP + Open-Meteo forecast (self-throttled)
         alertLoop();    // threshold push alerts (self-throttled)
+        if (alTestGo) { alTestGo = false; alTestRes = alertSend("JK BMS test alert \xE2\x9C\x93") ? 1 : 0; }   // web Test button (blocking POST → this core)
         // BMS Modbus poll lives here too — its blocking UART reads (≤~150ms for an
         // offline pack) used to stall the render core every second; now core 1 only
         // reacts to the cached results (see bmsPoll_cb). busMux keeps the bus exclusive.

@@ -105,12 +105,13 @@ static void mqPublishState() {
         for (int bit = 0; bit < NERR && na < 3; bit++)
             if (((b.errFlags >> bit) & 1u) && ERR_NAMES[bit][0]) { if (na++) strncat(al, ", ", sizeof(al) - strlen(al) - 1); strncat(al, ERR_NAMES[bit], sizeof(al) - strlen(al) - 1); }
         if (!na) strcpy(al, "none");
-        snprintf(buf, sizeof(buf),
+        int jn = snprintf(buf, sizeof(buf),
             "{\"soc\":%.0f,\"v\":%.2f,\"i\":%.1f,\"w\":%.0f,\"tmos\":%.0f,\"soh\":%d,\"cyc\":%lu,\"delta\":%d,\"bcur\":%.2f,"
             "\"ein\":%.3f,\"eout\":%.3f,\"status\":\"%s\",\"alarms\":\"%s\",\"chg\":\"%d\",\"dis\":\"%d\",\"bal\":\"%d\"}",
             b.soc, b.v, b.i, b.v * b.i, b.tMos, b.soh, (unsigned long)b.cycles, deltaMv, b.balCur,
             lifeWhIn[t] / 1000.0, lifeWhOut[t] / 1000.0,
             st, al, bmsCharge[t] ? 1 : 0, bmsDischarge[t] ? 1 : 0, bmsBalancer[t] ? 1 : 0);
+        if (jn < 0 || jn >= (int)sizeof(buf)) continue;   // truncated → invalid JSON; skip this cycle rather than feed HA garbage
         snprintf(topic, sizeof(topic), "%s/p%d/state", mqBase.c_str(), t);
         mqtt.publish(topic, buf);
         if (b.nCells > 0) {   // per-cell voltages as a JSON array on a side topic (each Cell N sensor pulls its index)

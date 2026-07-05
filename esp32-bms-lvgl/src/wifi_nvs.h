@@ -9,7 +9,7 @@ static void wifiStartScan() {
 static void wifiTryConnect() {
     if (wifiSel < 0) return;
     strncpy(connSsid, netSsid[wifiSel], 32); connSsid[32] = 0;
-    strncpy(connPass, wifiPass, 32); connPass[32] = 0;
+    strncpy(connPass, wifiPass, sizeof(connPass) - 1); connPass[sizeof(connPass) - 1] = 0;
     wifiSaved = false; WiFi.begin(connSsid, connPass);
     snprintf(wifiMsg, sizeof(wifiMsg), "%s %s...", T(K_WIFI_CONNECTING), connSsid);
 }
@@ -37,7 +37,7 @@ static bool wifiPoll() {
         if (st == WL_CONNECTED) {
             snprintf(wifiMsg, sizeof(wifiMsg), "%s %s", T(K_WIFI_CONNECTED), WiFi.SSID().c_str());
             webBegin();   // start the web portal + OTA once we have an IP
-            configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.nist.gov", "time.google.com");   // (re)start NTP on every (re)connect
+            configTzTime(tzStr(), "pool.ntp.org", "time.nist.gov", "time.google.com");   // (re)start NTP on every (re)connect
             if (!wifiSaved && connSsid[0]) { prefs.begin("wifi", false); prefs.putString("ssid", connSsid); prefs.putString("pass", connPass); prefs.end(); wifiSaved = true; }
         } else if (st == WL_CONNECT_FAILED) snprintf(wifiMsg, sizeof(wifiMsg), "%s", T(K_WIFI_CONN_FAIL));
         else if (st == WL_NO_SSID_AVAIL) snprintf(wifiMsg, sizeof(wifiMsg), "%s", T(K_WIFI_NOT_FOUND));
@@ -47,7 +47,7 @@ static bool wifiPoll() {
         struct tm ti;
         if (getLocalTime(&ti, 0) && ti.tm_year >= 125) timeSynced = true;   // year >= 2025
         else { static uint32_t lastNtp = 0; if (!lastNtp || millis() - lastNtp > 20000) {
-            lastNtp = millis(); configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.google.com"); } }
+            lastNtp = millis(); configTzTime(tzStr(), "pool.ntp.org", "time.google.com"); } }
     }
     return changed;
 }
@@ -76,6 +76,7 @@ static void saveSettings() {
     prefs.putInt("lockAft", lockAfterSec);
     prefs.putString("lockPin", lockPin);
     prefs.putUChar("lang", g_lang);
+    prefs.putInt("tz", tzSel);
     prefs.putInt("nbms", numBms);
     prefs.putBytes("pins", bmsPin, sizeof(bmsPin));
     prefs.putString("wuser", webUser);
@@ -104,6 +105,7 @@ static void loadSettings() {
     lockAfterSec = prefs.getInt("lockAft", lockAfterSec);
     { String p = prefs.getString("lockPin", ""); strncpy(lockPin, p.c_str(), sizeof(lockPin) - 1); lockPin[sizeof(lockPin) - 1] = 0; }
     g_lang = prefs.getUChar("lang", g_lang); if (g_lang >= LANG_COUNT) g_lang = 0;
+    tzSel = prefs.getInt("tz", TZ_DEFAULT); if (tzSel < 0 || tzSel >= NTZ) tzSel = TZ_DEFAULT;
     if (prefs.isKey("nbms")) numBms = prefs.getInt("nbms", 2);
     else numBms = prefs.isKey("autosw") ? 2 : 1;   // existing install (ran the old hardcoded-dual build) → keep 2; fresh flash → default 1
     if (numBms < 1) numBms = 1; if (numBms > 2) numBms = 2;

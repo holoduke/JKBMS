@@ -36,13 +36,14 @@ static void handleTap(int x, int y) {
         if (kbActive) {
             if (x >= CLOSE_X - 12 && y <= 44) { kbActive = false; return; }
             int code = kbProcess(false, x, y);
-            if (code > 0) { if (wifiPassLen < 32) { wifiPass[wifiPassLen++] = (char)code; wifiPass[wifiPassLen] = 0; } }
+            if (code > 0) { if (wifiPassLen < 63) { wifiPass[wifiPassLen++] = (char)code; wifiPass[wifiPassLen] = 0; } }   // 63 = max WPA2 passphrase
             else if (code == -1) { if (wifiPassLen > 0) wifiPass[--wifiPassLen] = 0; }
             else if (code == -2) kbMode = (kbMode + 1) % 3;
             else if (code == -4) {                              // OK → commit, depending on what we were editing
                 kbActive = false;
                 if (kbTarget == KBT_WUSER) { if (wifiPassLen) { strncpy(webUser, wifiPass, sizeof(webUser) - 1); webUser[sizeof(webUser) - 1] = 0; markCfg(); } }
-                else if (kbTarget == KBT_WPASS) { if (wifiPassLen) { strncpy(webPass, wifiPass, sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0; markCfg(); } }
+                else if (kbTarget == KBT_WPASS) { if (wifiPassLen) { strncpy(webPass, wifiPass, sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0;
+                                                                     webOtaApplyPass(); markCfg(); } }   // re-arm espota too, else OTA keeps the old password until reboot
                 else wifiTryConnect();
             }
             return;
@@ -81,6 +82,7 @@ static void handleTap(int x, int y) {
                 case 18: strncpy(wifiPass, webUser, sizeof(wifiPass) - 1); wifiPass[sizeof(wifiPass) - 1] = 0; wifiPassLen = strlen(wifiPass); kbMode = 0; kbTarget = KBT_WUSER; kbActive = true; return;   // edit web username
                 case 19: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
                 case 20: g_lang = (g_lang + 1) % LANG_COUNT; markCfg(); return;   // cycle UI language (dirtyFull already set → full repaint)
+                case 21: tzSel = (tzSel + 1) % NTZ; applyTz(); break;             // cycle timezone (clock strip refreshes on its 15s tick)
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);
@@ -95,8 +97,8 @@ static void handleTap(int x, int y) {
                             if (numBms < 2) { cfgBms = 0; bmsLive[1] = false; if (view == V_BMS2) { view = V_BMS1; renderGraphs(); } }
                             bmsScroll = 0; markCfg(); return; }                                        // full redraw
             if (idx == 1) { if (numBms >= 2) { cfgBms ^= 1; bmsScroll = 0; } return; }                 // configure pack 1/2 (only with 2)
-            if (idx == 2) { bmsPin[b * 2] = nextPin(bmsPin[b * 2]); bmsBegin(); markCfg(); markRowAt(ry); return; }        // UART TX pin
-            if (idx == 3) { bmsPin[b * 2 + 1] = nextPin(bmsPin[b * 2 + 1]); bmsBegin(); markCfg(); markRowAt(ry); return; } // UART RX pin
+            if (idx == 2) { bmsPin[b * 2] = nextPin(bmsPin[b * 2], b * 2); bmsBegin(); markCfg(); markRowAt(ry); return; }            // UART TX pin
+            if (idx == 3) { bmsPin[b * 2 + 1] = nextPin(bmsPin[b * 2 + 1], b * 2 + 1); bmsBegin(); markCfg(); markRowAt(ry); return; } // UART RX pin
             if (!live) return;                                                                        // offline/demo: nothing below
             int si = idx - BMS_FIXED;                                                                 // live section
             if (si == 0) { bmsCharge[b] = !bmsCharge[b]; if (!bmsSet(b, REG_CHG_SW, bmsCharge[b] ? 1 : 0)) bmsCharge[b] = !bmsCharge[b]; markCfg(); markRowAt(ry); return; }

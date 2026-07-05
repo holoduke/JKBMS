@@ -35,7 +35,7 @@ static const uint8_t SYS_KEY[] = {
     K_AUTO_SWITCH, K_SWITCH_INTERVAL, K_BRIGHTNESS, K_AUTO_SLEEP, K_ECO_MODE, K_DIM_AFTER,
     K_TEMP_UNIT, K_TIME_FORMAT, K_WIFI_AUTO, K_DEMO_SPEED, K_SYSTEM_INFO, K_FIRMWARE, K_DEMO_MODE,
     K_SCREENSAVER, K_SCREENSAVER_AFTER, K_AUTO_LOCK, K_LOCK_PIN,
-    K_WEB_ADDRESS, K_WEB_USERNAME, K_WEB_PASSWORD, K_LANGUAGE};
+    K_WEB_ADDRESS, K_WEB_USERNAME, K_WEB_PASSWORD, K_LANGUAGE, K_TIMEZONE};
 #define SYS_ROWS ((int)(sizeof(SYS_KEY) / sizeof(SYS_KEY[0])))
 static const char *sysLabel(int i) {            // localized row label; brightness keeps its "- / +" hint
     if (i == 2) { static char b[28]; snprintf(b, sizeof(b), "%s   - / +", T(K_BRIGHTNESS)); return b; }
@@ -74,6 +74,7 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 18: snprintf(o, n, "%s", webUser); *vc = C_CYAN; break;
         case 19: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
         case 20: snprintf(o, n, "%s", LANG_NAME[g_lang]); *vc = C_CYAN; break;
+        case 21: snprintf(o, n, "%s", TZDEFS[tzSel].name); *vc = C_CYAN; break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
@@ -381,7 +382,9 @@ static void renderKeyboard() {
     lText(hdr, 12, 8, F12, C_MUTED);
     drawCloseBtn();
     fRect(12, 30, Wd - 24, 30, 6, C_CARD); dRect(12, 30, Wd - 24, 30, 6, C_BORDER);
-    lText(wifiPassLen ? wifiPass : hint, 22, 38, F16, wifiPassLen ? C_TEXT : C_MUTED);
+    const char *shown = wifiPassLen ? wifiPass : hint;
+    while (wifiPassLen && shown[1] && textW(shown, F16) > Wd - 48) shown++;   // long input (63-char WPA keys): keep the tail (typing end) visible
+    lText(shown, 22, 38, F16, wifiPassLen ? C_TEXT : C_MUTED);
     kbProcess(true, 0, 0);
 }
 static void kvLine(int x, int *y, const char *k, const char *v) {

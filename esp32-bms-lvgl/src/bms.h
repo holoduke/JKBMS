@@ -59,11 +59,13 @@ static void energyIntegrate() {
 // Record one capacity/SoH/cycles point per calendar month (BMS-reported full capacity). Cheap
 // to call every poll — it early-returns until the month rolls over. Core 1 only (bmsPoll_cb).
 static void sohSample() {
+    if (demoMode) return;   // simulated packs must never enter the persisted SoH history — the fake
+                            // 100 Ah would become the permanent "as new" baseline for a real pack
     struct tm tmv; if (!getLocalTime(&tmv, 0)) return;   // need a valid wall-clock
     uint16_t mon = (uint16_t)((tmv.tm_year + 1900) * 12 + tmv.tm_mon);
     for (int t = 0; t < numBms; t++) {
-        if (!demoMode && !bmsLive[t]) continue;
-        float ah = packFullAh[t];   // BMS-reported full capacity (defaults to 100 Ah in demo / before first read)
+        if (!bmsLive[t]) continue;
+        float ah = packFullAh[t];   // BMS-reported full capacity (100 Ah until the first read)
         if (ah < 1) continue;
         if (sohBaseAh[t] < 1) { sohBaseAh[t] = ah; sohDirty = true; }   // first ever reading → "as new" baseline
         uint16_t n = sohCount[t];

@@ -44,7 +44,8 @@ static void loadWeather() {
     // wxFreshThisBoot stays false → restored data shows greyed until the first live fetch this boot.
 }
 
-// Primary geo source: boogiewoogiedoo /visitors/location (HTTPS, precise lat/lon as strings).
+// Geo fallback: boogiewoogiedoo /visitors/location (HTTPS, precise lat/lon as strings).
+// Author-operated endpoint — kept as backup only so third-party devices don't depend on it.
 static bool wxGeoPrimary() {
     WiFiClientSecure net; net.setInsecure();
     HTTPClient http; http.setConnectTimeout(6000); http.setTimeout(6000);
@@ -61,7 +62,7 @@ static bool wxGeoPrimary() {
     }
     http.end(); return ok;
 }
-// Fallback geo: ip-api.com (plain HTTP, city-centroid).
+// Primary geo: ip-api.com (plain HTTP, city-centroid — plenty for a weather forecast).
 static bool wxGeoFallback() {
     WiFiClient net; HTTPClient http; http.setConnectTimeout(5000); http.setTimeout(5000);
     if (!http.begin(net, "http://ip-api.com/json/?fields=status,lat,lon,city")) return false;
@@ -77,7 +78,7 @@ static bool wxGeoFallback() {
     }
     http.end(); return ok;
 }
-static bool wxGeoIP() { return wxGeoPrimary() || wxGeoFallback(); }
+static bool wxGeoIP() { return wxGeoFallback() || wxGeoPrimary(); }   // ip-api first (neutral service), author endpoint as backup
 
 static bool wxFetch() {
     if (!wxGeo) return false;

@@ -166,7 +166,14 @@ static int bmsPin[4] = {BMS_TX_PIN, BMS_RX_PIN, BMS2_TX_PIN, BMS2_RX_PIN};
 // GPIOs broken out on the 4P + 8P connectors (safe to assign; avoids display/touch/USB pins)
 static const uint8_t VALIDPINS[] = {5, 6, 7, 9, 14, 15, 16, 17, 18, 46};
 #define NVALID ((int)(sizeof(VALIDPINS) / sizeof(VALIDPINS[0])))
-static int nextPin(int cur) { for (int i = 0; i < NVALID; i++) if (VALIDPINS[i] == cur) return VALIDPINS[(i + 1) % NVALID]; return VALIDPINS[0]; }
+// Cycle a UART pin to the next valid GPIO, skipping pins already assigned to any other
+// slot — TX==RX or a pin shared between the two packs would silently break both reads.
+static bool pinTaken(int p, int slot) { for (int i = 0; i < 4; i++) if (i != slot && bmsPin[i] == p) return true; return false; }
+static int nextPin(int cur, int slot) {
+    int start = 0; for (int i = 0; i < NVALID; i++) if (VALIDPINS[i] == cur) { start = i; break; }
+    for (int k = 1; k <= NVALID; k++) { int p = VALIDPINS[(start + k) % NVALID]; if (!pinTaken(p, slot)) return p; }
+    return cur;   // all other pins taken (can't happen with 10 valid pins / 4 slots)
+}
 static void bmsBegin() {                // (re)open both UARTs with the current pin assignment
     bmsSerial.setRxBufferSize(512);  bmsSerial2.setRxBufferSize(512);   // settings reply ~255B — don't overflow the default 256B FIFO
     bmsSerial.end();  bmsSerial.begin(115200, SERIAL_8N1, bmsPin[1], bmsPin[0]);   // (rx, tx)
@@ -194,6 +201,7 @@ static char webPass[24] = "jkbms";  // default; change it from device Settings o
 static bool freshWebPass = false;   // set when loadSettings generated a random default → persist it once
 static void webBegin();             // defined in web_portal.h (started on first WiFi connect)
 static void webLoop();
+static void webOtaApplyPass();      // defined in web_portal.h; re-arms the espota password after a change
 // MQTT / Home Assistant config (set from the web portal, persisted in NVS)
 static bool mqttEnabled = false; static int mqttPort = 1883;
 static char mqttHost[64] = "", mqttUser[40] = "", mqttPass[40] = "";
@@ -209,6 +217,10 @@ static bool alOnFault = true;                // also alert on any BMS protection
 static uint8_t alState[2] = {0, 0};          // per-pack bitmask of currently-active conditions (edge detect)
 static void alertLoop();                     // defined in alerts.h
 static bool alertSend(const char *msg);      // defined in alerts.h (also used by the web Test button)
+// Web "Test" button: queued to the core-0 net task (a dead webhook blocks up to ~8s of
+// TLS+timeouts — never on the UI core). Result surfaces in /api as alTest.
+static volatile bool alTestGo = false;       // web (UI core) requests a test send; netTask performs it
+static volatile int8_t alTestRes = -1;       // -1 idle · -2 sending · 0 failed · 1 delivered
 // Weather (geo-IP + Open-Meteo); fetched in weather.h, drawn in the top bar
 struct WxDay { int code; int tmax, tmin; int pop; };   // pop = max precipitation probability %
 static bool wxOk = false; static int wxCurTemp = 0, wxCurCode = -1; static WxDay wxDay[5]; static int wxDays = 0;
@@ -230,6 +242,30 @@ static bool wxStale() {
 static void weatherLoop();          // defined in weather.h
 static void saveWeather();          // defined in weather.h; only ever called on core 1 (NVS write)
 static bool timeSynced = false;     // NTP has produced a valid wall-clock
+// Timezone (Settings → System → Timezone). POSIX TZ strings with DST rules. newlib caches
+// TZ per task — only core 1 (render/loop) formats local time, and applyTz runs there.
+struct TzDef { const char *name; const char *tz; };
+static const TzDef TZDEFS[] = {
+    {"UTC",          "UTC0"},
+    {"London",       "GMT0BST,M3.5.0/1,M10.5.0"},
+    {"Berlin/Paris", "CET-1CEST,M3.5.0,M10.5.0/3"},
+    {"Athens",       "EET-2EEST,M3.5.0/3,M10.5.0/4"},
+    {"Moscow",       "MSK-3"},
+    {"India",        "IST-5:30"},
+    {"China",        "CST-8"},
+    {"Japan",        "JST-9"},
+    {"Sydney",       "AEST-10AEDT,M10.1.0,M4.1.0/3"},
+    {"Brazil",       "<-03>3"},
+    {"US East",      "EST5EDT,M3.2.0,M11.1.0"},
+    {"US Central",   "CST6CDT,M3.2.0,M11.1.0"},
+    {"US Mountain",  "MST7MDT,M3.2.0,M11.1.0"},
+    {"US Pacific",   "PST8PDT,M3.2.0,M11.1.0"},
+};
+#define NTZ ((int)(sizeof(TZDEFS) / sizeof(TZDEFS[0])))
+#define TZ_DEFAULT 2                // Berlin/Paris (CET) — matches the previously hardcoded zone
+static int tzSel = TZ_DEFAULT;      // index into TZDEFS; persisted in NVS ("tz")
+static const char *tzStr() { return TZDEFS[tzSel].tz; }
+static void applyTz() { setenv("TZ", tzStr(), 1); tzset(); }   // call on core 1 only
 static int sysScroll = 0;           // System-tab scroll offset (px)
 static int bmsScroll = 0;           // BMS-tab scroll offset (px)
 static bool infoPopup = false;
@@ -272,9 +308,9 @@ static int netCount = 0, wifiSel = -1, wifiScroll = 0, kbMode = 0;
 static bool kbActive = false, wifiScanning = false, wifiSaved = false;
 enum KbTarget { KBT_WIFI = 0, KBT_WUSER, KBT_WPASS };   // what the text keyboard is editing
 static int kbTarget = KBT_WIFI;
-static char wifiPass[33] = ""; static int wifiPassLen = 0;   // also reused as the scratch buffer for web user/pass entry
+static char wifiPass[65] = ""; static int wifiPassLen = 0;   // WPA2 passphrases run to 63 chars; also the scratch buffer for web user/pass entry
 static char wifiMsg[56] = "";   // empty → renderWifiTab shows the localized "tap Scan" hint
-static char connSsid[33] = "", connPass[33] = "";
+static char connSsid[33] = "", connPass[65] = "";
 static Preferences prefs;
 // Guards all Modbus bus access (bmsRead on the UI core vs. bmsSet from the core-0 net
 // task's MQTT command handler). The poll try-takes (skips if a write is mid-flight);

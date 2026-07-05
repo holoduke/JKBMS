@@ -20,6 +20,22 @@ static bool webAuth() {
     webServer.requestAuthentication(DIGEST_AUTH, "JK BMS");
     return false;
 }
+// CSRF guard for state-changing POSTs: browsers replay cached Digest credentials on
+// cross-site form posts, so a malicious page could otherwise flip MOSFETs or flash
+// firmware through a logged-in victim's browser. Browsers always send Origin on a
+// cross-origin POST → reject any Origin that isn't this device. Requests without an
+// Origin header (curl, scripts, same-origin GETs) pass. Origin is captured via
+// collectHeaders() in webBegin().
+static bool webCrossOrigin() {
+    String o = webServer.header("Origin");
+    return o.length() && !o.equalsIgnoreCase("http://" + webServer.hostHeader());
+}
+static bool webOriginOk() {
+    if (!webCrossOrigin()) return true;
+    webServer.send(403, "text/plain", "cross-origin request rejected");
+    return false;
+}
+static void webOtaApplyPass() { if (webStarted) ArduinoOTA.setPassword(webPass); }   // espota caches the password → re-arm on change (declared in state.h; also used by the device-UI editor)
 
 static const char WEB_PAGE[] PROGMEM = R"HTML(<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
@@ -150,7 +166,7 @@ function t(k){return (I18N[L]&&I18N[L][k])||I18N.en[k]||k}
 function applyI18n(){document.documentElement.lang=L;
  document.querySelectorAll('[data-i18n]').forEach(e=>e.textContent=t(e.dataset.i18n));
  document.querySelectorAll('[data-ph]').forEach(e=>e.placeholder=t(e.dataset.ph));}
-let cur=0,D={},shotBusy=false,mqInit=false,scrInit=false,alInit=false,auInit=false,HIST=null;
+let cur=0,D={},shotBusy=false,mqInit=false,scrInit=false,alInit=false,auInit=false,alWait=false,HIST=null;
 function esc(s){return String(s).replace(/[<>&"']/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]))}
 function sel(b){cur=b;t0.className='tab'+(b==0?' on':'');t1.className='tab'+(b==1?' on':'');render();drawHist()}
 function chart(cv,arr,o){let dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;cv.width=w*dpr;cv.height=h*dpr;
@@ -188,6 +204,7 @@ async function load(){if(shotBusy)return;try{D=await(await fetch('/api')).json()
  if(!mqInit){mqh.value=D.mqHost||'';mqp.value=D.mqPort||1883;mqu.value=D.mqUser||'';mqInit=true}
  if(!alInit){alu.value=D.alUrl||'';als.value=D.alSoc;alt.value=D.alTmp;ald.value=D.alDlt;alInit=true}
  ale.checked=!!D.alEn;alf.checked=!!D.alFlt;
+ if(alWait&&D.alTest>=0){alst.textContent=D.alTest==1?t('altestok'):t('altestfail');alWait=false}
  if(!auInit){aupd.checked=!!D.autoUpd;auInit=true}
  if(D.upd){updrow.style.display='';updmsg.textContent='⬆ '+(D.updTag||'new')+' available'}else updrow.style.display='none';
  render();if(!scrInit){scrInit=true;shot()}}catch(e){net.style.color='var(--bad)';net.textContent=t('disconnected')}}
@@ -260,7 +277,7 @@ async function savemq(){let b='en='+(mqe.checked?1:0)+'&host='+encodeURIComponen
  let r=await fetch('/setmqtt',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b});mqpw.value='';mqst.textContent=r.ok?t('mqsaved'):t('mqfail')}
 async function saveal(){let b='en='+(ale.checked?1:0)+'&flt='+(alf.checked?1:0)+'&url='+encodeURIComponent(alu.value)+'&soc='+(als.value||15)+'&tmp='+(alt.value||55)+'&dlt='+(ald.value||300);
  let r=await fetch('/setalert',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:b});alst.textContent=r.ok?t('alsaved'):t('mqfail');return r.ok}
-async function testal(){if(!await saveal())return;let r=await fetch('/testalert',{method:'POST'});alst.textContent=r.ok?t('altestok'):t('altestfail')}
+async function testal(){if(!await saveal())return;let r=await fetch('/testalert',{method:'POST'});if(!r.ok){alst.textContent=t('altestfail');return}alWait=true;alst.textContent='…'}
 function shot(retry){if(shotBusy&&!retry)return;shotBusy=true;scrld.style.display='block';scrh.style.display='none';
  scr.onload=()=>{shotBusy=false;scrld.style.display='none';scr.style.display='block'};
  scr.onerror=()=>{shotBusy=false;
@@ -291,7 +308,7 @@ static String jesc(const char *s) {
 }
 // ---- JSON state ----
 static String webJson() {
-    String j; j.reserve(6500);   // one allocation; avoids a realloc cascade from the +='s below
+    String j; j.reserve(10240);  // one allocation; sized for the max config (2 packs × 24 cells + params + 36 SoH points ≈ 9-10 KB)
     char clk[12] = "--:--:--"; { struct tm ti; if (getLocalTime(&ti, 0)) snprintf(clk, sizeof(clk), "%02d:%02d:%02d", ti.tm_hour, ti.tm_min, ti.tm_sec); }
     j = "{\"fw\":\"" FW_VERSION "\",\"ip\":\"" + WiFi.localIP().toString() +
         "\",\"up\":" + String(millis() / 1000) + ",\"clk\":\"" + clk + "\",\"tsync\":" + String(timeSynced ? 1 : 0) +
@@ -302,6 +319,7 @@ static String webJson() {
         ",\"mqHost\":\"" + jesc(mqttHost) + "\",\"mqPort\":" + String(mqttPort) + ",\"mqUser\":\"" + jesc(mqttUser) + "\"" +
         ",\"alEn\":" + String(alertEnabled ? 1 : 0) + ",\"alUrl\":\"" + jesc(alertUrl) + "\"" +
         ",\"alSoc\":" + String(alSocLo) + ",\"alTmp\":" + String(alTempHi) + ",\"alDlt\":" + String(alDeltaHi) + ",\"alFlt\":" + String(alOnFault ? 1 : 0) +
+        ",\"alTest\":" + String((int)alTestRes) +
         ",\"wxOk\":" + String(wxOk ? 1 : 0) + ",\"wxStale\":" + String(wxStale() ? 1 : 0) + ",\"wxHttp\":" + String(wxHttp) + ",\"wxCity\":\"" + jesc(wxCity) + "\",\"wxT\":" + String(wxCurTemp) + ",\"wxC\":" + String(wxCurCode) + ",\"wxD\":[";
     for (int i = 0; i < wxDays; i++) { if (i) j += ","; j += "{\"c\":" + String(wxDay[i].code) + ",\"mx\":" + String(wxDay[i].tmax) + ",\"mn\":" + String(wxDay[i].tmin) + "}"; }
     j += "],\"packs\":[";
@@ -497,7 +515,7 @@ static String webBackup() {
     j += ",\"wauto\":" + String(wifiAuto ? 1 : 0) + ",\"sim\":" + String(simSpeed);
     j += ",\"demo\":" + String(demoMode ? 1 : 0) + ",\"idle\":" + String(idleScreen);
     j += ",\"saver\":" + String(saverAfterSec) + ",\"lockAft\":" + String(lockAfterSec);
-    j += ",\"lockPin\":\"" + jesc(lockPin) + "\",\"lang\":" + String(g_lang) + ",\"nbms\":" + String(numBms);
+    j += ",\"lockPin\":\"" + jesc(lockPin) + "\",\"lang\":" + String(g_lang) + ",\"tz\":" + String(tzSel) + ",\"nbms\":" + String(numBms);
     j += ",\"pins\":["; for (int i = 0; i < 4; i++) { if (i) j += ","; j += String(bmsPin[i]); } j += "]";
     j += ",\"wifiSsid\":\"" + jesc(connSsid) + "\",\"wifiPass\":\"" + jesc(connPass) + "\"";
     j += ",\"wuser\":\"" + jesc(webUser) + "\",\"wpass\":\"" + jesc(webPass) + "\"";
@@ -522,17 +540,23 @@ static void webBegin() {
         webServer.send(200, "application/json", webBackup());
     });
     webServer.on("/restore", HTTP_POST, []() {   // apply an uploaded backup, then reboot
-        if (!webAuth()) return;
+        if (!webAuth() || !webOriginOk()) return;
         JsonDocument d;
         if (deserializeJson(d, webServer.arg("plain"))) { webServer.send(400, "application/json", "{\"ok\":0}"); return; }
-        autoSwitch = (d["autosw"] | (int)autoSwitch) != 0; intervalMs = d["ival"] | intervalMs;
-        brightness = d["bright"] | brightness; if (brightness < 10) brightness = 10; if (brightness > 255) brightness = 255;
-        autoSleepMin = d["sleep"] | autoSleepMin; ecoMode = (d["eco"] | (int)ecoMode) != 0; dimAfterSec = d["dim"] | dimAfterSec;
+        autoSwitch = (d["autosw"] | (int)autoSwitch) != 0;
+        intervalMs = d["ival"] | intervalMs; if (intervalMs < 1000) intervalMs = 1000; if (intervalMs > 60000) intervalMs = 60000;
+        brightness = d["bright"] | brightness; if (brightness < 10) brightness = 10; if (brightness > 100) brightness = 100;   // UI range is 10..100
+        autoSleepMin = d["sleep"] | autoSleepMin; if (autoSleepMin < 0) autoSleepMin = 0;
+        ecoMode = (d["eco"] | (int)ecoMode) != 0;
+        dimAfterSec = d["dim"] | dimAfterSec; if (dimAfterSec < 0) dimAfterSec = 0;
         tempF = (d["tF"] | (int)tempF) != 0; fmt12 = (d["f12"] | (int)fmt12) != 0;
-        wifiAuto = (d["wauto"] | (int)wifiAuto) != 0; simSpeed = d["sim"] | simSpeed;
+        wifiAuto = (d["wauto"] | (int)wifiAuto) != 0;
+        simSpeed = d["sim"] | simSpeed; if (simSpeed < 1) simSpeed = 1; if (simSpeed > 5) simSpeed = 5;
         demoMode = (d["demo"] | (int)demoMode) != 0; idleScreen = d["idle"] | idleScreen;
-        saverAfterSec = d["saver"] | saverAfterSec; lockAfterSec = d["lockAft"] | lockAfterSec;
+        saverAfterSec = d["saver"] | saverAfterSec; if (saverAfterSec < 0) saverAfterSec = 0;
+        lockAfterSec = d["lockAft"] | lockAfterSec; if (lockAfterSec < 0) lockAfterSec = 0;
         g_lang = d["lang"] | g_lang; if (g_lang >= LANG_COUNT) g_lang = 0;
+        tzSel = d["tz"] | tzSel; if (tzSel < 0 || tzSel >= NTZ) tzSel = TZ_DEFAULT;
         numBms = d["nbms"] | numBms; if (numBms < 1) numBms = 1; if (numBms > 2) numBms = 2;
         mqttEnabled = (d["mqEn"] | (int)mqttEnabled) != 0; mqttPort = d["mqPort"] | mqttPort;
         alertEnabled = (d["alEn"] | (int)alertEnabled) != 0;
@@ -550,7 +574,7 @@ static void webBegin() {
         delay(400); ESP.restart();
     });
     webServer.on("/toggle", HTTP_POST, []() {
-        if (!webAuth()) return;
+        if (!webAuth() || !webOriginOk()) return;
         int b = webServer.arg("bms").toInt(); String w = webServer.arg("which");
         if (b < 0 || b >= numBms) { webServer.send(400, "text/plain", "pack not enabled"); return; }
         bool ok = false;
@@ -561,7 +585,7 @@ static void webBegin() {
         webServer.send(ok ? 200 : 500, "text/plain", ok ? "ok" : "write failed");
     });
     webServer.on("/setparam", HTTP_POST, []() {
-        if (!webAuth()) return;
+        if (!webAuth() || !webOriginOk()) return;
         if (!webServer.hasArg("idx") || !webServer.hasArg("val")) { webServer.send(400, "text/plain", "missing arg"); return; }
         int b = webServer.arg("bms").toInt(), idx = webServer.arg("idx").toInt();
         if (b < 0 || b >= numBms) { webServer.send(400, "text/plain", "pack not enabled"); return; }
@@ -570,7 +594,7 @@ static void webBegin() {
         webServer.send(ok ? 200 : 500, "text/plain", ok ? "ok" : "write failed");
     });
     webServer.on("/setmqtt", HTTP_POST, []() {                               // configure MQTT / Home Assistant
-        if (!webAuth()) return;
+        if (!webAuth() || !webOriginOk()) return;
         mqttEnabled = webServer.arg("en") == "1";
         strncpy(mqttHost, webServer.arg("host").c_str(), sizeof(mqttHost) - 1); mqttHost[sizeof(mqttHost) - 1] = 0;
         strncpy(mqttUser, webServer.arg("user").c_str(), sizeof(mqttUser) - 1); mqttUser[sizeof(mqttUser) - 1] = 0;
@@ -582,7 +606,7 @@ static void webBegin() {
         webServer.send(200, "text/plain", "ok");
     });
     webServer.on("/setalert", HTTP_POST, []() {                              // configure threshold push alerts
-        if (!webAuth()) return;
+        if (!webAuth() || !webOriginOk()) return;
         alertEnabled = webServer.arg("en") == "1";
         alOnFault = webServer.arg("flt") == "1";
         strncpy(alertUrl, webServer.arg("url").c_str(), sizeof(alertUrl) - 1); alertUrl[sizeof(alertUrl) - 1] = 0;
@@ -593,10 +617,12 @@ static void webBegin() {
         saveSettings();
         webServer.send(200, "text/plain", "ok");
     });
-    webServer.on("/testalert", HTTP_POST, []() {                             // fire a test notification to the webhook
-        if (!webAuth()) return;
-        bool ok = alertSend("JK BMS test alert \xE2\x9C\x93");
-        webServer.send(ok ? 200 : 500, "text/plain", ok ? "ok" : "send failed");
+    webServer.on("/testalert", HTTP_POST, []() {                             // queue a test notification to the webhook
+        if (!webAuth() || !webOriginOk()) return;
+        // Sent by the core-0 net task — a dead endpoint blocks ~8s of TLS+timeouts, which
+        // must not stall this (UI) core. The page polls the result via /api's alTest field.
+        alTestRes = -2; alTestGo = true;
+        webServer.send(200, "text/plain", "queued");
     });
     webServer.on("/history.csv", []() {                                      // download the 7-day SOC/power log
         if (!webAuth()) return;
@@ -657,29 +683,29 @@ static void webBegin() {
         webServer.send(200, "application/json", j);
     });
     webServer.on("/setupd", HTTP_POST, []() {                               // toggle auto-update from new GitHub releases
-        if (!webAuth()) return;
+        if (!webAuth() || !webOriginOk()) return;
         autoUpdate = webServer.arg("en") == "1"; saveSettings();
         webServer.send(200, "text/plain", "ok");
     });
     webServer.on("/selfupdate", HTTP_POST, []() {                           // download + flash the latest release now
-        if (!webAuth()) return;
+        if (!webAuth() || !webOriginOk()) return;
         if (!updAvail || !updUrl[0]) { webServer.send(409, "text/plain", "no update"); return; }
         updGo = true;                                                       // the core-0 net task performs the OTA
         webServer.send(200, "text/plain", "updating");
     });
     webServer.on("/setpass", HTTP_POST, []() {
-        if (!webAuth()) return;
+        if (!webAuth() || !webOriginOk()) return;
         String p = webServer.arg("p");
         if (p.length() < 4 || p.length() >= sizeof(webPass)) { webServer.send(400, "text/plain", "min 4 chars"); return; }
         strncpy(webPass, p.c_str(), sizeof(webPass) - 1); webPass[sizeof(webPass) - 1] = 0;
-        ArduinoOTA.setPassword(webPass);   // re-arm OTA too, else espota keeps the old password until reboot
+        webOtaApplyPass();   // re-arm OTA too, else espota keeps the old password until reboot
         saveSettings();
         webServer.send(200, "text/plain", "ok");
     });
     // OTA via browser upload: stream the .bin straight into the inactive app slot
     webServer.on("/update", HTTP_POST,
         []() {
-            if (!webAuth()) return;
+            if (!webAuth() || !webOriginOk()) return;
             bool ok = !Update.hasError();
             webServer.send(ok ? 200 : 500, "text/plain", ok ? "ok" : Update.errorString());
             if (ok) { delay(400); ESP.restart(); }
@@ -688,10 +714,15 @@ static void webBegin() {
             if (!webServer.authenticate(webUser, webPass)) { Update.abort(); webServer.requestAuthentication(DIGEST_AUTH, "JK BMS"); return; }
             HTTPUpload &up = webServer.upload();
             esp_task_wdt_reset();   // the upload blocks loopTask for the whole flash → keep feeding the UI watchdog so it can't trip mid-write
-            if (up.status == UPLOAD_FILE_START) { WiFi.setSleep(false); Update.begin(UPDATE_SIZE_UNKNOWN); }
+            if (up.status == UPLOAD_FILE_START) {
+                if (webCrossOrigin()) { Update.abort(); return; }   // CSRF: never even start flashing a cross-site upload (final handler sends the 403)
+                WiFi.setSleep(false); Update.begin(UPDATE_SIZE_UNKNOWN);
+            }
             else if (up.status == UPLOAD_FILE_WRITE) { if (Update.write(up.buf, up.currentSize) != up.currentSize) Update.abort(); }
             else if (up.status == UPLOAD_FILE_END) { Update.end(true); }
         });
+    static const char *COLLECT_HDRS[] = {"Origin"};                    // needed by webCrossOrigin (WebServer only stores collected headers)
+    webServer.collectHeaders(COLLECT_HDRS, 1);
     webServer.begin();
     // ArduinoOTA: push builds from PlatformIO over WiFi (espota), same password.
     // OTA needs handle() called tightly, so onStart suspends the UI/polling and

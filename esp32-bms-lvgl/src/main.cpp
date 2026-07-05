@@ -43,8 +43,8 @@ void setup() {
     Serial.setTxTimeoutMs(0);   // never block the loop when no USB host is reading
     delay(300);
     Serial.printf("\n[lvgl] boot — LVGL %d.%d.%d\n", lv_version_major(), lv_version_minor(), lv_version_patch());
-    setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1); tzset();   // set once for this (render/loop) task — newlib TZ is per-task
     loadSettings();             // restore saved settings before they're used (brightness, wifi, …)
+    applyTz();                  // apply the saved timezone to this (render/loop) task — newlib TZ is per-task
     if (freshWebPass) saveSettings();   // first boot → lock in the randomly-generated default password
     if (lockAfterSec > 0 && lockPin[0]) locked = true;
     loadHistory();              // restore the persisted graph history (survives reboot)
@@ -106,7 +106,7 @@ void setup() {
     prefs.end();
     if (ss.length()) {
         strncpy(connSsid, ss.c_str(), 32); connSsid[32] = 0;
-        strncpy(connPass, pw.c_str(), 32); connPass[32] = 0;
+        strncpy(connPass, pw.c_str(), sizeof(connPass) - 1); connPass[sizeof(connPass) - 1] = 0;
         wifiSaved = true; WiFi.begin(connSsid, connPass);
         snprintf(wifiMsg, sizeof(wifiMsg), "%s %s...", T(K_WIFI_CONNECTING), connSsid);
     }
