@@ -242,7 +242,9 @@ static void spin_cb(lv_timer_t *t) {
     if (standby || view == V_SETTINGS || idleActiveNow()) return;
     if (appliedB <= DIM_LEVEL) return;                 // dimmed (user away) → don't burn the panel
     if (!(demoMode || bmsLive[view])) return;          // only when the shown pack is live
-    if (bms[view].i <= 0.5f) return;                   // only while charging (spinner indicates charge in progress)
+    // Repaint the ring region for either animation: the charging comet spinner, or the
+    // "pulsar" breathe on a full pack (≥99%). Both are gated above by dim/idle/standby.
+    if (bms[view].i <= 0.5f && bms[view].soc < 99.0f) return;
     invArea(18, 96, 182, 260);                          // ring + spinner box → renderBms repaints it
 }
 static void dataTick_cb(lv_timer_t *t) {

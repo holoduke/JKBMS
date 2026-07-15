@@ -52,6 +52,10 @@ static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t base, b
         // to the vivid base at the leading edge, so it reads as a glowing sweep AND its colour
         // shifts with the actual %: a full pack glows violet, a healthy one green, a low one red.
         float ff = pct >= 99.5f ? 1.0f : (pct > 0.5f ? pct / 100.0f : 0.0f);
+        // At a full pack (≥99%) the icy "pulsar" ring breathes — a slow ~1s brightness swell
+        // driven by millis(). spin_cb repaints this region at ~20fps while full & awake (and
+        // stops once the screen dims), so the pulse is smooth without flushing for nobody.
+        float pulse = (pct >= 99.0f) ? (0.85f + 0.15f * sinf(millis() * 0.006f)) : 1.0f;
         const int N = 40;                             // segments around the full circle (9° each)
         int filled = (int)(ff * N + 0.5f); if (filled < 1 && ff > 0) filled = 1;
         for (int s = 0; s < N; s++) {
@@ -59,12 +63,13 @@ static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t base, b
             int a0 = (270 + (int)((float)s / N * 360)) % 360;
             int a1 = (270 + (int)((float)(s + 1) / N * 360)) % 360; if (a1 == 0) a1 = 360;
             float g = filled > 1 ? (float)s / (filled - 1) : 1.0f;   // 0 = tail (bottom) → 1 = leading edge
-            ring(cx, cy, ro, ri, a0, a1, dimColor(base, 0.6f + 0.4f * g));   // dim tail → vivid head (floor keeps the deep full-hue legible)
+            ring(cx, cy, ro, ri, a0, a1, dimColor(base, (0.6f + 0.4f * g) * pulse));   // dim tail → vivid head, whole ring breathing when full
         }
     }
     if (stale) { cText("--", cx, cy - 6, F48, C_MUTED); return; }
     char buf[8]; snprintf(buf, sizeof(buf), "%d", (int)(pct + 0.5f));
-    cText(buf, cx, cy - 6, F48, base);   // big % in the pack's charge-level colour
+    uint32_t numCol = (pct >= 99.0f) ? dimColor(base, 0.85f + 0.15f * sinf(millis() * 0.006f)) : base;
+    cText(buf, cx, cy - 6, F48, numCol);   // big % in the pack's charge-level colour (breathing at full)
     cText("%", cx, cy + 30, F16, C_MUTED);
 }
 // Charging spinner: a thin track + a comet-tail arc orbiting just outside the SOC ring.
