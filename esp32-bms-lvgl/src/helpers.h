@@ -25,18 +25,19 @@ static uint32_t lerpColor(uint32_t a, uint32_t b, float t) {
     int br = (b >> 16) & 0xff, bg = (b >> 8) & 0xff, bb = b & 0xff;
     return ((uint32_t)(ar + (br - ar) * t) << 16) | ((uint32_t)(ag + (bg - ag) * t) << 8) | (uint32_t)(ab + (bb - ab) * t);
 }
-// SOC ring colour: normal palette up to 90%, then fades green → deep purple-blue at 100%.
-#define C_FULL 0x4012a0
+// SOC ring colour driven by the ACTUAL charge level, so the ring's hue alone tells you the
+// pack's state at a glance: red (empty) → amber → green (healthy) → violet (near full). The
+// violet only engages above 90% — a full pack reads unmistakably different from a healthy one.
+#define C_FULL 0xb072ff             // vivid violet for a near-full pack (>90%)
 static uint32_t socRingColor(float soc) {
-    if (soc >= 90) return lerpColor(C_ACCENT, C_FULL, (soc - 90) / 10.0f);
-    return socColor(soc);
+    if (soc >= 90) return lerpColor(C_ACCENT, C_FULL,  (soc - 90) / 10.0f);   // 90→100 : green → violet
+    if (soc >= 55) return C_ACCENT;                                           // healthy plateau : green
+    if (soc >= 30) return lerpColor(C_WARN,  C_ACCENT, (soc - 30) / 25.0f);   // 30→55  : amber → green
+    return               lerpColor(C_BAD,    C_WARN,   soc / 30.0f);          // 0→30   : red   → amber
 }
-// Position along the SOC scale → colour: 0=red, 0.5=amber, 1=green. Used to paint the
-// ring fill as a smooth red→amber→green gradient (and to tint the big % to match its end).
-static uint32_t socGrad(float f) {
-    if (f < 0) f = 0; if (f > 1) f = 1;
-    return f < 0.5f ? lerpColor(C_BAD, C_WARN, f * 2.0f) : lerpColor(C_WARN, C_ACCENT, (f - 0.5f) * 2.0f);
-}
+// Scale a colour's luminance toward black (k=0 → black, k=1 → unchanged). Used to fade the
+// ring fill from a dim tail to a vivid leading edge so the arc reads as a glowing sweep.
+static uint32_t dimColor(uint32_t c, float k) { return lerpColor(0x000000, c, k); }
 // Cell balance heatmap: a cell's deviation from the pack mean (mV) → colour.
 static uint32_t cellDevColor(float devMv) { return devMv < 10.0f ? C_ACCENT : devMv < 30.0f ? C_WARN : C_BAD; }
 static uint32_t tempColor(float t) { return t >= 55 ? C_BAD : t >= 45 ? C_WARN : C_ACCENT; }

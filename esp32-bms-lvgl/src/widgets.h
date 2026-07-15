@@ -44,30 +44,34 @@ static void drawTabs(bool autoActive, float prog) {
         updBoxL = ux - 12; updBoxR = ux + 12;
     } else { updBoxL = updBoxR = 0; }
 }
-static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t col, bool stale = false) {
+static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t base, bool stale = false) {
     ring(cx, cy, ro, ri, 0, 360, C_BORDER);          // full track
     if (!stale) {
-        // Fill as a red→amber→green gradient: each segment coloured by its position along
-        // the 0..100% scale, so a low pack reads red and a full one green at a glance.
+        // `base` is the pack's charge-level hue (red→amber→green→violet — see socRingColor).
+        // The whole arc shares that hue; within it the fill ramps from a dim tail at the bottom
+        // to the vivid base at the leading edge, so it reads as a glowing sweep AND its colour
+        // shifts with the actual %: a full pack glows violet, a healthy one green, a low one red.
         float ff = pct >= 99.5f ? 1.0f : (pct > 0.5f ? pct / 100.0f : 0.0f);
         const int N = 40;                             // segments around the full circle (9° each)
+        int filled = (int)(ff * N + 0.5f); if (filled < 1 && ff > 0) filled = 1;
         for (int s = 0; s < N; s++) {
-            float f = (float)s / N; if (f >= ff) break;
-            int a0 = (270 + (int)(f * 360)) % 360;
+            if ((float)s / N >= ff) break;
+            int a0 = (270 + (int)((float)s / N * 360)) % 360;
             int a1 = (270 + (int)((float)(s + 1) / N * 360)) % 360; if (a1 == 0) a1 = 360;
-            ring(cx, cy, ro, ri, a0, a1, socGrad(f));
+            float g = filled > 1 ? (float)s / (filled - 1) : 1.0f;   // 0 = tail (bottom) → 1 = leading edge
+            ring(cx, cy, ro, ri, a0, a1, dimColor(base, 0.5f + 0.5f * g));
         }
     }
     if (stale) { cText("--", cx, cy - 6, F48, C_MUTED); return; }
     char buf[8]; snprintf(buf, sizeof(buf), "%d", (int)(pct + 0.5f));
-    cText(buf, cx, cy - 6, F48, socGrad(pct >= 99.5f ? 1.0f : pct / 100.0f));   // big % tinted to the fill end
+    cText(buf, cx, cy - 6, F48, base);   // big % in the pack's charge-level colour
     cText("%", cx, cy + 30, F16, C_MUTED);
 }
 // Charging spinner: a thin track + a comet-tail arc orbiting just outside the SOC ring.
 // Built from N short segments whose opacity fades from the bright leading head down the
 // tail, so it reads as a glowing trail when it turns. Angle is time-based (millis) → the
 // rotation speed is constant regardless of frame rate.
-static void drawSpinner(int cx, int cy, uint32_t nowMs) {
+static void drawSpinner(int cx, int cy, uint32_t nowMs, uint32_t col = C_ACCENT) {
     const int ro = 82, ri = 80;                       // 2px thin, ~6px outside the 74px SOC ring
     ring(cx, cy, ro, ri, 0, 360, C_BORDER);           // faint full track
     const int N = 9, seg = 9;                         // 9 segments × 9° ≈ 80° comet tail
@@ -76,7 +80,7 @@ static void drawSpinner(int cx, int cy, uint32_t nowMs) {
         int a0 = (((int)(head - (k + 1) * seg)) % 360 + 360) % 360;
         int a1 = (a0 + seg) % 360; if (a1 == 0) a1 = 360;
         lv_opa_t opa = (lv_opa_t)(40 + (215 * (N - 1 - k)) / (N - 1));   // head ~255 → tail ~40
-        ringA(cx, cy, ro, ri, a0, a1, C_ACCENT, opa);
+        ringA(cx, cy, ro, ri, a0, a1, col, opa);      // matches the SOC ring's charge-level hue
     }
 }
 static void drawTile(int x, int y, int w, int h, const char *label, const char *val, const char *unit, uint32_t valCol) {
@@ -425,8 +429,9 @@ static void renderBms() {
         if (shown) cText(al, cx, py2 + 24, F10, C_BAD);
     }
     bool stale = (!demoMode && !bmsLive[view]);   // live mode, this pack isn't answering → no data
-    drawRing(cx, cy, 74, 58, b.soc, socRingColor(b.soc), stale);
-    if (!stale && b.i > 0.5f) drawSpinner(cx, cy, now);   // comet spinner only while charging
+    uint32_t socCol = socRingColor(b.soc);
+    drawRing(cx, cy, 74, 58, b.soc, socCol, stale);
+    if (!stale && b.i > 0.5f) drawSpinner(cx, cy, now, socCol);   // comet spinner only while charging, tinted to match the ring
     int py = cy + 100;                            // power + current readout, big & centered, just below the ring
     if (stale) {
         cText("--", cx, py + 2, F28, C_MUTED);
