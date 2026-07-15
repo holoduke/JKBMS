@@ -59,7 +59,7 @@ static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t base, b
             int a0 = (270 + (int)((float)s / N * 360)) % 360;
             int a1 = (270 + (int)((float)(s + 1) / N * 360)) % 360; if (a1 == 0) a1 = 360;
             float g = filled > 1 ? (float)s / (filled - 1) : 1.0f;   // 0 = tail (bottom) → 1 = leading edge
-            ring(cx, cy, ro, ri, a0, a1, dimColor(base, 0.5f + 0.5f * g));
+            ring(cx, cy, ro, ri, a0, a1, dimColor(base, 0.6f + 0.4f * g));   // dim tail → vivid head (floor keeps the deep full-hue legible)
         }
     }
     if (stale) { cText("--", cx, cy - 6, F48, C_MUTED); return; }

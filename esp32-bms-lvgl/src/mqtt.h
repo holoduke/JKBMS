@@ -17,41 +17,53 @@ static void mqInitIds() {
     mqId = b; mqBase = "jkbms/" + mqId;
 }
 
-static void mqPubSensor(int t, const char *key, const char *name, const char *unit, const char *dc) {
-    char uid[48], topic[80], dev[120], pl[480];
+// Shared HA "device" block — one physical BMS pack. All entities for pack t carry the same
+// `ids`, so HA groups them under a single device card named "JK BMS 1"/"JK BMS 2", with the
+// firmware version shown and a clickable link (cu) straight to the device's web portal.
+static void mqDev(char *o, size_t n, int t) {
+    snprintf(o, n, "{\"ids\":[\"jkbms_%s_p%d\"],\"name\":\"JK BMS %d\",\"mf\":\"holoduke\",\"mdl\":\"JKBMS-ESP32\","
+                   "\"sw\":\"" FW_VERSION "\",\"cu\":\"http://%s\"}",
+             mqId.c_str(), t, t + 1, WiFi.localIP().toString().c_str());
+}
+// sc = state_class ("measurement" for a live reading → HA keeps long-term statistics/graphs;
+// "" for text sensors like status/alarms; "total_increasing" for monotonic counters). Every
+// entity sets has_entity_name so HA composes the friendly name as "JK BMS 1 <name>".
+static void mqPubSensor(int t, const char *key, const char *name, const char *unit, const char *dc, const char *sc = "measurement") {
+    char uid[48], topic[80], dev[176], pl[576];
     snprintf(uid, sizeof(uid), "%s_p%d_%s", mqId.c_str(), t, key);
     snprintf(topic, sizeof(topic), "homeassistant/sensor/%s/config", uid);
-    snprintf(dev, sizeof(dev), "{\"ids\":[\"jkbms_%s_p%d\"],\"name\":\"JK BMS %d\",\"mf\":\"holoduke\",\"mdl\":\"JKBMS-ESP32\"}", mqId.c_str(), t, t + 1);
+    mqDev(dev, sizeof(dev), t);
     int n = snprintf(pl, sizeof(pl),
-        "{\"name\":\"%s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s/p%d/state\",\"val_tpl\":\"{{value_json.%s}}\",\"avty_t\":\"%s/status\",\"dev\":%s",
+        "{\"name\":\"%s\",\"has_entity_name\":true,\"uniq_id\":\"%s\",\"stat_t\":\"%s/p%d/state\",\"val_tpl\":\"{{value_json.%s}}\",\"avty_t\":\"%s/status\",\"dev\":%s",
         name, uid, mqBase.c_str(), t, key, mqBase.c_str(), dev);
     if (unit[0]) n += snprintf(pl + n, sizeof(pl) - n, ",\"unit_of_meas\":\"%s\"", unit);
     if (dc[0])   n += snprintf(pl + n, sizeof(pl) - n, ",\"dev_cla\":\"%s\"", dc);
+    if (sc[0])   n += snprintf(pl + n, sizeof(pl) - n, ",\"stat_cla\":\"%s\"", sc);
     snprintf(pl + n, sizeof(pl) - n, "}");
     mqtt.publish(topic, pl, true);
 }
 
 // Cumulative energy sensor — device_class energy + state_class total_increasing so it
-// feeds the Home Assistant Energy dashboard (kWh). Separate from mqPubSensor (no state_class).
+// feeds the Home Assistant Energy dashboard (kWh).
 static void mqPubEnergy(int t, const char *key, const char *name) {
-    char uid[48], topic[80], dev[120], pl[480];
+    char uid[48], topic[80], dev[176], pl[576];
     snprintf(uid, sizeof(uid), "%s_p%d_%s", mqId.c_str(), t, key);
     snprintf(topic, sizeof(topic), "homeassistant/sensor/%s/config", uid);
-    snprintf(dev, sizeof(dev), "{\"ids\":[\"jkbms_%s_p%d\"],\"name\":\"JK BMS %d\",\"mf\":\"holoduke\",\"mdl\":\"JKBMS-ESP32\"}", mqId.c_str(), t, t + 1);
+    mqDev(dev, sizeof(dev), t);
     snprintf(pl, sizeof(pl),
-        "{\"name\":\"%s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s/p%d/state\",\"val_tpl\":\"{{value_json.%s}}\",\"avty_t\":\"%s/status\","
+        "{\"name\":\"%s\",\"has_entity_name\":true,\"uniq_id\":\"%s\",\"stat_t\":\"%s/p%d/state\",\"val_tpl\":\"{{value_json.%s}}\",\"avty_t\":\"%s/status\","
         "\"unit_of_meas\":\"kWh\",\"dev_cla\":\"energy\",\"stat_cla\":\"total_increasing\",\"dev\":%s}",
         name, uid, mqBase.c_str(), t, key, mqBase.c_str(), dev);
     mqtt.publish(topic, pl, true);
 }
 
 static void mqPubSwitch(int t, const char *key, const char *name) {
-    char uid[48], topic[80], dev[120], pl[500];
+    char uid[48], topic[80], dev[176], pl[600];
     snprintf(uid, sizeof(uid), "%s_p%d_%s", mqId.c_str(), t, key);
     snprintf(topic, sizeof(topic), "homeassistant/switch/%s/config", uid);
-    snprintf(dev, sizeof(dev), "{\"ids\":[\"jkbms_%s_p%d\"],\"name\":\"JK BMS %d\",\"mf\":\"holoduke\",\"mdl\":\"JKBMS-ESP32\"}", mqId.c_str(), t, t + 1);
+    mqDev(dev, sizeof(dev), t);
     snprintf(pl, sizeof(pl),
-        "{\"name\":\"%s\",\"uniq_id\":\"%s\",\"stat_t\":\"%s/p%d/state\",\"val_tpl\":\"{{value_json.%s}}\",\"cmd_t\":\"%s/p%d/%s/set\","
+        "{\"name\":\"%s\",\"has_entity_name\":true,\"uniq_id\":\"%s\",\"stat_t\":\"%s/p%d/state\",\"val_tpl\":\"{{value_json.%s}}\",\"cmd_t\":\"%s/p%d/%s/set\","
         "\"pl_on\":\"1\",\"pl_off\":\"0\",\"stat_on\":\"1\",\"stat_off\":\"0\",\"avty_t\":\"%s/status\",\"dev\":%s}",
         name, uid, mqBase.c_str(), t, key, mqBase.c_str(), t, key, mqBase.c_str(), dev);
     mqtt.publish(topic, pl, true);
@@ -60,13 +72,13 @@ static void mqPubSwitch(int t, const char *key, const char *name) {
 // Per-cell voltage sensor. All cells share one state topic (.../cells = JSON array);
 // each sensor pulls its index. Marked diagnostic so they don't clutter the main HA card.
 static void mqPubCell(int t, int i) {
-    char uid[52], topic[84], dev[120], pl[480];
+    char uid[52], topic[84], dev[176], pl[576];
     snprintf(uid, sizeof(uid), "%s_p%d_c%d", mqId.c_str(), t, i);
     snprintf(topic, sizeof(topic), "homeassistant/sensor/%s/config", uid);
-    snprintf(dev, sizeof(dev), "{\"ids\":[\"jkbms_%s_p%d\"],\"name\":\"JK BMS %d\",\"mf\":\"holoduke\",\"mdl\":\"JKBMS-ESP32\"}", mqId.c_str(), t, t + 1);
+    mqDev(dev, sizeof(dev), t);
     snprintf(pl, sizeof(pl),
-        "{\"name\":\"Cell %d\",\"uniq_id\":\"%s\",\"stat_t\":\"%s/p%d/cells\",\"val_tpl\":\"{{value_json[%d]}}\","
-        "\"unit_of_meas\":\"V\",\"dev_cla\":\"voltage\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"%s/status\",\"dev\":%s}",
+        "{\"name\":\"Cell %d\",\"has_entity_name\":true,\"uniq_id\":\"%s\",\"stat_t\":\"%s/p%d/cells\",\"val_tpl\":\"{{value_json[%d]}}\","
+        "\"unit_of_meas\":\"V\",\"dev_cla\":\"voltage\",\"stat_cla\":\"measurement\",\"ent_cat\":\"diagnostic\",\"avty_t\":\"%s/status\",\"dev\":%s}",
         i + 1, uid, mqBase.c_str(), t, i, mqBase.c_str(), dev);
     mqtt.publish(topic, pl, true);
 }
@@ -78,13 +90,13 @@ static void mqDiscovery() {
         mqPubSensor(t, "w", "Power", "W", "power");
         mqPubSensor(t, "tmos", "MOSFET temp", "°C", "temperature");
         mqPubSensor(t, "soh", "Health", "%", "");
-        mqPubSensor(t, "cyc", "Cycles", "", "");
+        mqPubSensor(t, "cyc", "Cycles", "", "", "total_increasing");   // monotonic counter, not a measurement
         mqPubSensor(t, "delta", "Cell delta", "mV", "voltage");
         mqPubSensor(t, "bcur", "Balance current", "A", "current");
         mqPubEnergy(t, "ein", "Energy charged");
         mqPubEnergy(t, "eout", "Energy discharged");
-        mqPubSensor(t, "status", "Status", "", "");
-        mqPubSensor(t, "alarms", "Alarms", "", "");
+        mqPubSensor(t, "status", "Status", "", "", "");     // text → no state_class
+        mqPubSensor(t, "alarms", "Alarms", "", "", "");     // text → no state_class
         mqPubSwitch(t, "chg", "Charge MOSFET");
         mqPubSwitch(t, "dis", "Discharge MOSFET");
         mqPubSwitch(t, "bal", "Balancer");
@@ -148,7 +160,7 @@ static void mqttLoop() {
         if (mqLastTry && millis() - mqLastTry < 5000) return;
         mqLastTry = millis();
         mqInitIds();
-        if (!mqBufSet) { mqtt.setBufferSize(768); mqtt.setSocketTimeout(3); mqBufSet = true; }   // 3s (not the 15s default) so an unreachable broker can't hog the core-0 task (it also runs the BMS poll)
+        if (!mqBufSet) { mqtt.setBufferSize(1024); mqtt.setSocketTimeout(3); mqBufSet = true; }   // 1KB fits the enriched discovery config; 3s (not 15s default) timeout so an unreachable broker can't hog the core-0 task (it also runs the BMS poll)
         mqtt.setServer(mqttHost, mqttPort); mqtt.setCallback(mqCallback);
         char willT[48]; snprintf(willT, sizeof(willT), "%s/status", mqBase.c_str());
         char cid[40]; snprintf(cid, sizeof(cid), "jkbms-%s", mqId.c_str());

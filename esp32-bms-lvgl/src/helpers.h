@@ -28,7 +28,7 @@ static uint32_t lerpColor(uint32_t a, uint32_t b, float t) {
 // SOC ring colour driven by the ACTUAL charge level, so the ring's hue alone tells you the
 // pack's state at a glance: red (empty) → amber → green (healthy) → violet (near full). The
 // violet only engages above 90% — a full pack reads unmistakably different from a healthy one.
-#define C_FULL 0xb072ff             // vivid violet for a near-full pack (>90%)
+#define C_FULL 0x5a4be0             // deep cool blue-violet — the "full battery" hue (>90%); reads distinct from the green plateau
 static uint32_t socRingColor(float soc) {
     if (soc >= 90) return lerpColor(C_ACCENT, C_FULL,  (soc - 90) / 10.0f);   // 90→100 : green → violet
     if (soc >= 55) return C_ACCENT;                                           // healthy plateau : green
