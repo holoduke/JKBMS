@@ -11,6 +11,8 @@ static char updTag[24] = "";             // latest release tag on GitHub
 static char instTag[24] = "";            // tag we last installed (NVS); empty → compare to FW_VERSION
 static char updUrl[160] = "";            // firmware.bin download URL of the latest release
 static volatile bool updGo = false;      // request: download + flash the latest release now
+static volatile bool updCheckNow = false;// request: re-check GitHub for a release right now (Settings "check" / web)
+static volatile int8_t updChkState = 0;  // 0 idle · 1 checking · 2 up-to-date · -1 check failed (UI feedback)
 static volatile int updProgress = -1;    // -1 idle · 0..100 flashing % · -2 failed
 static bool updPopup = false;            // top-bar update icon tapped → details modal
 static int updBoxL = 0, updBoxR = 0;     // top-bar update-icon hit region

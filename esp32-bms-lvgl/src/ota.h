@@ -33,11 +33,16 @@ static bool verNewer(const char *rel, const char *cur) {
 }
 // Ask GitHub for the latest RELEASE: its tag (= firmware version) and the firmware.bin
 // asset URL. updAvail = the released version differs from this build. Runs on core-0.
-static void updateCheck() {
-    if (WiFi.status() != WL_CONNECTED || !timeSynced || otaActive) return;   // cert validation needs a real clock
+// Returns true if GitHub answered with a valid release (so the caller can back off to the slow
+// 6h cadence); false on any network/TLS/parse failure (caller retries soon). updChkState feeds
+// the Settings row: 1=checking, 2=up-to-date, -1=check failed.
+static bool updateCheck() {
+    if (WiFi.status() != WL_CONNECTED || !timeSynced || otaActive) return false;   // cert validation needs a real clock
+    updChkState = 1;                                          // checking…
+    bool got = false;
     WiFiClientSecure net; otaTrust(net);
     HTTPClient http; http.setConnectTimeout(5000); http.setTimeout(6000);
-    if (!http.begin(net, "https://api.github.com/repos/holoduke/JKBMS/releases/latest")) return;
+    if (!http.begin(net, "https://api.github.com/repos/holoduke/JKBMS/releases/latest")) { updChkState = -1; return false; }
     http.addHeader("User-Agent", "jkbms-device");
     if (http.GET() == 200) {
         JsonDocument filter;                                  // keep only the fields we need (the release JSON is big)
@@ -55,10 +60,13 @@ static void updateCheck() {
                 strncpy(updUrl, url, sizeof(updUrl) - 1); updUrl[sizeof(updUrl) - 1] = 0;
                 const char *cur = instTag[0] ? instTag : FW_VERSION;
                 updAvail = verNewer(updTag, cur);   // only flag a genuinely NEWER release (not a downgrade)
+                got = true;
             }
         }
     }
     http.end();
+    updChkState = got ? (updAvail ? 0 : 2) : -1;             // available→0 (icon speaks) / up-to-date→2 / failed→-1
+    return got;
 }
 // One download+flash attempt of updUrl. Returns true only on a fully written, finalised image.
 // Streams the GitHub asset (→ signed CDN redirect) straight into the inactive app slot.
@@ -132,9 +140,15 @@ static void netTask(void *) {
             lastPoll = now;
             bmsRead();   // history sampling + energy integration run on core 1 (see bmsPoll_cb) to avoid a cross-core race on those buffers
         }
-        if ((!lastUpd && now > 30000) || (lastUpd && now - lastUpd > 21600000UL)) {   // GitHub release check ~30s after boot, then every 6h
-            lastUpd = now; updateCheck();
-            if (updAvail && autoUpdate) updGo = true;          // auto-update enabled → flash it
+        // GitHub release check: ~15s after boot, then every 6h — but if a check FAILS, retry in
+        // ~60s instead of waiting 6h (a single transient failure used to hide an update until the
+        // next 6h window). A manual "check now" (Settings row / web) forces it immediately.
+        bool due = (!lastUpd && now > 15000) || (lastUpd && now - lastUpd > 21600000UL) || updCheckNow;
+        if (due) {
+            updCheckNow = false;
+            bool ok = updateCheck();
+            lastUpd = ok ? now : (now - 21600000UL + 60000UL);   // ok → 6h; failed → retry in ~60s
+            if (updAvail && autoUpdate) updGo = true;            // auto-update enabled → flash it
         }
         if (updGo) { updGo = false; selfUpdate(); }            // manual "Update now" (web) or auto trigger
         vTaskDelay(pdMS_TO_TICKS(20));

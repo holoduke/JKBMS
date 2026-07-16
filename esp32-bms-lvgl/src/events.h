@@ -323,6 +323,9 @@ static void dataTick_cb(lv_timer_t *t) {
     if (++vtick >= 2) { vtick = 0; invArea(0, 36, Wd - 1, 313); }
 }
 static void wifiTick_cb(lv_timer_t *t) {
-    if (wifiPoll() && view == V_SETTINGS && !standby) lv_obj_invalidate(scr);
+    bool ch = wifiPoll();
+    static int8_t lastChk = 0; static bool lastAvail = false;   // repaint Settings when the update state changes (checking → result / update found)
+    if (updChkState != lastChk || updAvail != lastAvail) { lastChk = updChkState; lastAvail = updAvail; ch = true; }
+    if (ch && view == V_SETTINGS && !standby) lv_obj_invalidate(scr);
 }
 

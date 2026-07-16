@@ -81,6 +81,13 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 20: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
         case 21: snprintf(o, n, "%s", LANG_NAME[g_lang]); *vc = C_CYAN; break;
         case 22: snprintf(o, n, "%s", TZDEFS[tzSel].name); *vc = C_CYAN; break;
+        case 11:   // Firmware row: version + update status (tap to install when available, else re-check)
+            if (updAvail)                 { snprintf(o, n, "%s >", updTag); *vc = C_ACCENT; }   // newer release → tap to install
+            else if (updChkState == 1)    { snprintf(o, n, "checking..."); *vc = C_CYAN; }
+            else if (updChkState == -1)   { snprintf(o, n, "check failed"); *vc = C_BAD; }
+            else if (updChkState == 2)    { snprintf(o, n, "up to date"); *vc = C_ACCENT; }
+            else                          { snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; }
+            break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }

@@ -84,7 +84,12 @@ static void handleTap(int x, int y) {
                 case 20: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
                 case 21: g_lang = (g_lang + 1) % LANG_COUNT; markCfg(); return;   // cycle UI language (dirtyFull already set → full repaint)
                 case 22: tzSel = (tzSel + 1) % NTZ; applyTz(); break;             // cycle timezone (clock strip refreshes on its 15s tick)
-                default: return;                      // firmware row: no-op
+                case 11:   // Firmware row: install a detected update now, else force a re-check
+                    if (updProgress != -1) return;                      // already flashing
+                    if (updAvail && updUrl[0]) { updGo = true; }   // → netTask flashes; dataTick repaints when updProgress moves → renderUpdating takes over
+                    else { updCheckNow = true; updChkState = 1; markRowAt(ry); }            // manual GitHub re-check
+                    return;
+                default: return;                      // (out-of-range) no-op
             }
             markCfg(); markRowAt(ry);
         } else if (subTab == ST_BMS) {
