@@ -544,12 +544,92 @@ static void renderSecurityIdle(uint32_t ms) {
     idleText(14, Ht - 14, "MAXIMUM SECURITY // ALL SYSTEMS NOMINAL", 1, DIM);
     if (((ms / 500) & 1)) idleText(Wd - 78, Ht - 14, "tap for menu", 1, DIM);
 }
+// 6) Nexus — battery command centre, "all systems nominal". Rotating reactor-core rings with
+// orbiting satellites, live bar meters, a waveform, a drifting particle field, and a scrolling
+// ticker of normal operating messages. No error/fault text — everything reads healthy.
+static void renderNexusIdle(uint32_t ms) {
+    const uint16_t BG = gfx->color565(0x02, 0x06, 0x0c), GRID = gfx->color565(0x08, 0x14, 0x1e);
+    const uint16_t CY = gfx->color565(0x32, 0xd8, 0xff), GN = gfx->color565(0x3d, 0xf0, 0xa8);
+    const uint16_t AM = gfx->color565(0xff, 0xc0, 0x30), TX = gfx->color565(0xbf, 0xd8, 0xe6);
+    const uint16_t DIM = gfx->color565(0x14, 0x2a, 0x3a), STAR = gfx->color565(0x1c, 0x3a, 0x4e);
+    gfx->fillScreen(BG);
+    // drifting particle field (deterministic per index → cheap, no state)
+    for (int i = 0; i < 46; i++) {
+        int x = (i * 97 + (ms / 40) * (1 + (i & 3))) % Wd;
+        int y = (i * 53) % Ht;
+        gfx->drawPixel(x, y, STAR);
+    }
+    // slow parallax grid
+    for (int x = -(int)((ms / 60) % 32); x < Wd; x += 32) gfx->drawFastVLine(x, 22, Ht - 22, GRID);
+    for (int y = 24; y < Ht; y += 32) gfx->drawFastHLine(0, y, Wd, GRID);
+    // header
+    idleText(14, 8, "BATTERY COMMAND CENTER", 2, CY);
+    if (((ms / 500) & 1)) gfx->fillCircle(Wd - 74, 13, 4, GN);
+    idleText(Wd - 64, 8, "ONLINE", 1, GN);
+    gfx->drawFastHLine(14, 26, Wd - 28, DIM);
+    // --- reactor core: three counter-rotating ring arcs + orbiting satellites ---
+    int cx = 92, cy = 168, r0 = 30, r1 = 48, r2 = 66;
+    uint16_t rc[3] = {CY, GN, AM}; int rr[3] = {r2, r1, r0};
+    float spd[3] = {0.0016f, -0.0026f, 0.004f}, span[3] = {4.2f, 3.4f, 5.2f};
+    for (int k = 0; k < 3; k++) {
+        float a0 = ms * spd[k] + k * 2.1f;
+        int steps = 26;
+        for (int s = 0; s < steps; s++) {
+            float a = a0 + (span[k] * s / steps);
+            gfx->fillCircle(cx + (int)(rr[k] * cosf(a)), cy + (int)(rr[k] * sinf(a)), 2, rc[k]);
+        }
+    }
+    for (int i = 0; i < 3; i++) {                       // orbiting satellites
+        float a = -ms * 0.0022f + i * 2.094f;
+        gfx->fillCircle(cx + (int)(80 * cosf(a)), cy + (int)(80 * sinf(a) * 0.9f), 3, i == 0 ? CY : i == 1 ? GN : AM);
+    }
+    float pw = 0.5f + 0.5f * sinf(ms * 0.005f);         // pulsing core
+    gfx->fillCircle(cx, cy, 10 + (int)(pw * 4), GN);
+    gfx->fillCircle(cx, cy, 5, TX);
+    idleText(cx - 30, cy + r2 + 8, "CORE LINK OK", 1, GN);
+    // --- right column: live bar meters (all healthy) ---
+    const char *ML[6] = {"PACK VOLTAGE", "PACK CURRENT", "CELL BALANCE", "MOSFET TEMP", "STATE OF CHG", "DATA LINK"};
+    int bx = 210, bw = 210, by = 40, bh = 9;
+    for (int i = 0; i < 6; i++) {
+        int y = by + i * 24;
+        float v = 0.45f + 0.42f * sinf(ms * 0.0015f + i * 0.8f);
+        uint16_t c = (i == 4) ? GN : (i == 3 ? AM : CY);   // temp amber, SOC green, rest cyan — all nominal
+        idleText(bx, y, ML[i], 1, TX);
+        gfx->drawRect(bx, y + 9, bw, bh, DIM);
+        gfx->fillRect(bx + 1, y + 10, (int)((bw - 2) * v), bh - 2, c);
+        char pc[6]; snprintf(pc, sizeof(pc), "%d%%", (int)(v * 100));
+        idleText(bx + bw + 6, y + 2, pc, 1, c);
+    }
+    // --- waveform strip under the meters ---
+    int gx = bx, gy = by + 6 * 24 + 2, gw = bw, gh = 40;
+    gfx->drawRect(gx, gy, gw, gh, DIM);
+    int px = -1, py = -1;
+    for (int i = 0; i < gw - 4; i++) {
+        float v = sinf((i + ms * 0.09f) * 0.15f) * 0.42f + sinf((i + ms * 0.05f) * 0.42f) * 0.18f;
+        int wx = gx + 2 + i, wy = gy + gh / 2 - (int)(v * (gh / 2 - 4));
+        if (px >= 0) gfx->drawLine(px, py, wx, wy, GN); px = wx; py = wy;
+    }
+    // --- pulsing "ALL SYSTEMS NOMINAL" banner (left, under the core) ---
+    if (((ms / 500) & 1)) idleText(14, Ht - 42, "ALL SYSTEMS NOMINAL", 1, GN);
+    // --- scrolling ticker of normal operating messages (no errors) ---
+    static const char *TK =
+        "TELEMETRY STREAM 115200   //   AES-256 SECURE LINK   //   CELLS BALANCED   //   THERMALS NOMINAL   //   "
+        "SOC ESTIMATOR LOCKED   //   COULOMB COUNTER SYNCED   //   BUS VOLTAGE STABLE   //   MOSFETS ENGAGED   //   "
+        "CRC16 VERIFIED   //   HANDSHAKE 0x90EB OK   //   WATCHDOG HEALTHY   //   ALL PACKS RESPONDING   //   ";
+    int tkw = (int)strlen(TK) * 6;                     // size-1 char = 6px
+    int off = (ms / 30) % tkw;
+    gfx->fillRect(0, Ht - 16, Wd, 16, gfx->color565(0x04, 0x0a, 0x12));
+    idleText(-off, Ht - 12, TK, 1, CY);
+    idleText(-off + tkw, Ht - 12, TK, 1, CY);          // second copy → seamless wrap
+    if (((ms / 500) & 1)) idleText(Wd - 78, 8, "", 1, DIM);   // (reticle space reserved)
+}
 static void renderIdleFrame() {
     uint32_t ms = millis();
     if (idleScreen == 1) renderHudIdle(ms);
     else if (idleScreen == 2) renderInitIdle(ms);
     else if (idleScreen == 3) renderRadarIdle(ms);
     else if (idleScreen == 4) renderArcadeIdle(ms);
+    else if (idleScreen == 6) renderNexusIdle(ms);
     else renderSecurityIdle(ms);
 }
 

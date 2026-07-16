@@ -71,7 +71,7 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 9: snprintf(o, n, "%dx", simSpeed); *vc = C_CYAN; break;
         case 10: snprintf(o, n, "%s", T(K_VIEW)); *vc = C_CYAN; break;
         case 12: snprintf(o, n, "%s", demoMode ? T(K_ON) : T(K_OFF)); *vc = demoMode ? C_ACCENT : C_MUTED; break;
-        case 13: { const char *IN[6] = {T(K_OFF), "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = idleScreen ? C_CYAN : C_MUTED; break; }
+        case 13: { const char *IN[7] = {T(K_OFF), "HUD", "Init", "Radar", "Arcade", "Security", "Nexus"}; snprintf(o, n, "%s", IN[idleScreen % 7]); *vc = idleScreen ? C_CYAN : C_MUTED; break; }
         case 14: saverStr(o, n); *vc = saverAfterSec ? C_CYAN : C_MUTED; break;
         case 15: saverShowStr(o, n); *vc = saverShowSec ? C_CYAN : C_MUTED; break;   // grouped with the other screensaver rows
         case 16: if (lockAfterSec == 0) snprintf(o, n, "%s", T(K_NEVER)); else if (lockAfterSec < 60) snprintf(o, n, "%ds", lockAfterSec); else if (lockAfterSec < 3600) snprintf(o, n, "%d min", lockAfterSec / 60); else snprintf(o, n, "%d hr", lockAfterSec / 3600); *vc = lockAfterSec ? C_CYAN : C_MUTED; break;

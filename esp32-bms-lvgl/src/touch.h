@@ -72,7 +72,7 @@ static void handleTap(int x, int y) {
                 case 9: simSpeed = simSpeed == 1 ? 2 : simSpeed == 2 ? 5 : 1; break;
                 case 10: infoPopup = true; return;   // full redraw for the popup
                 case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
-                case 13: idleScreen = (idleScreen + 1) % 6; break;   // cycle screensaver (Off / HUD / Init / Radar / Arcade / Security)
+                case 13: idleScreen = (idleScreen + 1) % 7; break;   // cycle screensaver (Off / HUD / Init / Radar / Arcade / Security / Nexus)
                 case 14: saverAfterSec = saverAfterSec == 0 ? 30 : saverAfterSec == 30 ? 60 : saverAfterSec == 60 ? 300 : saverAfterSec == 300 ? 1800 : saverAfterSec == 1800 ? 3600 : 0; break;   // 30s/1m/5m/30m/1h
                 case 15: saverShowSec = saverShowSec == 0 ? 10 : saverShowSec == 10 ? 30 : saverShowSec == 30 ? 60 : saverShowSec == 60 ? 300 : 0; break;   // screensaver show duration → loop (0=until tap / 10s / 30s / 1m / 5m), grouped under the saver rows
                 case 16: lockAfterSec = lockAfterSec == 0 ? 30 : lockAfterSec == 30 ? 60 : lockAfterSec == 60 ? 300 : lockAfterSec == 300 ? 1800 : lockAfterSec == 1800 ? 3600 : 0;
