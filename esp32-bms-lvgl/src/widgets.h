@@ -55,7 +55,7 @@ static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t base, b
         // At a full pack (≥99%) the icy "pulsar" ring breathes — a slow ~1s brightness swell
         // driven by millis(). spin_cb repaints this region at ~20fps while full & awake (and
         // stops once the screen dims), so the pulse is smooth without flushing for nobody.
-        float pulse = (pct >= 99.0f) ? (0.85f + 0.15f * sinf(millis() * 0.006f)) : 1.0f;
+        float pulse = (pct >= 99.0f) ? (0.92f + 0.08f * sinf(millis() * 0.006f)) : 1.0f;   // gentle breathe (0.84..1.0) — subtle, not a strong flash
         // In-arc brightness sweep FADES OUT as the pack fills: a low pack has a strong dim-tail→
         // vivid-head gradient; a full pack is a uniform glow — so the closed 100% circle has no
         // dim/bright seam where the two ends meet at the bottom. depth: 0 at 100% → 0.5 by ~75%.
@@ -72,7 +72,7 @@ static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t base, b
     }
     if (stale) { cText("--", cx, cy - 6, F48, C_MUTED); return; }
     char buf[8]; snprintf(buf, sizeof(buf), "%d", (int)(pct + 0.5f));
-    uint32_t numCol = (pct >= 99.0f) ? dimColor(base, 0.85f + 0.15f * sinf(millis() * 0.006f)) : base;
+    uint32_t numCol = (pct >= 99.0f) ? dimColor(base, 0.92f + 0.08f * sinf(millis() * 0.006f)) : base;
     cText(buf, cx, cy - 6, F48, numCol);   // big % in the pack's charge-level colour (breathing at full)
     cText("%", cx, cy + 30, F16, C_MUTED);
 }
