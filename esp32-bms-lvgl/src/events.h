@@ -24,13 +24,20 @@ static void invArea(int x1, int y1, int x2, int y2);
 static bool lockShowing() { return locked && !idleActiveNow(); }   // armed + not behind the screensaver
 // Full-screen numpad: PIN dots on top, a 3x4 grid of square keys filling the width/height,
 // and a message strip at the bottom. k 0-8 = "1".."9", 9 = backspace, 10 = "0", 11 = cancel.
-#define LK_TOP 26            // dots strip on top
-#define LK_BOT 34            // reserved bottom message strip
-#define LK_M 4               // outer margin / gap between keys
+// Amber "tactical" palette to match the power-on animation (playVisionOn/playHudBoot).
+#define LK_AMBER   0xffb028   // numbers, borders, filled dots
+#define LK_AMBER_D 0x8a5410   // dim amber — empty dots, muted glyphs (backspace)
+#define LK_KEYBG   0x160f05   // dark warm key fill
+#define LK_TOP 30             // dots strip on top
+#define LK_BOT 34             // reserved bottom message strip
+// Smaller square keys with generous gaps (grid centred in the free area) → more air between buttons.
+#define LK_S  54             // key square side
+#define LK_GH 22             // horizontal gap between keys
+#define LK_GV 12             // vertical gap between keys
 static void lockKeyRect(int k, int *x, int *y, int *w, int *h) {
-    int gw = Wd - 2 * LK_M, gh = Ht - LK_TOP - LK_BOT;
-    int cw = (gw - 2 * LK_M) / 3, ch = (gh - 3 * LK_M) / 4;
-    *x = LK_M + (k % 3) * (cw + LK_M); *y = LK_TOP + (k / 3) * (ch + LK_M); *w = cw; *h = ch;
+    int gw = 3 * LK_S + 2 * LK_GH, gh = 4 * LK_S + 3 * LK_GV;
+    int x0 = (Wd - gw) / 2, y0 = LK_TOP + ((Ht - LK_TOP - LK_BOT) - gh) / 2;   // centred block
+    *x = x0 + (k % 3) * (LK_S + LK_GH); *y = y0 + (k / 3) * (LK_S + LK_GV); *w = LK_S; *h = LK_S;
 }
 static const char *lockKeyLabel(int k) {
     static const char *L9[9] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
@@ -40,23 +47,26 @@ static void renderLockPad(bool setMode) {
     fRect(0, 0, Wd, Ht, 0, C_BG);
     uint32_t now = millis();
     bool wrong = lockWrongUntil > now;
-    for (int i = 0; i < 6; i++) {           // PIN progress dots, top strip
-        int px = Wd / 2 - 5 * 14 + i * 28, py = 13;
-        if (i < lockEntryLen) fCircle(px, py, 6, wrong ? C_BAD : C_ACCENT);
-        else ring(px, py, 6, 5, 0, 360, C_BORDER);
+    for (int i = 0; i < 6; i++) {           // PIN progress dots, top strip (amber)
+        int px = Wd / 2 - 5 * 14 + i * 28, py = 15;
+        if (i < lockEntryLen) fCircle(px, py, 6, wrong ? C_BAD : LK_AMBER);
+        else ring(px, py, 7, 6, 0, 360, wrong ? C_BAD : LK_AMBER_D);
     }
     int nKeys = setMode ? 12 : 11;          // cancel (k=11) only when setting a new PIN
     for (int k = 0; k < nKeys; k++) {
         int x, y, w, h; lockKeyRect(k, &x, &y, &w, &h);
         bool back = (k == 9), cancel = (k == 11);
-        fRect(x, y, w, h, 8, C_CARD);                              // square (slightly rounded) key
-        dRect(x, y, w, h, 8, cancel ? C_BAD : C_BORDER);
-        fRect(x + 8, y + h - 4, w - 16, 2, 0, cancel ? C_BAD : C_ACCENT);   // accent underline → futuristic
-        cText(lockKeyLabel(k), x + w / 2, y + h / 2, F28, cancel ? C_BAD : (back ? C_MUTED : C_TEXT));
+        uint32_t bd = cancel ? C_BAD : LK_AMBER;                          // border / accent
+        uint32_t tc = cancel ? C_BAD : (back ? LK_AMBER_D : LK_AMBER);    // glyph colour
+        fRect(x, y, w, h, 7, LK_KEYBG);                                   // dark warm square
+        dRect(x, y, w, h, 7, bd);                                         // amber border
+        fRect(x + 6, y + 6, 9, 2, 0, bd); fRect(x + 6, y + 6, 2, 9, 0, bd);               // top-left tick
+        fRect(x + w - 15, y + h - 8, 9, 2, 0, bd); fRect(x + w - 8, y + h - 15, 2, 9, 0, bd); // bottom-right tick
+        cText(lockKeyLabel(k), x + w / 2, y + h / 2, F28, tc);
     }
     // bottom message strip — defaults to "Enter PIN", turns red on a wrong attempt
     const char *msg = wrong ? T(K_WRONG_PIN) : setMode ? T(K_SET_PIN) : T(K_ENTER_PIN);
-    cText(msg, Wd / 2, Ht - LK_BOT / 2, F16, wrong ? C_BAD : C_ACCENT);
+    cText(msg, Wd / 2, Ht - LK_BOT / 2, F16, wrong ? C_BAD : LK_AMBER);
 }
 static void lockCommit(bool setMode) {      // called when the 6th digit lands
     if (setMode) { strncpy(lockPin, lockEntry, sizeof(lockPin) - 1); lockPin[sizeof(lockPin) - 1] = 0;
