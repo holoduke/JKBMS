@@ -552,6 +552,12 @@ static void renderNexusIdle(uint32_t ms) {
     const uint16_t CY = gfx->color565(0x32, 0xd8, 0xff), GN = gfx->color565(0x3d, 0xf0, 0xa8);
     const uint16_t AM = gfx->color565(0xff, 0xc0, 0x30), TX = gfx->color565(0xbf, 0xd8, 0xe6);
     const uint16_t DIM = gfx->color565(0x14, 0x2a, 0x3a), STAR = gfx->color565(0x1c, 0x3a, 0x4e);
+    // Restart the "uplink" fill each time the saver (re)appears: if we weren't drawing recently,
+    // the screen just came up → reset the animation clock so the bars fill from 0 again.
+    static uint32_t animStart = 0, lastCall = 0;
+    if (ms - lastCall > 1000) animStart = ms;
+    lastCall = ms;
+    uint32_t el = ms - animStart;                      // ms since the screensaver appeared
     gfx->fillScreen(BG);
     // drifting particle field (deterministic per index → cheap, no state)
     for (int i = 0; i < 46; i++) {
@@ -589,15 +595,18 @@ static void renderNexusIdle(uint32_t ms) {
     idleText(cx - 30, cy + r2 + 8, "CORE LINK OK", 1, GN);
     // --- right column: live bar meters (all healthy) ---
     const char *ML[6] = {"PACK VOLTAGE", "PACK CURRENT", "CELL BALANCE", "MOSFET TEMP", "STATE OF CHG", "DATA LINK"};
-    int bx = 210, bw = 210, by = 40, bh = 9;
+    static const float DUR[6] = {2600, 4300, 3300, 5600, 3900, 6600};   // ms to reach 100% — each bar a different speed
+    int bx = 210, bw = 210, by = 40, bh = 9; bool allDone = true;
     for (int i = 0; i < 6; i++) {
         int y = by + i * 24;
-        float v = 0.45f + 0.42f * sinf(ms * 0.0015f + i * 0.8f);
-        uint16_t c = (i == 4) ? GN : (i == 3 ? AM : CY);   // temp amber, SOC green, rest cyan — all nominal
+        float t = el / DUR[i]; if (t > 1) t = 1;
+        float v = 1.0f - (1.0f - t) * (1.0f - t);       // ease-out → glides into 100% then holds
+        bool full = (v >= 0.999f); if (!full) allDone = false;
+        uint16_t c = full ? GN : ((i == 3) ? AM : CY);  // turns green once full
         idleText(bx, y, ML[i], 1, TX);
         gfx->drawRect(bx, y + 9, bw, bh, DIM);
         gfx->fillRect(bx + 1, y + 10, (int)((bw - 2) * v), bh - 2, c);
-        char pc[6]; snprintf(pc, sizeof(pc), "%d%%", (int)(v * 100));
+        char pc[6]; snprintf(pc, sizeof(pc), "%d%%", (int)(v * 100 + 0.5f));
         idleText(bx + bw + 6, y + 2, pc, 1, c);
     }
     // --- waveform strip under the meters ---
@@ -608,6 +617,15 @@ static void renderNexusIdle(uint32_t ms) {
         float v = sinf((i + ms * 0.09f) * 0.15f) * 0.42f + sinf((i + ms * 0.05f) * 0.42f) * 0.18f;
         int wx = gx + 2 + i, wy = gy + gh / 2 - (int)(v * (gh / 2 - 4));
         if (px >= 0) gfx->drawLine(px, py, wx, wy, GN); px = wx; py = wy;
+    }
+    // --- completion banner: shown (bigger font) once every bar has filled to 100% ---
+    if (allDone) {
+        const char *done = "DATA UPLINK COMPLETE";
+        int fw = (int)strlen(done) * 12;                // size-2 char = 12px wide
+        int tx = gx + (gw - fw) / 2, ty = gy + gh + 10; // centred under the waveform graph
+        if (tx < 0) tx = 0;
+        idleText(tx, ty, done, 2, GN);
+        gfx->drawFastHLine(tx, ty + 18, fw, GN);        // underline
     }
     // --- pulsing "ALL SYSTEMS NOMINAL" banner (left, under the core) ---
     if (((ms / 500) & 1)) idleText(14, Ht - 42, "ALL SYSTEMS NOMINAL", 1, GN);
