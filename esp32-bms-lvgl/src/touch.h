@@ -74,16 +74,16 @@ static void handleTap(int x, int y) {
                 case 12: demoMode = !demoMode; if (demoMode) simInit(); bmsRead(); break;   // toggle sim vs live BMS, re-poll
                 case 13: idleScreen = (idleScreen + 1) % 6; break;   // cycle screensaver (Off / HUD / Init / Radar / Arcade / Security)
                 case 14: saverAfterSec = saverAfterSec == 0 ? 30 : saverAfterSec == 30 ? 60 : saverAfterSec == 60 ? 300 : saverAfterSec == 300 ? 1800 : saverAfterSec == 1800 ? 3600 : 0; break;   // 30s/1m/5m/30m/1h
-                case 15: lockAfterSec = lockAfterSec == 0 ? 30 : lockAfterSec == 30 ? 60 : lockAfterSec == 60 ? 300 : lockAfterSec == 300 ? 1800 : lockAfterSec == 1800 ? 3600 : 0;
+                case 15: saverShowSec = saverShowSec == 0 ? 10 : saverShowSec == 10 ? 30 : saverShowSec == 30 ? 60 : saverShowSec == 60 ? 300 : 0; break;   // screensaver show duration → loop (0=until tap / 10s / 30s / 1m / 5m), grouped under the saver rows
+                case 16: lockAfterSec = lockAfterSec == 0 ? 30 : lockAfterSec == 30 ? 60 : lockAfterSec == 60 ? 300 : lockAfterSec == 300 ? 1800 : lockAfterSec == 1800 ? 3600 : 0;
                          if (lockAfterSec > 0 && !lockPin[0]) { lockSetMode = true; lockEntry[0] = 0; lockEntryLen = 0; lockWrongUntil = 0; markCfg(); return; }   // no PIN yet → set one now (else auto-lock can't engage)
                          break;   // auto-lock: 30s/1m/5m/30m/1h
-                case 16: lockSetMode = true; lockEntry[0] = 0; lockEntryLen = 0; lockWrongUntil = 0; markCfg(); return;   // set a new PIN (modal numpad)
-                case 17: infoPopup = true; return;                   // Web address → full system-info popup (shows IP + login)
-                case 18: strncpy(wifiPass, webUser, sizeof(wifiPass) - 1); wifiPass[sizeof(wifiPass) - 1] = 0; wifiPassLen = strlen(wifiPass); kbMode = 0; kbTarget = KBT_WUSER; kbActive = true; return;   // edit web username
-                case 19: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
-                case 20: g_lang = (g_lang + 1) % LANG_COUNT; markCfg(); return;   // cycle UI language (dirtyFull already set → full repaint)
-                case 21: tzSel = (tzSel + 1) % NTZ; applyTz(); break;             // cycle timezone (clock strip refreshes on its 15s tick)
-                case 22: saverShowSec = saverShowSec == 0 ? 10 : saverShowSec == 10 ? 30 : saverShowSec == 30 ? 60 : saverShowSec == 60 ? 300 : 0; break;   // screensaver show duration → loop (0=until tap / 10s / 30s / 1m / 5m)
+                case 17: lockSetMode = true; lockEntry[0] = 0; lockEntryLen = 0; lockWrongUntil = 0; markCfg(); return;   // set a new PIN (modal numpad)
+                case 18: infoPopup = true; return;                   // Web address → full system-info popup (shows IP + login)
+                case 19: strncpy(wifiPass, webUser, sizeof(wifiPass) - 1); wifiPass[sizeof(wifiPass) - 1] = 0; wifiPassLen = strlen(wifiPass); kbMode = 0; kbTarget = KBT_WUSER; kbActive = true; return;   // edit web username
+                case 20: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
+                case 21: g_lang = (g_lang + 1) % LANG_COUNT; markCfg(); return;   // cycle UI language (dirtyFull already set → full repaint)
+                case 22: tzSel = (tzSel + 1) % NTZ; applyTz(); break;             // cycle timezone (clock strip refreshes on its 15s tick)
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);

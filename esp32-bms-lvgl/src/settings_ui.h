@@ -34,8 +34,8 @@ static void srowToggle(int y, const char *label, bool on) {
 static const uint8_t SYS_KEY[] = {
     K_AUTO_SWITCH, K_SWITCH_INTERVAL, K_BRIGHTNESS, K_AUTO_SLEEP, K_ECO_MODE, K_DIM_AFTER,
     K_TEMP_UNIT, K_TIME_FORMAT, K_WIFI_AUTO, K_DEMO_SPEED, K_SYSTEM_INFO, K_FIRMWARE, K_DEMO_MODE,
-    K_SCREENSAVER, K_SCREENSAVER_AFTER, K_AUTO_LOCK, K_LOCK_PIN,
-    K_WEB_ADDRESS, K_WEB_USERNAME, K_WEB_PASSWORD, K_LANGUAGE, K_TIMEZONE, K_SCREENSAVER_FOR};
+    K_SCREENSAVER, K_SCREENSAVER_AFTER, K_SCREENSAVER_FOR, K_AUTO_LOCK, K_LOCK_PIN,
+    K_WEB_ADDRESS, K_WEB_USERNAME, K_WEB_PASSWORD, K_LANGUAGE, K_TIMEZONE};
 #define SYS_ROWS ((int)(sizeof(SYS_KEY) / sizeof(SYS_KEY[0])))
 static const char *sysLabel(int i) {            // localized row label; brightness keeps its "- / +" hint
     if (i == 2) { static char b[28]; snprintf(b, sizeof(b), "%s   - / +", T(K_BRIGHTNESS)); return b; }
@@ -73,14 +73,14 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 12: snprintf(o, n, "%s", demoMode ? T(K_ON) : T(K_OFF)); *vc = demoMode ? C_ACCENT : C_MUTED; break;
         case 13: { const char *IN[6] = {T(K_OFF), "HUD", "Init", "Radar", "Arcade", "Security"}; snprintf(o, n, "%s", IN[idleScreen % 6]); *vc = idleScreen ? C_CYAN : C_MUTED; break; }
         case 14: saverStr(o, n); *vc = saverAfterSec ? C_CYAN : C_MUTED; break;
-        case 15: if (lockAfterSec == 0) snprintf(o, n, "%s", T(K_NEVER)); else if (lockAfterSec < 60) snprintf(o, n, "%ds", lockAfterSec); else if (lockAfterSec < 3600) snprintf(o, n, "%d min", lockAfterSec / 60); else snprintf(o, n, "%d hr", lockAfterSec / 3600); *vc = lockAfterSec ? C_CYAN : C_MUTED; break;
-        case 16: snprintf(o, n, "%s", lockPin[0] ? T(K_PIN_SET) : T(K_PIN_NONE)); *vc = lockPin[0] ? C_CYAN : C_MUTED; break;
-        case 17: if (WiFi.status() == WL_CONNECTED) { snprintf(o, n, "%s", WiFi.localIP().toString().c_str()); *vc = C_ACCENT; } else { snprintf(o, n, "no WiFi"); *vc = C_MUTED; } break;
-        case 18: snprintf(o, n, "%s", webUser); *vc = C_CYAN; break;
-        case 19: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
-        case 20: snprintf(o, n, "%s", LANG_NAME[g_lang]); *vc = C_CYAN; break;
-        case 21: snprintf(o, n, "%s", TZDEFS[tzSel].name); *vc = C_CYAN; break;
-        case 22: saverShowStr(o, n); *vc = saverShowSec ? C_CYAN : C_MUTED; break;
+        case 15: saverShowStr(o, n); *vc = saverShowSec ? C_CYAN : C_MUTED; break;   // grouped with the other screensaver rows
+        case 16: if (lockAfterSec == 0) snprintf(o, n, "%s", T(K_NEVER)); else if (lockAfterSec < 60) snprintf(o, n, "%ds", lockAfterSec); else if (lockAfterSec < 3600) snprintf(o, n, "%d min", lockAfterSec / 60); else snprintf(o, n, "%d hr", lockAfterSec / 3600); *vc = lockAfterSec ? C_CYAN : C_MUTED; break;
+        case 17: snprintf(o, n, "%s", lockPin[0] ? T(K_PIN_SET) : T(K_PIN_NONE)); *vc = lockPin[0] ? C_CYAN : C_MUTED; break;
+        case 18: if (WiFi.status() == WL_CONNECTED) { snprintf(o, n, "%s", WiFi.localIP().toString().c_str()); *vc = C_ACCENT; } else { snprintf(o, n, "no WiFi"); *vc = C_MUTED; } break;
+        case 19: snprintf(o, n, "%s", webUser); *vc = C_CYAN; break;
+        case 20: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
+        case 21: snprintf(o, n, "%s", LANG_NAME[g_lang]); *vc = C_CYAN; break;
+        case 22: snprintf(o, n, "%s", TZDEFS[tzSel].name); *vc = C_CYAN; break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }
