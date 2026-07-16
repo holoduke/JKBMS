@@ -60,44 +60,62 @@ static void updateCheck() {
     }
     http.end();
 }
-// Download the latest release's firmware.bin and flash it, updating updProgress (0..100)
-// so the device + web can show a progress bar. Runs on the core-0 net task; the render core
-// stays live to draw the bar (it only stalls briefly during each flash write — safe).
-static void selfUpdate() {
-    if (!updUrl[0] || WiFi.status() != WL_CONNECTED) return;
-    Serial.printf("[ota] self-update from %s\n", updUrl);
-    updProgress = 0;
+// One download+flash attempt of updUrl. Returns true only on a fully written, finalised image.
+// Streams the GitHub asset (→ signed CDN redirect) straight into the inactive app slot.
+static bool otaDownloadOnce() {
     WiFiClientSecure net; otaTrust(net);
-    HTTPClient http; http.setConnectTimeout(8000); http.setTimeout(15000);
+    HTTPClient http; http.setConnectTimeout(8000); http.setTimeout(20000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);  // GitHub asset → signed CDN redirect
     bool ok = false;
     if (http.begin(net, updUrl)) {
         http.addHeader("User-Agent", "jkbms-device");
-        if (http.GET() == 200) {
+        int code = http.GET();
+        if (code == 200) {
             int len = http.getSize();
             WiFiClient *st = http.getStreamPtr();
             if (len > 0 && st && Update.begin(len)) {
-                uint8_t buf[1024]; int written = 0; uint32_t t0 = millis();
+                uint8_t buf[1460]; int written = 0; uint32_t t0 = millis();   // 1460 = one TCP segment
                 while (written < len && http.connected()) {
                     size_t avail = st->available();
                     if (avail) {
                         int n = st->readBytes(buf, avail > sizeof(buf) ? sizeof(buf) : avail);
                         if (n <= 0 || Update.write(buf, n) != (size_t)n) break;
                         written += n; updProgress = (int)((int64_t)written * 100 / len); t0 = millis();
-                    } else { if (millis() - t0 > 10000) break; delay(2); }
+                    } else { if (millis() - t0 > 25000) break; delay(2); }   // 25s stall window (core 0 is unwatched by the WDT)
                 }
-                ok = (written == len) && Update.end(true);
-            }
-        }
+                if (written == len) ok = Update.end(true);
+                else { Serial.printf("[ota] stalled at %d/%d\n", written, len); Update.abort(); }
+            } else Serial.printf("[ota] begin failed (len=%d)\n", len);
+        } else Serial.printf("[ota] GET %d\n", code);
         http.end();
     }
+    return ok;
+}
+// Download the latest release's firmware.bin and flash it, updating updProgress (0..100) for
+// the on-screen + web progress bar. Runs on the core-0 net task; the render core stays live.
+// Hardened after remote-OTA failures: the download used to abort mid-stream because (1) WiFi
+// modem-sleep was left ON, letting the radio micro-sleep and stall the TLS read into the abort
+// window, and (2) a single transient drop killed the whole update. Now: keep the radio awake
+// for the whole transfer, free heap/socket by dropping MQTT first, and retry a few times.
+static void selfUpdate() {
+    if (!updUrl[0] || WiFi.status() != WL_CONNECTED) return;
+    Serial.printf("[ota] self-update from %s\n", updUrl);
+    updProgress = 0;
+    WiFi.setSleep(false);                     // radio stays awake for the whole download (was the stall cause)
+    if (mqtt.connected()) mqtt.disconnect();  // free the socket + buffer heap for the TLS download
+    bool ok = false;
+    for (int attempt = 0; attempt < 3 && !ok; attempt++) {
+        if (attempt) { Serial.printf("[ota] retry %d/2\n", attempt); updProgress = 0; delay(1500); }
+        ok = otaDownloadOnce();
+    }
+    if (!otaActive) WiFi.setSleep(true);      // restore modem power-save (unless an OTA push is now in flight)
     if (ok) {   // remember which tag we installed so we don't re-flash it in a loop
         updProgress = 100;
         // NVS's C API is thread-safe, but the shared global `prefs` OBJECT is not (core 1 may be
         // mid begin()/end() in a settings/history save) → use a private instance on this core-0 task.
         Preferences lp; lp.begin("set", false); lp.putString("instTag", updTag); lp.end();
         Serial.println("[ota] ok — rebooting"); delay(700); ESP.restart();
-    } else { Update.abort(); updProgress = -2; Serial.println("[ota] self-update failed"); }
+    } else { updProgress = -2; Serial.println("[ota] self-update failed after retries"); }
 }
 static void netTask(void *) {
     uint32_t lastPoll = 0, lastUpd = 0;
