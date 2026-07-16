@@ -56,14 +56,18 @@ static void drawRing(int cx, int cy, int ro, int ri, float pct, uint32_t base, b
         // driven by millis(). spin_cb repaints this region at ~20fps while full & awake (and
         // stops once the screen dims), so the pulse is smooth without flushing for nobody.
         float pulse = (pct >= 99.0f) ? (0.85f + 0.15f * sinf(millis() * 0.006f)) : 1.0f;
+        // In-arc brightness sweep FADES OUT as the pack fills: a low pack has a strong dim-tail→
+        // vivid-head gradient; a full pack is a uniform glow — so the closed 100% circle has no
+        // dim/bright seam where the two ends meet at the bottom. depth: 0 at 100% → 0.5 by ~75%.
+        float depth = fminf(0.5f, fmaxf(0.0f, (100.0f - pct) * 0.02f));
         const int N = 40;                             // segments around the full circle (9° each)
         int filled = (int)(ff * N + 0.5f); if (filled < 1 && ff > 0) filled = 1;
         for (int s = 0; s < N; s++) {
             if ((float)s / N >= ff) break;
             int a0 = (270 + (int)((float)s / N * 360)) % 360;
             int a1 = (270 + (int)((float)(s + 1) / N * 360)) % 360; if (a1 == 0) a1 = 360;
-            float g = filled > 1 ? (float)s / (filled - 1) : 1.0f;   // 0 = tail (bottom) → 1 = leading edge
-            ring(cx, cy, ro, ri, a0, a1, dimColor(base, (0.6f + 0.4f * g) * pulse));   // dim tail → vivid head, whole ring breathing when full
+            float g = filled > 1 ? (float)s / (filled - 1) : 1.0f;      // 0 = tail (bottom) → 1 = leading edge
+            ring(cx, cy, ro, ri, a0, a1, dimColor(base, ((1.0f - depth) + depth * g) * pulse));   // sweep depth fades to flat as the pack fills
         }
     }
     if (stale) { cText("--", cx, cy - 6, F48, C_MUTED); return; }
