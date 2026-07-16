@@ -79,7 +79,7 @@ enum {
     // ---- weather forecast popup (day header + condition descriptions) ----
     K_TODAY, K_WX_CLEAR, K_WX_PARTLY, K_WX_CLOUDY, K_WX_RAIN, K_WX_SNOW, K_WX_STORM,
     // ---- appended keys (keep at the end: STR_RU/STR_ZH are positional flat arrays) ----
-    K_TIMEZONE,
+    K_TIMEZONE, K_SCREENSAVER_FOR, K_UNTIL_TAP,
     K_COUNT
 };
 
@@ -286,6 +286,8 @@ static const char *const STR[K_COUNT][LANG_LATIN8] = {
     /*K_WX_SNOW*/        {"Snow",           "Neige",           "Schnee",        "Sneeuw",       "Śnieg",         "Neve",          "Nieve",           "Tuyết"},
     /*K_WX_STORM*/       {"Storm",          "Orage",           "Sturm",         "Storm",        "Burza",         "Tempest.",      "Tormenta",        "Bão"},
     /*K_TIMEZONE*/       {"Timezone",       "Fuseau horaire",  "Zeitzone",      "Tijdzone",     "Strefa czasowa","Fuso horário",  "Zona horaria",    "Múi giờ"},
+    /*K_SCREENSAVER_FOR*/{"Screensaver for","Veille pendant",  "Schoner für",   "Schermbev. duur","Wygaszacz przez","Tela por",     "Salvap. durante", "Bảo vệ trong"},
+    /*K_UNTIL_TAP*/      {"until tap",      "jusqu'au toucher","bis Tippen",    "tot tik",      "do dotknięcia", "até tocar",     "hasta tocar",     "đến khi chạm"},
 };
 
 // Russian (Cyrillic) — flat array in StrKey order; uses the same font (Cyrillic added to mont1).
@@ -328,7 +330,7 @@ static const char *const STR_RU[K_COUNT] = {
     /*K_M_CHG*/ "Заряд", /*K_M_DIS*/ "Разряд", /*K_M_BAL*/ "Баланс",
     /*K_TODAY*/ "Сегодня", /*K_WX_CLEAR*/ "Ясно", /*K_WX_PARTLY*/ "Перем.", /*K_WX_CLOUDY*/ "Облачно",
     /*K_WX_RAIN*/ "Дождь", /*K_WX_SNOW*/ "Снег", /*K_WX_STORM*/ "Гроза",
-    /*K_TIMEZONE*/ "Часовой пояс",
+    /*K_TIMEZONE*/ "Часовой пояс", /*K_SCREENSAVER_FOR*/ "Заставка на", /*K_UNTIL_TAP*/ "до касания",
 };
 
 // Chinese (Simplified) — flat array in StrKey order; rendered via the CJK font (see curFont).
@@ -371,7 +373,7 @@ static const char *const STR_ZH[K_COUNT] = {
     /*K_M_CHG*/ "充电", /*K_M_DIS*/ "放电", /*K_M_BAL*/ "均衡",
     /*K_TODAY*/ "今天", /*K_WX_CLEAR*/ "晴", /*K_WX_PARTLY*/ "多云间晴", /*K_WX_CLOUDY*/ "多云",
     /*K_WX_RAIN*/ "雨", /*K_WX_SNOW*/ "雪", /*K_WX_STORM*/ "雷暴",
-    /*K_TIMEZONE*/ "Timezone",   // "时区" needs 区 added to the CJK subset font — English until the next font regen
+    /*K_TIMEZONE*/ "Timezone", /*K_SCREENSAVER_FOR*/ "Screensaver for", /*K_UNTIL_TAP*/ "until tap",   // new keys: English until the CJK subset font is regenerated with their glyphs
 };
 
 // Arabic (RTL; LVGL bidi + Arabic shaping). Designated initializers — any key left out

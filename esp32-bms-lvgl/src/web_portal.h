@@ -514,7 +514,7 @@ static String webBackup() {
     j += ",\"tF\":" + String(tempF ? 1 : 0) + ",\"f12\":" + String(fmt12 ? 1 : 0);
     j += ",\"wauto\":" + String(wifiAuto ? 1 : 0) + ",\"sim\":" + String(simSpeed);
     j += ",\"demo\":" + String(demoMode ? 1 : 0) + ",\"idle\":" + String(idleScreen);
-    j += ",\"saver\":" + String(saverAfterSec) + ",\"lockAft\":" + String(lockAfterSec);
+    j += ",\"saver\":" + String(saverAfterSec) + ",\"saverShow\":" + String(saverShowSec) + ",\"lockAft\":" + String(lockAfterSec);
     j += ",\"lockPin\":\"" + jesc(lockPin) + "\",\"lang\":" + String(g_lang) + ",\"tz\":" + String(tzSel) + ",\"nbms\":" + String(numBms);
     j += ",\"pins\":["; for (int i = 0; i < 4; i++) { if (i) j += ","; j += String(bmsPin[i]); } j += "]";
     j += ",\"wifiSsid\":\"" + jesc(connSsid) + "\",\"wifiPass\":\"" + jesc(connPass) + "\"";
@@ -554,6 +554,7 @@ static void webBegin() {
         simSpeed = d["sim"] | simSpeed; if (simSpeed < 1) simSpeed = 1; if (simSpeed > 5) simSpeed = 5;
         demoMode = (d["demo"] | (int)demoMode) != 0; idleScreen = d["idle"] | idleScreen;
         saverAfterSec = d["saver"] | saverAfterSec; if (saverAfterSec < 0) saverAfterSec = 0;
+        saverShowSec = d["saverShow"] | saverShowSec; if (saverShowSec < 0) saverShowSec = 0;
         lockAfterSec = d["lockAft"] | lockAfterSec; if (lockAfterSec < 0) lockAfterSec = 0;
         g_lang = d["lang"] | g_lang; if (g_lang >= LANG_COUNT) g_lang = 0;
         tzSel = d["tz"] | tzSel; if (tzSel < 0 || tzSel >= NTZ) tzSel = TZ_DEFAULT;

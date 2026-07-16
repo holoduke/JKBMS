@@ -73,6 +73,7 @@ static void saveSettings() {
     prefs.putBool("demo", demoMode);
     prefs.putInt("idle", idleScreen);
     prefs.putInt("saver", saverAfterSec);
+    prefs.putInt("saverShow", saverShowSec);
     prefs.putInt("lockAft", lockAfterSec);
     prefs.putString("lockPin", lockPin);
     prefs.putUChar("lang", g_lang);
@@ -102,6 +103,7 @@ static void loadSettings() {
     demoMode = prefs.getBool("demo", demoMode);
     idleScreen = prefs.getInt("idle", idleScreen);
     saverAfterSec = prefs.getInt("saver", saverAfterSec);
+    saverShowSec = prefs.getInt("saverShow", saverShowSec);
     lockAfterSec = prefs.getInt("lockAft", lockAfterSec);
     { String p = prefs.getString("lockPin", ""); strncpy(lockPin, p.c_str(), sizeof(lockPin) - 1); lockPin[sizeof(lockPin) - 1] = 0; }
     g_lang = prefs.getUChar("lang", g_lang); if (g_lang >= LANG_COUNT) g_lang = 0;

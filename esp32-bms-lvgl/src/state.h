@@ -289,6 +289,7 @@ static bool ecoActive = false;      // eco (low-fps) state active
 #define ECO_IDLE_MS 20000UL          // idle before low-fps kicks in
 static int idleScreen = 0;           // screensaver: 0=Off 1=HUD 2=Init 3=Radar 4=Arcade 5=Security
 static int saverAfterSec = 0;        // inactivity before the screensaver kicks in (0 = off; only the no-data fallback applies)
+static int saverShowSec = 0;         // how long the timed screensaver stays before auto-returning to the dashboard, then it re-arms → loop (0 = stays until tapped)
 #define IDLE_DELAY 8000UL            // offline + no touch this long → show the screensaver (no-data fallback)
 // ---- PIN lock (separate from the screensaver) ----
 static int lockAfterSec = 0;         // inactivity before auto-lock (0 = Never); else 30/60/300/1800/3600

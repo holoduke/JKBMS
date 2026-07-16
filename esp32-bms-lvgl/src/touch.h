@@ -83,6 +83,7 @@ static void handleTap(int x, int y) {
                 case 19: wifiPass[0] = 0; wifiPassLen = 0; kbMode = 0; kbTarget = KBT_WPASS; kbActive = true; return;   // set a new web password
                 case 20: g_lang = (g_lang + 1) % LANG_COUNT; markCfg(); return;   // cycle UI language (dirtyFull already set → full repaint)
                 case 21: tzSel = (tzSel + 1) % NTZ; applyTz(); break;             // cycle timezone (clock strip refreshes on its 15s tick)
+                case 22: saverShowSec = saverShowSec == 0 ? 10 : saverShowSec == 10 ? 30 : saverShowSec == 30 ? 60 : saverShowSec == 60 ? 300 : 0; break;   // screensaver show duration → loop (0=until tap / 10s / 30s / 1m / 5m)
                 default: return;                      // firmware row: no-op
             }
             markCfg(); markRowAt(ry);

@@ -35,7 +35,7 @@ static const uint8_t SYS_KEY[] = {
     K_AUTO_SWITCH, K_SWITCH_INTERVAL, K_BRIGHTNESS, K_AUTO_SLEEP, K_ECO_MODE, K_DIM_AFTER,
     K_TEMP_UNIT, K_TIME_FORMAT, K_WIFI_AUTO, K_DEMO_SPEED, K_SYSTEM_INFO, K_FIRMWARE, K_DEMO_MODE,
     K_SCREENSAVER, K_SCREENSAVER_AFTER, K_AUTO_LOCK, K_LOCK_PIN,
-    K_WEB_ADDRESS, K_WEB_USERNAME, K_WEB_PASSWORD, K_LANGUAGE, K_TIMEZONE};
+    K_WEB_ADDRESS, K_WEB_USERNAME, K_WEB_PASSWORD, K_LANGUAGE, K_TIMEZONE, K_SCREENSAVER_FOR};
 #define SYS_ROWS ((int)(sizeof(SYS_KEY) / sizeof(SYS_KEY[0])))
 static const char *sysLabel(int i) {            // localized row label; brightness keeps its "- / +" hint
     if (i == 2) { static char b[28]; snprintf(b, sizeof(b), "%s   - / +", T(K_BRIGHTNESS)); return b; }
@@ -51,6 +51,11 @@ static void saverStr(char *o, size_t n) {
     else if (saverAfterSec < 60) snprintf(o, n, "%ds", saverAfterSec);
     else if (saverAfterSec < 3600) snprintf(o, n, "%d min", saverAfterSec / 60);
     else snprintf(o, n, "%d hr", saverAfterSec / 3600);
+}
+static void saverShowStr(char *o, size_t n) {   // how long the timed saver stays before auto-returning (0 = until tapped)
+    if (saverShowSec == 0) snprintf(o, n, "%s", T(K_UNTIL_TAP));
+    else if (saverShowSec < 60) snprintf(o, n, "%ds", saverShowSec);
+    else snprintf(o, n, "%d min", saverShowSec / 60);
 }
 static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
     switch (i) {
@@ -75,6 +80,7 @@ static void sysVal(int i, char *o, size_t n, uint32_t *vc) {
         case 19: snprintf(o, n, "%s", webPass); *vc = C_CYAN; break;
         case 20: snprintf(o, n, "%s", LANG_NAME[g_lang]); *vc = C_CYAN; break;
         case 21: snprintf(o, n, "%s", TZDEFS[tzSel].name); *vc = C_CYAN; break;
+        case 22: saverShowStr(o, n); *vc = saverShowSec ? C_CYAN : C_MUTED; break;
         default: snprintf(o, n, "v" FW_VERSION); *vc = C_MUTED; break;
     }
 }

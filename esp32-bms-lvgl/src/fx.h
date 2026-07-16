@@ -325,7 +325,15 @@ static bool idleActiveNow() {
     if (idleScreen == 0 || standby || kbActive) return false;    // no screensaver selected / asleep / typing
     if (view != V_BMS1 && view != V_BMS2) return false;          // only over a dashboard view
     uint32_t idleFor = millis() - lastActivity;
-    if (saverAfterSec > 0 && idleFor > (uint32_t)saverAfterSec * 1000UL) return true;   // timed screensaver (regardless of data)
+    if (saverAfterSec > 0 && idleFor > (uint32_t)saverAfterSec * 1000UL) {   // timed screensaver (regardless of data)
+        if (saverShowSec <= 0) return true;                                 // classic: stays until a tap
+        // Loop mode: after the saver shows for saverShowSec it auto-returns to the dashboard for
+        // another saverAfterSec, then re-triggers — no touch needed. Phase within the repeating
+        // (show saverShowSec, then dashboard saverAfterSec) cycle that starts at first activation.
+        uint32_t X = (uint32_t)saverAfterSec * 1000UL, Y = (uint32_t)saverShowSec * 1000UL;
+        uint32_t phase = (idleFor - X) % (X + Y);
+        return phase < Y;                                                   // first Y of each cycle = screensaver, rest = dashboard
+    }
     if (demoMode) return false;                                  // demo always has data → only the timed saver applies
     for (int t = 0; t < numBms; t++) if (bmsLive[t]) return false;   // a pack is answering → keep the real UI
     return idleFor > IDLE_DELAY;                                 // no data + settle after the last touch
