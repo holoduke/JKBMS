@@ -616,12 +616,18 @@ static void renderNexusIdle(uint32_t ms) {
         "TELEMETRY STREAM 115200   //   AES-256 SECURE LINK   //   CELLS BALANCED   //   THERMALS NOMINAL   //   "
         "SOC ESTIMATOR LOCKED   //   COULOMB COUNTER SYNCED   //   BUS VOLTAGE STABLE   //   MOSFETS ENGAGED   //   "
         "CRC16 VERIFIED   //   HANDSHAKE 0x90EB OK   //   WATCHDOG HEALTHY   //   ALL PACKS RESPONDING   //   ";
-    int tkw = (int)strlen(TK) * 6;                     // size-1 char = 6px
-    int off = (ms / 30) % tkw;
+    // Char-windowed marquee drawn at x>=0 ONLY. Drawing text at a negative x hits an unclipped
+    // path in the GFX classic font (drawChar writes writePixelPreclipped without a low-bound
+    // check → out-of-bounds framebuffer write → crash), so we scroll by whole characters from
+    // a rotating start index instead of sliding a negative x offset.
+    int len = (int)strlen(TK);
+    int cols = Wd / 6 + 2;                              // chars to span the width (size-1 char = 6px)
+    char line[90]; if (cols > (int)sizeof(line) - 1) cols = (int)sizeof(line) - 1;
+    int startChar = (int)((ms / 110) % (uint32_t)len);  // advance ~9 chars/sec
+    for (int i = 0; i < cols; i++) line[i] = TK[(startChar + i) % len];
+    line[cols] = 0;
     gfx->fillRect(0, Ht - 16, Wd, 16, gfx->color565(0x04, 0x0a, 0x12));
-    idleText(-off, Ht - 12, TK, 1, CY);
-    idleText(-off + tkw, Ht - 12, TK, 1, CY);          // second copy → seamless wrap
-    if (((ms / 500) & 1)) idleText(Wd - 78, 8, "", 1, DIM);   // (reticle space reserved)
+    idleText(0, Ht - 12, line, 1, CY);
 }
 static void renderIdleFrame() {
     uint32_t ms = millis();
